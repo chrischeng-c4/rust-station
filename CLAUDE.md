@@ -161,6 +161,157 @@ When developing the rush shell, follow the spec-driven approach:
 
 This ensures all development is traceable back to specifications and maintains consistency with project principles.
 
+### Spec-Kit Claude Code Integration
+
+This project includes full integration between Spec-Kit and Claude Code through skills, subagents, and hooks for autonomous spec-driven development.
+
+#### Spec-Kit Skill (Autonomous Activation)
+
+A Claude Code skill (`.claude/skills/spec-kit/`) automatically detects when to use the spec-driven workflow. Claude will proactively suggest spec-kit when:
+- Starting new features without specifications
+- Implementing complex functionality
+- Detecting ambiguous requirements
+- Proposing code changes without clear specs
+- Planning architecture
+
+You don't need to manually invoke spec-kit—Claude will recognize when it's appropriate and guide you through the workflow.
+
+#### Specialized Subagents
+
+Four specialized subagents are available for different phases of spec-driven development:
+
+**1. `spec-writer`** - Specification authoring expert
+- Use when: Creating or refining requirements and specifications
+- Specializes in: Writing clear, implementation-agnostic specs
+- Focus: WHAT needs to be built (not HOW)
+- Tools: Read, Write, Edit (limited to spec files)
+
+**2. `spec-analyzer`** - Cross-artifact consistency validator
+- Use when: Checking alignment between specs, plans, and code
+- Specializes in: Finding gaps, conflicts, and inconsistencies
+- Focus: Ensuring traceability across all artifacts
+- Tools: Read, Grep, Glob, Bash (read-only)
+
+**3. `spec-planner`** - Technical planning expert
+- Use when: Designing architecture and making technical decisions
+- Specializes in: Rust best practices, monorepo architecture
+- Focus: HOW to implement specifications
+- Tools: Read, Write, Edit, Grep, Glob
+
+**4. `spec-implementer`** - Implementation expert
+- Use when: Writing code following specs and plans
+- Specializes in: Spec-aligned implementation in Rust
+- Focus: Building features that match specifications
+- Tools: All tools (full implementation capability)
+
+**Invoking Subagents:**
+- Claude automatically delegates to appropriate subagents based on task
+- You can explicitly request: "Use spec-writer to document the parser requirements"
+- Each subagent maintains its own context to avoid polluting main conversation
+
+#### Automated Hooks
+
+Five hooks automate the spec-driven workflow:
+
+**1. SessionStart Hook**
+- **Triggers**: When Claude Code session starts
+- **Action**: Displays spec-kit status (constitution, specs, plans, tasks)
+- **Purpose**: Immediate visibility into project state
+- **Script**: `.specify/scripts/bash/load-spec-context.sh`
+
+**2. UserPromptSubmit Hook**
+- **Triggers**: When you submit a prompt containing implementation keywords
+- **Action**: Warns if specs/plans are missing before implementation
+- **Purpose**: Prevents implementation without specifications
+- **Script**: `.specify/scripts/bash/inject-spec-context.sh`
+
+**3. PreToolUse Hook (Edit/Write)**
+- **Triggers**: Before editing or creating Rust files
+- **Action**: Validates that specifications exist for code changes
+- **Purpose**: Ensures code changes are specification-driven
+- **Script**: `.specify/scripts/bash/validate-spec-alignment.sh`
+
+**4. PostToolUse Hook (Edit/Write)**
+- **Triggers**: After editing or creating Rust files in rush project
+- **Action**: Tracks implementation progress
+- **Purpose**: Maintains history of what's been implemented
+- **Script**: `.specify/scripts/bash/update-spec-memory.sh`
+
+**5. Stop Hook**
+- **Triggers**: When Claude finishes responding
+- **Action**: Reminds to document work and run consistency checks
+- **Purpose**: Ensures work is properly captured in specifications
+- **Script**: `.specify/scripts/bash/check-spec-documentation.sh`
+
+**Disabling Hooks:**
+If hooks cause issues, disable with: `.claude/settings.local.json` → `"disableAllHooks": true`
+
+#### Helper Scripts
+
+Utility scripts for spec-kit management:
+
+```bash
+# Check current spec-kit status
+.specify/scripts/bash/spec-status.sh
+
+# Manually load spec context (also runs on SessionStart)
+.specify/scripts/bash/load-spec-context.sh
+```
+
+#### How Integration Works
+
+1. **Session Start**: Hook displays spec-kit status and suggests next steps
+2. **Planning Phase**: Skill activates if you start implementing without specs
+3. **Specification Writing**: Claude may delegate to `spec-writer` subagent
+4. **Technical Planning**: Claude may delegate to `spec-planner` subagent
+5. **Implementation**: Hooks warn if trying to code without specs
+6. **Validation**: `spec-analyzer` subagent checks cross-artifact consistency
+7. **Completion**: Hook reminds to document and validate work
+
+#### Best Practices with Integration
+
+**Let Claude Guide You:**
+- Trust the skill to activate when needed
+- Follow suggestions to run `/speckit.*` commands
+- Pay attention to hook warnings
+
+**Use Subagents Explicitly When Needed:**
+- "Use spec-writer to create a specification for command parsing"
+- "Have spec-analyzer check if my code aligns with specifications"
+- "Ask spec-planner to design the plugin architecture"
+
+**Monitor Hook Output:**
+- SessionStart shows where you are in the workflow
+- PreToolUse warns before misaligned changes
+- Stop reminds to validate and document
+
+**Iterate on Specifications:**
+- Specs can evolve as you learn more
+- Update specs when requirements change
+- Run `/speckit.analyze` periodically to check alignment
+
+#### Troubleshooting
+
+**Skill not activating:**
+- Ensure `.claude/skills/spec-kit/SKILL.md` exists
+- Check skill description matches your use case
+- Try explicitly mentioning "specification" in your request
+
+**Subagent not delegating:**
+- Claude chooses when to delegate automatically
+- You can explicitly request a subagent
+- Check subagent `.md` files exist in `.claude/agents/`
+
+**Hooks causing issues:**
+- Check script permissions: `ls -la .specify/scripts/bash/`
+- Review hook output for errors
+- Temporarily disable: `"disableAllHooks": true`
+
+**Scripts failing:**
+- Ensure scripts are executable: `chmod +x .specify/scripts/bash/*.sh`
+- Check script paths in `.claude/settings.local.json`
+- Run scripts manually to debug: `.specify/scripts/bash/spec-status.sh`
+
 ## Rush Shell Project
 
 Located in `crates/rush/`, this is a shell implementation being developed as an alternative to traditional Unix shells. It's a binary project with its entry point at `crates/rush/src/main.rs`.

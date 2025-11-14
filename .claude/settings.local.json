@@ -7,9 +7,73 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "WebFetch(domain:github.com)",
-      "Bash(uv --version:*)"
+      "Bash(uv --version:*)",
+      "WebFetch(domain:code.claude.com)",
+      "Bash(chmod:*)"
     ],
     "deny": [],
     "ask": []
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".specify/scripts/bash/load-spec-context.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".specify/scripts/bash/inject-spec-context.sh",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".specify/scripts/bash/validate-spec-alignment.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".specify/scripts/bash/update-spec-memory.sh",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".specify/scripts/bash/check-spec-documentation.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
   }
 }
