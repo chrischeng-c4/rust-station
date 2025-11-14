@@ -246,17 +246,29 @@ Five hooks automate the spec-driven workflow:
 **Disabling Hooks:**
 If hooks cause issues, disable with: `.claude/settings.local.json` → `"disableAllHooks": true`
 
-#### Helper Scripts
+#### Spec-Kit Slash Commands
 
-Utility scripts for spec-kit management:
+Claude Code slash commands for spec-kit operations:
 
-```bash
-# Check current spec-kit status
-.specify/scripts/bash/spec-status.sh
+**`/spec-status`** - Comprehensive status display
+- Shows constitution, specs, plans, tasks, and implementation progress
+- Provides detailed lists and counts
+- Suggests next workflow step
+- Use when you want full visibility into spec-kit state
 
-# Manually load spec context (also runs on SessionStart)
-.specify/scripts/bash/load-spec-context.sh
-```
+**`/spec-check`** - Quick status check
+- One-line summary of spec-kit state
+- Fast check without detailed output
+- Use for quick status verification
+
+**`/spec-validate`** - Run consistency analysis
+- Invokes spec-analyzer subagent for full analysis
+- Checks cross-artifact alignment
+- Identifies gaps and conflicts
+- Provides actionable recommendations
+- Use before major implementation or periodically to verify consistency
+
+These commands integrate naturally with AI-driven development—Claude can invoke them as needed during conversation.
 
 #### How Integration Works
 
@@ -288,7 +300,8 @@ Utility scripts for spec-kit management:
 **Iterate on Specifications:**
 - Specs can evolve as you learn more
 - Update specs when requirements change
-- Run `/speckit.analyze` periodically to check alignment
+- Use `/spec-validate` periodically to check alignment
+- Use `/spec-check` for quick status verification
 
 #### Troubleshooting
 
@@ -307,10 +320,15 @@ Utility scripts for spec-kit management:
 - Review hook output for errors
 - Temporarily disable: `"disableAllHooks": true`
 
-**Scripts failing:**
-- Ensure scripts are executable: `chmod +x .specify/scripts/bash/*.sh`
+**Commands not working:**
+- Verify command files exist in `.claude/commands/`
+- Check command syntax with `/help`
+- Try restarting Claude Code to reload commands
+
+**Hook scripts failing:**
+- Ensure hook scripts are executable: `chmod +x .specify/scripts/bash/*.sh`
 - Check script paths in `.claude/settings.local.json`
-- Run scripts manually to debug: `.specify/scripts/bash/spec-status.sh`
+- Run hook scripts manually to debug (SessionStart hooks only)
 
 ## Rush Shell Project
 
