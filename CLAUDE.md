@@ -18,6 +18,152 @@ rust-station/
 
 The workspace uses Cargo's workspace feature with `resolver = "2"`. All projects are organized under `crates/` and share common workspace-level configurations.
 
+## 🚨 MANDATORY: Spec-Driven Development Workflow
+
+**THIS PROJECT ENFORCES SPECIFICATION-DRIVEN DEVELOPMENT (SDD).**
+
+### Automatic Enforcement Policy
+
+You MUST automatically enforce the spec-driven workflow for:
+- ✅ **Feature implementation** - Any new functionality
+- ✅ **Architecture decisions** - System design and technical approaches
+- ✅ **Writing code** - All code in the rush project
+- ✅ **Major changes** - Significant modifications or refactoring
+
+### Auto-Run Protocol
+
+When the user requests development work, you MUST:
+
+1. **Immediately check status** - Auto-run `/spec-check` (silently)
+2. **Auto-run required command** - Based on decision tree below
+3. **Explain what you're doing** - Tell user why and what command you're running
+4. **Do NOT ask permission** - Just run it automatically
+5. **Block implementation** - Do NOT write code without specs
+
+### Decision Tree (Follow This Exactly)
+
+```
+User requests: implementation / feature / code / architecture
+
+  ↓ Automatically run /spec-check
+
+  ↓ Check status:
+
+  ❌ No constitution?
+     → Auto-run /speckit.constitution
+     → "Establishing project principles first..."
+
+  ❌ No specifications?
+     → Auto-run /speckit.specify
+     → "Documenting requirements before implementation..."
+
+  ❌ No plans?
+     → Auto-run /speckit.plan
+     → "Creating technical plan before coding..."
+
+  ❌ No tasks?
+     → Auto-run /speckit.tasks
+     → "Breaking down into implementable tasks..."
+
+  ✅ All exist?
+     → Proceed with /speckit.implement
+     → "Specifications ready, implementing now..."
+```
+
+### Enforcement Examples
+
+**Example 1: Feature Request Without Specs**
+```
+User: "Implement command history for rush"
+
+You: "I'll follow the spec-driven workflow for this feature.
+      Checking current specification status..."
+
+      [AUTO-RUN /spec-check]
+
+      Status: No specifications found.
+
+      "Before implementing command history, I need to document its
+      requirements. Running /speckit.specify to create the specification..."
+
+      [AUTO-RUN /speckit.specify]
+
+      [Guide user through specification creation]
+```
+
+**Example 2: Direct Code Request**
+```
+User: "Write a command parser in Rust"
+
+You: "Before writing code, I need to ensure specifications and plans exist.
+      Checking spec-kit status..."
+
+      [AUTO-RUN /spec-check]
+
+      Status: Constitution exists, but no specifications for parser.
+
+      "I cannot write code without specifications. Running /speckit.specify
+      to document parser requirements first..."
+
+      [AUTO-RUN /speckit.specify]
+
+      [After specs] "Now creating technical plan..."
+      [AUTO-RUN /speckit.plan]
+
+      [After plan] "Breaking into tasks..."
+      [AUTO-RUN /speckit.tasks]
+
+      [After tasks] "Now ready to implement. Proceeding with /speckit.implement..."
+```
+
+**Example 3: Architecture Discussion**
+```
+User: "What architecture should we use for the rush shell?"
+
+You: "Let me check if we have a constitution defining our principles..."
+
+      [AUTO-RUN /spec-check]
+
+      Status: No constitution found.
+
+      "Before making architecture decisions, we need to establish project
+      principles. Running /speckit.constitution to define our values and
+      constraints..."
+
+      [AUTO-RUN /speckit.constitution]
+
+      [After constitution] "Now that principles are clear, let's create
+      specifications for rush features..."
+      [AUTO-RUN /speckit.specify]
+```
+
+### Strong Rules
+
+**DO:**
+- ✅ Auto-run spec-kit commands immediately
+- ✅ Explain what you're doing and why
+- ✅ Follow the decision tree exactly
+- ✅ Be aggressive about enforcement
+- ✅ Trust that this discipline produces better software
+
+**DO NOT:**
+- ❌ Ask user "should I check specs?" - Just do it
+- ❌ Write code without running the workflow
+- ❌ Skip steps "to save time"
+- ❌ Let user bypass the workflow
+- ❌ Implement features without specifications
+
+### Why This Matters
+
+Spec-driven development ensures:
+- **Clarity**: Everyone understands what's being built
+- **Traceability**: Every line of code traces to a requirement
+- **Consistency**: Implementation matches intention
+- **Quality**: Thoughtful design before coding
+- **Maintainability**: Documentation exists from day one
+
+**This is non-negotiable for the rush project.**
+
 ## Common Commands
 
 ### Building
@@ -333,3 +479,21 @@ These commands integrate naturally with AI-driven development—Claude can invok
 ## Rush Shell Project
 
 Located in `crates/rush/`, this is a shell implementation being developed as an alternative to traditional Unix shells. It's a binary project with its entry point at `crates/rush/src/main.rs`.
+
+### ⚠️ CRITICAL: SDD Enforcement for Rush
+
+**ALL rush development MUST follow the spec-driven workflow.**
+
+Before any rush-related work:
+1. Auto-run `/spec-check` to verify current state
+2. Follow the decision tree in the SDD policy above
+3. Ensure constitution, specs, plans, and tasks exist
+4. Only then proceed with implementation
+
+**No exceptions.** This ensures rush is built with:
+- Clear design principles (constitution)
+- Well-documented requirements (specifications)
+- Thoughtful architecture (plans)
+- Manageable implementation steps (tasks)
+
+When user asks to work on rush, immediately check and enforce SDD.
