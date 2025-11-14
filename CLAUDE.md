@@ -106,6 +106,61 @@ cargo new --lib project-name    # For a library
 
 The new project will automatically become part of the workspace.
 
+## Spec-Kit: Specification-Driven Development
+
+This repository uses [GitHub Spec-Kit](https://github.com/github/spec-kit), a toolkit for spec-driven development where specifications drive the implementation rather than being written after the fact.
+
+### Spec-Kit Workflow
+
+The recommended workflow follows these phases:
+
+1. **Establish Principles** - `/speckit.constitution`
+   - Define project values, constraints, and governing principles
+   - Creates the foundation for all subsequent specifications
+
+2. **Create Specifications** - `/speckit.specify`
+   - Document requirements, user stories, and what needs to be built
+   - Focus on "what" not "how"
+
+3. **Plan Implementation** - `/speckit.plan`
+   - Develop technical approach and architecture decisions
+   - Translate specifications into technical plans
+
+4. **Generate Tasks** - `/speckit.tasks`
+   - Break down plans into concrete, actionable tasks
+   - Create implementation checklist
+
+5. **Implement** - `/speckit.implement`
+   - Execute tasks to build features
+   - Follow the specification and plan
+
+### Enhancement Commands (Optional)
+
+These commands improve quality and reduce risk:
+
+- `/speckit.clarify` - Ask structured questions to de-risk ambiguous areas (run before planning)
+- `/speckit.analyze` - Generate cross-artifact consistency report (after tasks, before implementation)
+- `/speckit.checklist` - Create quality validation checklists (after planning)
+
+### Spec-Kit Directory Structure
+
+- `.specify/` - Specification artifacts and project memory
+  - `memory/` - Constitution and project state
+  - `templates/` - Spec document templates
+  - `scripts/` - Utility scripts for workflow automation
+- `.claude/commands/` - Slash commands for spec-kit workflow
+
+### Using Spec-Kit with Rush
+
+When developing the rush shell, follow the spec-driven approach:
+1. Start with `/speckit.constitution` to establish shell design principles
+2. Use `/speckit.specify` to document shell features and requirements
+3. Plan architecture with `/speckit.plan`
+4. Break down into tasks with `/speckit.tasks`
+5. Implement features with `/speckit.implement`
+
+This ensures all development is traceable back to specifications and maintains consistency with project principles.
+
 ## Rush Shell Project
 
 Located in `crates/rush/`, this is a shell implementation being developed as an alternative to traditional Unix shells. It's a binary project with its entry point at `crates/rush/src/main.rs`.
