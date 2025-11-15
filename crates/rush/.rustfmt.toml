@@ -1,0 +1,9 @@
+# Rustfmt configuration for rush
+edition = "2021"
+max_width = 100
+tab_spaces = 4
+use_small_heuristics = "Default"
+fn_call_width = 80
+struct_lit_width = 80
+imports_granularity = "Crate"
+group_imports = "StdExternalCrate"
