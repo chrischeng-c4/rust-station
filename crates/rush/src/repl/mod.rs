@@ -47,7 +47,7 @@ impl Repl {
     /// Create REPL with custom configuration
     pub fn with_config(config: Config) -> Result<Self> {
         // Set up history file path
-        let history_path = Self::history_path();
+        let history_path = Self::history_path()?;
 
         // Create parent directory if it doesn't exist
         if let Some(parent) = history_path.parent() {
@@ -164,13 +164,17 @@ impl Repl {
     }
 
     /// Get history file path
-    fn history_path() -> PathBuf {
+    fn history_path() -> Result<PathBuf> {
         // Try data_dir first, then home_dir, then error
         let base = dirs::data_dir()
             .or_else(|| dirs::home_dir().map(|h| h.join(".local").join("share")))
-            .expect("Unable to determine home directory for history file");
+            .ok_or_else(|| {
+                crate::RushError::Config(
+                    "Unable to determine home directory for history file".to_string(),
+                )
+            })?;
 
-        base.join("rush").join("history.txt")
+        Ok(base.join("rush").join("history.txt"))
     }
 }
 
