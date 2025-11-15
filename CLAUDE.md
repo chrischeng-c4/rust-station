@@ -497,3 +497,10 @@ Before any rush-related work:
 - Manageable implementation steps (tasks)
 
 When user asks to work on rush, immediately check and enforce SDD.
+
+## Active Technologies
+- Rust 1.75+ (edition 2021) (001-rush-mvp)
+- Flat file for command history (~/.config/rush/history), TOML for optional config (~/.config/rush/rush.toml) (001-rush-mvp)
+
+## Recent Changes
+- 001-rush-mvp: Added Rust 1.75+ (edition 2021)
