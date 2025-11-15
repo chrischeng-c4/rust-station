@@ -74,12 +74,12 @@ fn main() {
 /// Initialize logging based on CLI arguments
 fn initialize_logging(cli: &Cli) {
     if cli.quiet {
-        // Quiet mode: minimal logging
+        // Quiet mode: no logging
         return;
     }
 
     if cli.is_verbose() {
-        // Verbose mode: log to file
+        // Verbose mode: log to file (and optionally console)
         let log_file_path = cli.get_log_file_path();
 
         // Create log directory if it doesn't exist
@@ -98,33 +98,39 @@ fn initialize_logging(cli: &Cli) {
         let filter = EnvFilter::try_from_default_env()
             .unwrap_or_else(|_| EnvFilter::new(format!("rush={},info", log_level)));
 
-        // Initialize subscriber based on format
-        // Note: JSON format requires additional features, skip for now
-        // and use pretty format for all verbose logging
-        tracing_subscriber::registry()
-            .with(filter)
-            .with(
-                fmt::layer()
-                    .with_writer(file_appender)
-                    .with_target(true)
-                    .with_thread_ids(false)
-                    .with_file(true)
-                    .with_line_number(true),
-            )
-            .init();
+        // Configure layers based on verbosity level
+        let file_layer = fmt::layer()
+            .with_writer(file_appender)
+            .with_target(true)
+            .with_thread_ids(false)
+            .with_file(true)
+            .with_line_number(true);
 
-        // Print log file location to terminal
-        println!("rush: logging to {}", log_file_path.display());
-    } else {
-        // Normal mode: minimal terminal logging
-        let filter = EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::new("rush=info"));
+        if cli.verbose >= 2 {
+            // -vv: Log to both file AND console
+            let console_layer = fmt::layer()
+                .with_target(true)
+                .with_file(true)
+                .with_line_number(true);
 
-        tracing_subscriber::registry()
-            .with(filter)
-            .with(fmt::layer().with_target(false))
-            .init();
+            tracing_subscriber::registry()
+                .with(filter)
+                .with(file_layer)
+                .with(console_layer)
+                .init();
+
+            println!("rush: logging to {} and console", log_file_path.display());
+        } else {
+            // -v: Log to file only
+            tracing_subscriber::registry()
+                .with(filter)
+                .with(file_layer)
+                .init();
+
+            println!("rush: logging to {}", log_file_path.display());
+        }
     }
+    // else: Normal mode (no -v) - no logging initialization (silent)
 }
 
 /// Load configuration based on CLI arguments

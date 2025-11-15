@@ -29,8 +29,14 @@ rush --help
 #### `-v, --verbose` (repeatable)
 Increase logging verbosity for alpha testing and debugging.
 
-- `-v`: Debug level - shows REPL iterations, command execution, config loading
-- `-vv`: Trace level - shows everything including character input, process details
+- **No flag**: No logging (clean output)
+- **`-v`**: Debug level - logs to file only (quiet console)
+- **`-vv`**: Trace level - logs to both file AND console
+
+**What gets logged:**
+- REPL iterations, command execution, config loading
+- Process details, exit codes, signals
+- Debug/trace information based on level
 
 **Log file location:** `~/.local/share/rush/rush-v{version}.log`
 
