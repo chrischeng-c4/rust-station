@@ -1,0 +1,63 @@
+//! rush - A modern, fast, fish-like shell written in Rust
+//!
+//! This library provides the core functionality for the rush shell, including:
+//! - REPL (Read-Eval-Print Loop) with line editing
+//! - Command execution and job control
+//! - Command history management
+//! - Tab completion engine
+//! - Syntax highlighting
+//! - Configuration management
+//!
+//! # Example
+//!
+//! ```no_run
+//! use rush::repl::Repl;
+//!
+//! fn main() -> rush::Result<()> {
+//!     let mut repl = Repl::new()?;
+//!     let exit_code = repl.run()?;
+//!     std::process::exit(exit_code);
+//! }
+//! ```
+
+// Public modules
+pub mod cli;
+pub mod config;
+pub mod completion;
+pub mod executor;
+pub mod history;
+pub mod repl;
+
+// Re-export commonly used types
+pub use config::Config;
+pub use executor::Command;
+pub use history::HistoryEntry;
+pub use repl::Repl;
+
+/// Error types for rush
+pub mod error {
+    use thiserror::Error;
+
+    #[derive(Error, Debug)]
+    pub enum RushError {
+        #[error("IO error: {0}")]
+        Io(#[from] std::io::Error),
+
+        #[error("Configuration error: {0}")]
+        Config(String),
+
+        #[error("History error: {0}")]
+        History(String),
+
+        #[error("Execution error: {0}")]
+        Execution(String),
+
+        #[error("REPL error: {0}")]
+        Repl(String),
+    }
+
+    pub type Result<T> = std::result::Result<T, RushError>;
+}
+
+// Re-export error types
+pub use error::{Result, RushError};
