@@ -193,9 +193,11 @@ Execute a single command and exit (like `bash -c`).
 
 ```bash
 rush -c "echo hello world"
+rush -c "git status"
+rush -c 'ls -la | head -10'  # Note: pipes work within the command!
 ```
 
-**Note:** Not fully implemented in v0.1.0. Currently shows what would be executed.
+The command is executed and rush exits with the command's exit code.
 
 ### Feature Toggles
 
@@ -350,9 +352,9 @@ The following flags are defined but functionality will be added in future releas
 
 - `--benchmark`: Run performance benchmarks
 - `--trace-file <path>`: Performance tracing (Chrome trace format)
-- `-c/--command`: Full single command execution
-- `--config <path>`: Loading custom config files
+- `--config <path>`: Loading custom config files (currently ignored, uses defaults)
 - Feature toggles (`--no-*`): Wiring to actual features
+- `--history-size`: Override history size (flag exists but not wired)
 
 ## Troubleshooting
 

@@ -44,12 +44,13 @@ This document tracks what's implemented, what's not, and what's planned for futu
 - ❌ **Shell Scripts** - Cannot execute `.sh` files
 
 ### Configuration (Planned for v0.2.0)
-- ❌ **Config File Loading** - `--config <file>` not implemented
+- ❌ **Config File Loading** - `--config <file>` flag exists but always uses defaults
+  - Workaround: Use command-line flags to override settings
+  - Planned: Full TOML config loading in v0.2.0
 - ❌ **Custom Settings** - Cannot customize prompt, colors, etc.
 - ❌ **History Size Override** - `--history-size` flag defined but not wired
 
 ### Advanced Features (Future)
-- ❌ **Single Command Mode** - `rush -c "command"` not fully implemented
 - ❌ **JSON Logging** - `--log-format json` not implemented
 - ❌ **Feature Toggles** - `--no-highlight`, `--no-suggestions` defined but not wired
 
@@ -73,6 +74,11 @@ None reported yet. Please report issues during alpha testing!
 - **macOS/Linux Only** - Windows support not tested
 - **Path Differences** - Config/log locations differ by OS
 
+### Concurrency
+- **No File Locking** - Multiple rush instances may corrupt history file
+  - Workaround: Avoid running multiple instances simultaneously
+  - Planned: File locking in v0.2.0 using fs2 crate
+
 ## 📋 Roadmap
 
 ### v0.2.0 (Next Release)
@@ -83,7 +89,7 @@ None reported yet. Please report issues during alpha testing!
 - [ ] Support basic redirections (`>`, `>>`, `<`)
 - [ ] Load configuration from TOML file
 - [ ] Custom prompt configuration
-- [ ] Proper quote and escape handling
+- [ ] Add file locking for history (prevent concurrent write corruption)
 
 ### v0.3.0 (Future)
 **Focus: Advanced Shell Features**

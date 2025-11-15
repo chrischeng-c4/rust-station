@@ -244,19 +244,21 @@ fn run_health_check(_cli: &Cli) {
 }
 
 /// Execute a single command and exit
-fn execute_command_and_exit(cmd: &str, config: &Config) {
+fn execute_command_and_exit(cmd: &str, _config: &Config) {
     tracing::info!(cmd = %cmd, "Executing single command");
 
-    match Repl::with_config(config.clone()) {
-        Ok(_repl) => {
-            // TODO: Execute command without entering interactive loop
-            // For now, just print
-            tracing::warn!("Single command execution (-c) not yet fully implemented");
-            println!("Would execute: {}", cmd);
-            std::process::exit(0);
+    // Execute command directly without REPL
+    use rush::executor::execute::CommandExecutor;
+    let executor = CommandExecutor::new();
+
+    match executor.execute(cmd) {
+        Ok(exit_code) => {
+            tracing::info!(exit_code, "Single command completed");
+            std::process::exit(exit_code);
         }
         Err(err) => {
-            eprintln!("rush: failed to initialize: {}", err);
+            eprintln!("rush: error: {}", err);
+            tracing::error!(error = %err, "Single command execution failed");
             std::process::exit(1);
         }
     }

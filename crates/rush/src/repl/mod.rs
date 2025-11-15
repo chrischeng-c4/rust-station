@@ -55,6 +55,9 @@ impl Repl {
         }
 
         // Initialize reedline with file-backed history
+        // TODO(v0.2.0): Add file locking to prevent corruption from concurrent writes
+        // when multiple rush instances are running. Consider using fs2 crate for
+        // cross-platform file locking.
         let history = Box::new(
             FileBackedHistory::with_file(config.history_size, history_path)
                 .map_err(|e| crate::RushError::History(e.to_string()))?,
@@ -162,10 +165,12 @@ impl Repl {
 
     /// Get history file path
     fn history_path() -> PathBuf {
-        dirs::data_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("rush")
-            .join("history.txt")
+        // Try data_dir first, then home_dir, then error
+        let base = dirs::data_dir()
+            .or_else(|| dirs::home_dir().map(|h| h.join(".local").join("share")))
+            .expect("Unable to determine home directory for history file");
+
+        base.join("rush").join("history.txt")
     }
 }
 
