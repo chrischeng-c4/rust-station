@@ -169,6 +169,87 @@ Shows:
 - CLI flags in effect
 - File paths (config, logs, history)
 
+## Alpha Testing
+
+Rush v0.1.0 is in alpha testing. Help improve rush by using it daily and reporting issues!
+
+### Quick Start Testing
+
+**Helper script (easiest):**
+```bash
+rush-test       # Start with debug logging
+rush-test logs  # View recent logs
+rush-test -vv   # Start with trace logging
+```
+
+**Manual:**
+```bash
+# Start rush with file logging (recommended)
+rush -v
+
+# Or with console logging too
+rush -vv
+
+# Check logs after
+# macOS:
+tail ~/Library/Application\ Support/rush/rush-v0.1.0.log
+
+# Linux:
+tail ~/.local/share/rush/rush-v0.1.0.log
+```
+
+### Testing Workflow
+
+See [DAILY_TESTING.md](../../DAILY_TESTING.md) in the project root for:
+- Daily testing template
+- Bug report template
+- Feature request template
+- Comprehensive testing checklist
+
+**Daily testing (15-20 minutes):**
+1. Launch `rush -v` in a separate terminal
+2. Use rush for your normal commands
+3. Note what works, what doesn't, what's missing
+4. Log findings in DAILY_TESTING.md
+
+**What to test:**
+- Basic commands (`ls`, `cd`, `pwd`, `echo`)
+- Git workflows (`status`, `log`, `diff`, `commit`)
+- History navigation (↑/↓ arrows)
+- Quote handling (`echo "hello world"`)
+- Syntax highlighting
+- Signal handling (Ctrl+C, Ctrl+D)
+
+**What won't work yet:**
+- Pipes (`ls | grep`)
+- Redirections (`echo x > file`)
+- Tab completion
+- Autosuggestions
+- Globbing (`ls *.txt`)
+
+### Reporting Issues
+
+Found a bug or missing feature? Check [DAILY_TESTING.md](../../DAILY_TESTING.md) for templates, then:
+
+1. Run diagnostics:
+   ```bash
+   rush --doctor
+   rush --dump-config
+   ```
+
+2. Capture logs:
+   ```bash
+   rush -vv  # Enable trace logging
+   # Reproduce issue
+   # Exit and attach log file
+   ```
+
+3. Create GitHub issue with:
+   - Steps to reproduce
+   - Expected vs actual behavior
+   - Logs and diagnostic output
+   - OS and rush version
+
 ## Project Structure
 
 This project is part of the `rust-station` monorepo workspace:
