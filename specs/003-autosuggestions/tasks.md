@@ -138,19 +138,19 @@
 
 **Purpose**: Improvements that affect multiple user stories and production readiness
 
-- [ ] T045 [P] Add comprehensive doc comments to RushHinter in crates/rush/src/repl/suggest.rs
-- [ ] T046 [P] Add examples to doc comments showing usage in crates/rush/src/repl/suggest.rs
-- [ ] T047 [P] Run rustdoc to verify documentation completeness
-- [ ] T048 [P] Add edge case test for empty history in tests/unit/suggest_tests.rs
-- [ ] T049 [P] Add edge case test for special characters in tests/unit/suggest_tests.rs
-- [ ] T050 [P] Add edge case test for very long suggestions in tests/unit/suggest_tests.rs
-- [ ] T051 [P] Add performance benchmark test for 10k history entries in tests/integration/autosuggestions_tests.rs
-- [ ] T052 Run complete test suite: cargo test -p rush
-- [ ] T053 Run clippy with all features: cargo clippy -p rush --all-targets --all-features
-- [ ] T054 Format code: cargo fmt -p rush
-- [ ] T055 Update README.md to document autosuggestions feature
-- [ ] T056 Update KNOWN_ISSUES.md to mark autosuggestions as implemented
-- [ ] T057 Update crates/rush/KNOWN_ISSUES.md roadmap section
+- [X] T045 [P] Add comprehensive doc comments to RushHinter in crates/rush/src/repl/suggest.rs
+- [X] T046 [P] Add examples to doc comments showing usage in crates/rush/src/repl/suggest.rs
+- [X] T047 [P] Run rustdoc to verify documentation completeness
+- [X] T048 [P] Add edge case test for empty history in tests/unit/suggest_tests.rs
+- [X] T049 [P] Add edge case test for special characters in tests/unit/suggest_tests.rs
+- [X] T050 [P] Add edge case test for very long suggestions in tests/unit/suggest_tests.rs
+- [X] T051 [P] Add performance benchmark test for 10k history entries in tests/integration/autosuggestions_tests.rs
+- [X] T052 Run complete test suite: cargo test -p rush
+- [X] T053 Run clippy with all features: cargo clippy -p rush --all-targets --all-features
+- [X] T054 Format code: cargo fmt -p rush
+- [X] T055 Update README.md to document autosuggestions feature
+- [X] T056 Update KNOWN_ISSUES.md to mark autosuggestions as implemented
+- [X] T057 Update crates/rush/KNOWN_ISSUES.md roadmap section
 - [ ] T058 Run manual testing from specs/003-autosuggestions/quickstart.md (all 15 test scenarios)
 - [ ] T059 Verify performance: latency <50ms for 10k history entries
 - [ ] T060 Build release binary: cargo build --release -p rush

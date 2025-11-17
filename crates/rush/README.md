@@ -15,6 +15,10 @@ Rush is currently in **alpha testing**. Core features work, but some functionali
 - **Command execution** - Run external commands with argument passing
 - **Syntax highlighting** - Real-time color coding as you type
 - **Command history** - Persistent history with navigation (↑/↓ arrows)
+- **Autosuggestions** - Fish-like suggestions from command history
+  - Inline grayed-out suggestions as you type
+  - Accept full suggestion with Right Arrow (→)
+  - Accept word-by-word with Alt+Right Arrow (⌥→)
 - **Tab completion** - Intelligent completion for commands, paths, and flags
   - Command names from PATH
   - File and directory paths
@@ -24,7 +28,6 @@ Rush is currently in **alpha testing**. Core features work, but some functionali
 - **Comprehensive CLI** - Verbose logging, config inspection, health checks
 
 ### 🚧 Planned (v0.2.0+)
-- Autosuggestions from history
 - Pipes and redirections
 - Job control & background execution
 - Configuration file support
@@ -93,7 +96,19 @@ cargo run --release
    - Press ↓ to navigate forward
    - Type and see syntax highlighting
 
-4. **Try tab completion:**
+4. **Try autosuggestions:**
+   ```bash
+   $ git s          # See 'tatus' in gray (if 'git status' is in history)
+   $ git s→         # Press Right Arrow to accept → 'git status'
+   $ git commit -m "⌥→  # Press Alt+Right to accept word-by-word
+   ```
+
+   - Suggestions appear in dimmed text as you type
+   - Based on your command history (most recent matches first)
+   - Right Arrow (→) accepts the full suggestion
+   - Alt+Right Arrow (⌥→) accepts one word at a time
+
+5. **Try tab completion:**
    ```bash
    $ gi<TAB>        # Completes to git, gist, etc.
    $ ls ./s<TAB>    # Completes to ./src/, ./specs/, etc.
@@ -101,7 +116,7 @@ cargo run --release
    $ ls -<TAB>      # Shows available ls flags
    ```
 
-5. **Exit:**
+6. **Exit:**
    ```bash
    $ exit
    # or press Ctrl+D
