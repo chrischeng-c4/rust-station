@@ -1,7 +1,7 @@
 # Known Issues and Limitations
 
 **Version:** 0.1.0 (Alpha)
-**Last Updated:** 2025-11-15
+**Last Updated:** 2025-11-18
 
 This document tracks what's implemented, what's not, and what's planned for future releases.
 
@@ -21,6 +21,11 @@ This document tracks what's implemented, what's not, and what's planned for futu
 - ✅ **Command History** - Persistent history across sessions
   - ↑/↓ arrow key navigation
   - Survives shell restart
+- ✅ **Autosuggestions** - Fish-like suggestions from command history
+  - Inline grayed-out text as you type
+  - Right Arrow (→) to accept full suggestion
+  - Alt+Right Arrow (⌥→) to accept word-by-word
+  - Most recent matches prioritized
 - ✅ **Tab Completion** - Intelligent completion for commands, paths, and flags
   - Command names from PATH
   - File and directory paths (with tilde expansion)
@@ -37,7 +42,6 @@ This document tracks what's implemented, what's not, and what's planned for futu
 ## ❌ What Doesn't Work Yet
 
 ### Shell Features (Planned for v0.2.0+)
-- ❌ **Autosuggestions** - History-based suggestions not implemented
 - ❌ **Pipes** - `ls | grep foo` not supported
 - ❌ **Redirections** - `echo foo > file.txt` not supported
 - ❌ **Job Control** - No background jobs or `fg`/`bg`
@@ -87,7 +91,7 @@ None reported yet. Please report issues during alpha testing!
 ### v0.2.0 (Next Release)
 **Focus: Enhanced Parsing & Configuration**
 - [x] Implement tab completion (✅ Completed in v0.1.0)
-- [ ] Add autosuggestions from history
+- [x] Add autosuggestions from history (✅ Completed in v0.1.0)
 - [ ] Support basic pipes (`|`)
 - [ ] Support basic redirections (`>`, `>>`, `<`)
 - [ ] Load configuration from TOML file
@@ -113,9 +117,10 @@ None reported yet. Please report issues during alpha testing!
 ## 🧪 Testing Notes
 
 ### Test Coverage
-- **203 tests passing** (all unit and integration tests)
-  - **+79 new completion tests** for tab completion (commands, paths, flags)
-  - **+17 parser tests** for quote and escape handling
+- **159 tests passing** (all unit, integration, and doc tests)
+  - **Tab completion tests**: Command, path, and flag completion
+  - **Autosuggestions tests**: Prefix matching, cursor validation, real-time updates
+  - **Parser tests**: Quote and escape character handling
 - See [TEST_COVERAGE.md](TEST_COVERAGE.md) for details
 
 ### Alpha Testing Focus
@@ -124,8 +129,10 @@ Please test and report issues for:
 1. **Command execution** - Try various commands with different arguments
 2. **History persistence** - Restart rush, verify history survives
 3. **Syntax highlighting** - Type commands, check colors appear correctly
-4. **Signal handling** - Test Ctrl+C and Ctrl+D
-5. **Logging** - Run with `-v` and check log files
+4. **Autosuggestions** - Type partial commands, verify suggestions appear and accept correctly
+5. **Tab completion** - Test command, path, and flag completion
+6. **Signal handling** - Test Ctrl+C and Ctrl+D
+7. **Logging** - Run with `-v` and check log files
 
 ### Expected Behavior
 
@@ -139,6 +146,7 @@ $ git commit -m "message"   # ✅ Complex quoted args
 $ date
 $ whoami
 $ git status
+$ git s→                    # ✅ Autosuggestions work! (→ = Right Arrow)
 $ gi<TAB>                   # ✅ Tab completion works!
 $ git --ver<TAB>            # ✅ Flag completion too!
 ```
