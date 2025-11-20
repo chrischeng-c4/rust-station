@@ -585,6 +585,7 @@ When user asks to work on rush, immediately check and enforce SDD.
 - In-memory caches for PATH executables and filesystem entries (no persistent storage) (002-tab-completion)
 - Rust 1.75+ (Rust 2021 edition) + reedline (line editing library with Hinter trait support) (003-autosuggestions)
 - File-based command history (existing FileBackedHistory from reedline) (003-autosuggestions)
+- File system operations (create, open, truncate, append files) (005-output-redirection)
 
 ## Recent Changes
 - 001-rush-mvp: Added Rust 1.75+ (edition 2021)
