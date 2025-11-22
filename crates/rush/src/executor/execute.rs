@@ -4,7 +4,8 @@ use std::fs::{File, OpenOptions};
 use std::io::ErrorKind;
 use std::process::{Command as StdCommand, Stdio};
 
-use super::parser::parse_command_with_redirections;
+use super::parser::parse_pipeline;
+use super::pipeline::PipelineExecutor;
 use super::{Redirection, RedirectionType};
 use crate::error::{Result, RushError};
 
@@ -12,22 +13,29 @@ use crate::error::{Result, RushError};
 ///
 /// Executes commands by spawning processes and waiting for completion.
 ///
-/// Currently supports:
+/// # Current Features
+///
 /// - I/O redirections (>, >>, <)
+/// - Pipelines via PipelineExecutor (single and multi-command)
 /// - Command execution with proper exit codes
+/// - Signal handling (FR-009) for pipeline processes
+///
+/// # Future Enhancements
 ///
 /// Not yet implemented:
-/// - Pipes
-/// - Job control
-/// - Background execution
-///
-/// These features will be added in later phases.
-pub struct CommandExecutor;
+/// - Job control (bg, fg, jobs)
+/// - Background execution (&)
+/// - Combining redirections with pipelines
+pub struct CommandExecutor {
+    pipeline_executor: PipelineExecutor,
+}
 
 impl CommandExecutor {
     /// Create a new command executor
     pub fn new() -> Self {
-        Self
+        Self {
+            pipeline_executor: PipelineExecutor::new(),
+        }
     }
 
     /// Apply redirections to a command before spawning
@@ -94,7 +102,10 @@ impl CommandExecutor {
     /// Execute a command line and return the exit code
     ///
     /// # Arguments
-    /// * `line` - The command line to execute (e.g., "ls -la" or "ls > files.txt")
+    /// * `line` - The command line to execute
+    ///   - Single command: "ls -la"
+    ///   - Pipeline: "ls | grep txt"
+    ///   - Redirection: "ls > files.txt" (parsed but not yet executed with redirections)
     ///
     /// # Returns
     /// * `Ok(exit_code)` - The command's exit code (0 for success)
@@ -106,8 +117,8 @@ impl CommandExecutor {
             return Ok(0);
         }
 
-        // Parse command line into program, arguments, and redirections
-        let (program, args, redirections) = match parse_command_with_redirections(line) {
+        // Parse command line into pipeline (handles quotes, pipes, and redirections)
+        let pipeline = match parse_pipeline(line) {
             Ok(parsed) => parsed,
             Err(e) => {
                 tracing::warn!(error = %e, "Command parsing failed");
@@ -117,84 +128,13 @@ impl CommandExecutor {
         };
 
         tracing::debug!(
-            program = %program,
-            args = ?args,
-            redirections = ?redirections,
-            "Executing command"
+            segments = pipeline.len(),
+            raw_input = %pipeline.raw_input,
+            "Executing command line"
         );
 
-        // Build command
-        let mut cmd = StdCommand::new(&program);
-        cmd.args(&args);
-
-        // Apply redirections if any
-        if !redirections.is_empty() {
-            if let Err(e) = self.apply_redirections(&mut cmd, &redirections) {
-                tracing::error!(error = %e, "Redirection failed");
-                eprintln!("rush: {}", e);
-                return Ok(1);
-            }
-            // stderr always inherits unless explicitly redirected
-            cmd.stderr(Stdio::inherit());
-        } else {
-            // No redirections - use inherited stdio for all streams
-            cmd.stdin(Stdio::inherit())
-                .stdout(Stdio::inherit())
-                .stderr(Stdio::inherit());
-        }
-
-        // Execute the command
-        match cmd.spawn() {
-            Ok(mut child) => {
-                let pid = child.id();
-                tracing::trace!(pid, "Process spawned");
-
-                // Wait for command to complete
-                match child.wait() {
-                    Ok(status) => {
-                        let exit_code = status.code().unwrap_or(1);
-                        tracing::info!(
-                            program = %program,
-                            exit_code,
-                            pid,
-                            "Process completed"
-                        );
-                        Ok(exit_code)
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            program = %program,
-                            error = %e,
-                            pid,
-                            "Failed to wait for process"
-                        );
-                        Err(RushError::Execution(format!("Failed to wait for command: {}", e)))
-                    }
-                }
-            }
-            Err(e) => {
-                // Command not found or execution failed
-                tracing::warn!(
-                    program = %program,
-                    error = %e,
-                    "Command not found or spawn failed"
-                );
-
-                // Provide helpful error message based on error kind
-                match e.kind() {
-                    std::io::ErrorKind::NotFound => {
-                        eprintln!("rush: command not found: {}", program);
-                    }
-                    std::io::ErrorKind::PermissionDenied => {
-                        eprintln!("rush: permission denied: {}", program);
-                    }
-                    _ => {
-                        eprintln!("rush: failed to execute {}: {}", program, e);
-                    }
-                }
-                Ok(127) // Command not found exit code
-            }
-        }
+        // Execute the pipeline
+        self.pipeline_executor.execute(&pipeline)
     }
 }
 

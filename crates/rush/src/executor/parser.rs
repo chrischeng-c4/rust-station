@@ -4,15 +4,27 @@
 //! - Quoted strings (single and double quotes)
 //! - Escaped characters
 //! - Whitespace splitting
+//! - Pipe operators (`|`) for command composition
 //! - Redirection operators (>, >>, <)
+//!
+//! # User Story 1: Basic Two-Command Pipeline
+//!
+//! The parser uses a two-stage approach for pipelines:
+//! 1. Tokenization: Split input into Word, Pipe, and Redirection tokens, respecting quotes
+//! 2. Segmentation: Group tokens into pipeline segments at Pipe boundaries
+//!
+//! Pipes and redirections inside quotes are treated as literal text, not operators.
 
 use crate::error::{Result, RushError};
+use crate::executor::{Pipeline, PipelineSegment};
 
-/// Token types for parsing command lines with redirections
+/// Token types for parsing command lines with pipes and redirections
 #[derive(Debug, Clone, PartialEq)]
 enum Token {
     /// Regular word (command, argument, file path)
     Word(String),
+    /// Pipe operator (|)
+    Pipe,
     /// Output redirection (>)
     RedirectOut,
     /// Append redirection (>>)
@@ -44,6 +56,13 @@ pub fn parse_command_with_redirections(
             Token::Word(w) => {
                 words.push(w.clone());
                 i += 1;
+            }
+            Token::Pipe => {
+                // Pipes are not supported in this legacy function
+                // Use parse_pipeline() instead
+                return Err(RushError::Execution(
+                    "Pipe operator not supported - use parse_pipeline() instead".to_string(),
+                ));
             }
             Token::RedirectOut | Token::RedirectAppend | Token::RedirectIn => {
                 // Redirection operator must be followed by a file path
@@ -309,6 +328,231 @@ fn _tokenize_original(line: &str) -> Result<Vec<String>> {
     }
 
     Ok(tokens)
+}
+
+/// Parse command line into pipeline
+///
+/// Converts a command line string into a `Pipeline` containing one or more
+/// `PipelineSegment`s. Pipes (`|`) outside quotes split the line into segments.
+///
+/// # User Story 1: Basic Two-Command Pipeline
+///
+/// Supports single commands and two-command pipelines. Three or more commands
+/// will be rejected during validation.
+///
+/// # Examples
+///
+/// ```ignore
+/// use rush::executor::parser::parse_pipeline;
+///
+/// // Single command
+/// let pipeline = parse_pipeline("ls")?;
+/// assert_eq!(pipeline.len(), 1);
+///
+/// // Two commands with pipe
+/// let pipeline = parse_pipeline("echo hello | grep hello")?;
+/// assert_eq!(pipeline.len(), 2);
+///
+/// // Pipe inside quotes (literal, not operator)
+/// let pipeline = parse_pipeline("echo \"a | b\"")?;
+/// assert_eq!(pipeline.len(), 1);
+/// ```
+///
+/// # Errors
+///
+/// Returns `Err` if:
+/// - Empty command before or after pipe (`| cmd` or `cmd |`)
+/// - Unclosed quotes
+/// - Empty input after trimming
+pub fn parse_pipeline(line: &str) -> Result<Pipeline> {
+    // Tokenize with pipe detection
+    let tokens = tokenize_with_pipes(line)?;
+
+    // Split tokens at pipe boundaries
+    let segments = split_into_segments(tokens)?;
+
+    // Build pipeline
+    let pipeline = Pipeline::new(segments, line.to_string());
+
+    // Validate (US1: will reject 3+ commands)
+    pipeline.validate()?;
+
+    Ok(pipeline)
+}
+
+/// Tokenize command line, recognizing pipes as special tokens
+///
+/// Splits input into `Word` and `Pipe` tokens. Pipes inside quotes are
+/// treated as literal text and become part of Word tokens.
+///
+/// # Algorithm
+///
+/// 1. Scan character by character, tracking quote state
+/// 2. When `|` found outside quotes → emit Pipe token
+/// 3. When whitespace found outside quotes → end current word
+/// 4. Otherwise → accumulate into current word
+fn tokenize_with_pipes(line: &str) -> Result<Vec<Token>> {
+    let mut tokens = Vec::new();
+    let mut current_word = String::new();
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut escape_next = false;
+    let mut had_quotes = false;
+    let mut chars = line.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if escape_next {
+            current_word.push(ch);
+            escape_next = false;
+            continue;
+        }
+
+        match ch {
+            '\\' => escape_next = true,
+            '\'' if !in_double_quote => {
+                if in_single_quote {
+                    had_quotes = true;
+                }
+                in_single_quote = !in_single_quote;
+            }
+            '"' if !in_single_quote => {
+                if in_double_quote {
+                    had_quotes = true;
+                }
+                in_double_quote = !in_double_quote;
+            }
+            '|' if !in_single_quote && !in_double_quote => {
+                // Pipe outside quotes - emit current word and Pipe token
+                if !current_word.is_empty() || had_quotes {
+                    tokens.push(Token::Word(current_word.clone()));
+                    current_word.clear();
+                    had_quotes = false;
+                }
+                tokens.push(Token::Pipe);
+            }
+            '>' if !in_single_quote && !in_double_quote => {
+                // Redirection operator outside quotes
+                if !current_word.is_empty() || had_quotes {
+                    tokens.push(Token::Word(current_word.clone()));
+                    current_word.clear();
+                    had_quotes = false;
+                }
+                // Check for >> (append) operator
+                if chars.peek() == Some(&'>') {
+                    chars.next(); // Consume second >
+                    tokens.push(Token::RedirectAppend);
+                } else {
+                    tokens.push(Token::RedirectOut);
+                }
+            }
+            '<' if !in_single_quote && !in_double_quote => {
+                // Input redirection operator outside quotes
+                if !current_word.is_empty() || had_quotes {
+                    tokens.push(Token::Word(current_word.clone()));
+                    current_word.clear();
+                    had_quotes = false;
+                }
+                tokens.push(Token::RedirectIn);
+            }
+            ' ' | '\t' if !in_single_quote && !in_double_quote => {
+                // Whitespace outside quotes - end word
+                if !current_word.is_empty() || had_quotes {
+                    tokens.push(Token::Word(current_word.clone()));
+                    current_word.clear();
+                    had_quotes = false;
+                }
+            }
+            _ => {
+                current_word.push(ch);
+            }
+        }
+    }
+
+    // Validation
+    if in_single_quote {
+        return Err(RushError::Execution("Unclosed single quote".to_string()));
+    }
+    if in_double_quote {
+        return Err(RushError::Execution("Unclosed double quote".to_string()));
+    }
+    if escape_next {
+        return Err(RushError::Execution("Trailing backslash".to_string()));
+    }
+
+    // Emit final word
+    if !current_word.is_empty() || had_quotes {
+        tokens.push(Token::Word(current_word));
+    }
+
+    Ok(tokens)
+}
+
+/// Split tokens into pipeline segments at Pipe boundaries
+///
+/// Takes a flat list of tokens and groups them into segments, splitting at
+/// each Pipe token. Each segment becomes one command in the pipeline.
+///
+/// # Validation
+///
+/// - Empty segment before pipe → Error: "Empty command before pipe"
+/// - Empty segment after pipe → Error: "Empty command after pipe"
+/// - No program in segment → Error: "Empty command"
+///
+/// # Returns
+///
+/// Vector of `PipelineSegment`s with assigned indices (0, 1, ...)
+fn split_into_segments(tokens: Vec<Token>) -> Result<Vec<PipelineSegment>> {
+    let mut segments = Vec::new();
+    let mut current_segment: Vec<String> = Vec::new();
+
+    for token in tokens {
+        match token {
+            Token::Word(word) => {
+                current_segment.push(word);
+            }
+            Token::Pipe => {
+                // Validate segment before pipe
+                if current_segment.is_empty() {
+                    return Err(RushError::Execution("Empty command before pipe".to_string()));
+                }
+
+                // Create segment
+                let program = current_segment[0].clone();
+                let args = current_segment[1..].to_vec();
+                segments.push(PipelineSegment::new(program, args, segments.len()));
+
+                current_segment.clear();
+            }
+            // Redirection operators are treated as part of the command arguments
+            // They will be parsed later when the segment is executed
+            Token::RedirectOut => {
+                current_segment.push(">".to_string());
+            }
+            Token::RedirectAppend => {
+                current_segment.push(">>".to_string());
+            }
+            Token::RedirectIn => {
+                current_segment.push("<".to_string());
+            }
+        }
+    }
+
+    // Validate final segment
+    if current_segment.is_empty() {
+        if !segments.is_empty() {
+            // Had pipes but no command after last pipe
+            return Err(RushError::Execution("Empty command after pipe".to_string()));
+        }
+        // No commands at all
+        return Err(RushError::Execution("Empty command".to_string()));
+    }
+
+    // Add final segment
+    let program = current_segment[0].clone();
+    let args = current_segment[1..].to_vec();
+    segments.push(PipelineSegment::new(program, args, segments.len()));
+
+    Ok(segments)
 }
 
 #[cfg(test)]
