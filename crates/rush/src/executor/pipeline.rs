@@ -72,7 +72,24 @@ impl PipelineExecutor {
         }
 
         // Execute multi-command pipeline (US1 & US2)
-        self.execute_multi_command_pipeline(pipeline)
+        // Execute multi-command pipeline (US1 & US2)
+        let execution = self.spawn(pipeline)?;
+        execution.wait_all()
+    }
+
+    /// Spawn a pipeline without waiting for completion
+    pub fn spawn(&self, pipeline: &Pipeline) -> Result<MultiCommandExecution> {
+        // Validate pipeline structure
+        pipeline.validate()?;
+
+        // Special case: Single command (no pipes)
+        if pipeline.len() == 1 {
+            // For single command, we still use MultiCommandExecution for consistency
+            // This simplifies the CommandExecutor logic
+            MultiCommandExecution::spawn(pipeline)
+        } else {
+            MultiCommandExecution::spawn(pipeline)
+        }
     }
 
     /// Execute a single command (no pipes)
@@ -217,27 +234,7 @@ impl PipelineExecutor {
         }
     }
 
-    /// Execute a multi-command pipeline (US1 & US2)
-    ///
-    /// Connects commands via pipes: stdout of each becomes stdin of the next.
-    /// Includes proper signal handling (FR-009) and resource cleanup.
-    fn execute_multi_command_pipeline(&self, pipeline: &Pipeline) -> Result<i32> {
-        tracing::info!(
-            segments = pipeline.len(),
-            raw_input = %pipeline.raw_input,
-            "Executing multi-command pipeline"
-        );
 
-        // Spawn all processes with pipes connected
-        let execution = MultiCommandExecution::spawn(pipeline)?;
-
-        // Wait for all to complete and get last exit code
-        let exit_code = execution.wait_all()?;
-
-        tracing::info!(exit_code, "Pipeline completed");
-
-        Ok(exit_code)
-    }
 }
 
 impl Default for PipelineExecutor {
@@ -253,12 +250,19 @@ impl Default for PipelineExecutor {
 /// This struct holds all child process handles and ensures they are properly
 /// terminated on drop, error, or signal. Any spawn or wait failure triggers
 /// cleanup of all running processes to prevent orphans.
-struct MultiCommandExecution {
+/// Internal state during multi-command pipeline execution
+///
+/// # Signal Handling (FR-009)
+///
+/// This struct holds all child process handles and ensures they are properly
+/// terminated on drop, error, or signal. Any spawn or wait failure triggers
+/// cleanup of all running processes to prevent orphans.
+pub struct MultiCommandExecution {
     /// All spawned child processes (one per pipeline segment)
-    children: Vec<Child>,
+    pub children: Vec<Child>,
 
     /// Pipeline being executed (for logging and errors)
-    pipeline: Pipeline,
+    pub pipeline: Pipeline,
 }
 
 impl MultiCommandExecution {
@@ -395,7 +399,7 @@ impl MultiCommandExecution {
     ///
     /// Returns the exit code of the last command, matching bash behavior.
     /// Earlier commands' exit codes are logged but not returned.
-    fn wait_all(self) -> Result<i32> {
+    pub fn wait_all(self) -> Result<i32> {
         let mut last_exit_code = 0;
 
         for (i, mut child) in self.children.into_iter().enumerate() {
@@ -429,6 +433,11 @@ impl MultiCommandExecution {
         }
 
         Ok(last_exit_code)
+    }
+
+    /// Get PIDs of all spawned processes
+    pub fn pids(&self) -> Vec<u32> {
+        self.children.iter().map(|c| c.id()).collect()
     }
 }
 

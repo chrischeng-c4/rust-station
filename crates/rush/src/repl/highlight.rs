@@ -1,6 +1,7 @@
 //! Syntax highlighting implementation using custom lexer
 
 use super::lexer::{Lexer, TokenType};
+use super::validator::Validator;
 use nu_ansi_term::{Color, Style};
 use reedline::Highlighter;
 
@@ -23,11 +24,31 @@ impl RushHighlighter {
 
     /// Get Style for a token type
     /// Colors optimized for dark terminal backgrounds (out-of-box experience)
-    fn get_style(token_type: &TokenType) -> Style {
+    fn get_style(token_type: &TokenType, text: &str) -> Style {
         match token_type {
-            TokenType::Command => Style::new().fg(Color::Green),
-            TokenType::Flag => Style::new().fg(Color::Cyan), // Cyan instead of Blue for visibility on dark backgrounds
-            TokenType::Argument => Style::default(),
+            TokenType::Command => {
+                if Validator::validate_command(text) {
+                    Style::new().fg(Color::Green)
+                } else {
+                    Style::new().fg(Color::Red)
+                }
+            }
+            TokenType::Flag => Style::new().fg(Color::Cyan),
+            TokenType::Argument => {
+                // Check if it looks like a path (contains / or is . or ..)
+                if text.contains('/') || text == "." || text == ".." {
+                    if Validator::validate_path(text) {
+                        Style::new().underline()
+                    } else {
+                        // Invalid path - keep default or maybe red?
+                        // Fish makes it red if it looks like a path but isn't
+                        // For now, let's keep default to avoid false positives on non-path args
+                        Style::default()
+                    }
+                } else {
+                    Style::default()
+                }
+            }
             TokenType::Pipe => Style::new().fg(Color::Cyan),
             TokenType::And => Style::new().fg(Color::Cyan),
             TokenType::Or => Style::new().fg(Color::Cyan),
@@ -55,7 +76,7 @@ impl Highlighter for RushHighlighter {
         let mut styled_text = reedline::StyledText::new();
 
         for token in tokens {
-            let style = Self::get_style(&token.token_type);
+            let style = Self::get_style(&token.token_type, &token.text);
             styled_text.push((style, token.text));
         }
 
@@ -107,19 +128,24 @@ mod tests {
 
     #[test]
     fn test_get_style_for_command() {
-        let style = RushHighlighter::get_style(&TokenType::Command);
+        // "ls" should be valid (Green)
+        let style = RushHighlighter::get_style(&TokenType::Command, "ls");
         assert_eq!(style.foreground, Some(Color::Green));
+        
+        // "invalid_cmd" should be invalid (Red)
+        let style = RushHighlighter::get_style(&TokenType::Command, "invalid_cmd_xyz");
+        assert_eq!(style.foreground, Some(Color::Red));
     }
 
     #[test]
     fn test_get_style_for_flag() {
-        let style = RushHighlighter::get_style(&TokenType::Flag);
-        assert_eq!(style.foreground, Some(Color::Cyan)); // Changed to Cyan for dark terminal visibility
+        let style = RushHighlighter::get_style(&TokenType::Flag, "-f");
+        assert_eq!(style.foreground, Some(Color::Cyan));
     }
 
     #[test]
     fn test_get_style_for_string() {
-        let style = RushHighlighter::get_style(&TokenType::String);
+        let style = RushHighlighter::get_style(&TokenType::String, "\"hello\"");
         assert_eq!(style.foreground, Some(Color::Yellow));
     }
 }

@@ -50,3 +50,11 @@ perf.data.old
 # Note: Be careful not to commit credentials if added to .claude/
 
 .claude/settings.local.json
+
+# Prevent accidental commits of directories created by shell testing
+# These are created when rush shell interprets command fragments as paths
+**/--*
+**/&&/
+**/~/
+# Don't ignore root ~ files (like .gitignore), only directories
+!~/

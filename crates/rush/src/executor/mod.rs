@@ -26,6 +26,7 @@
 //! executor.execute("echo 'hello world' | grep hello")?;
 //! ```
 
+pub mod builtins;
 pub mod execute;
 pub mod job;
 pub mod parser;
@@ -183,12 +184,15 @@ pub struct Pipeline {
 
     /// Original user input for error messages and logging
     pub raw_input: String,
+
+    /// Run in background (ends with &)
+    pub background: bool,
 }
 
 impl Pipeline {
     /// Create a new pipeline from segments
-    pub fn new(segments: Vec<PipelineSegment>, raw_input: String) -> Self {
-        Self { segments, raw_input }
+    pub fn new(segments: Vec<PipelineSegment>, raw_input: String, background: bool) -> Self {
+        Self { segments, raw_input, background }
     }
 
     /// Number of commands in the pipeline

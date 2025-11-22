@@ -251,7 +251,7 @@ fn execute_command_and_exit(cmd: &str, _config: &Config) {
 
     // Execute command directly without REPL
     use rush::executor::execute::CommandExecutor;
-    let executor = CommandExecutor::new();
+    let mut executor = CommandExecutor::new();
 
     match executor.execute(cmd) {
         Ok(exit_code) => {

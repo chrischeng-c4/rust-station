@@ -264,8 +264,16 @@ impl Completer for CommandCompleter {
         matches
             .into_iter()
             .map(|cmd| Suggestion {
-                value: cmd,
-                description: None, // No descriptions for commands
+                value: cmd.clone(),
+                description: match cmd.as_str() {
+                    "cd" => Some("Change directory".to_string()),
+                    "exit" | "quit" => Some("Exit the shell".to_string()),
+                    "jobs" => Some("List active jobs".to_string()),
+                    "fg" => Some("Bring job to foreground".to_string()),
+                    "bg" => Some("Resume job in background".to_string()),
+                    "history" => Some("Show command history".to_string()),
+                    _ => None,
+                },
                 extra: None,
                 span: Span { start: 0, end: pos }, // Replace entire first word
                 append_whitespace: true,           // Add space after command
@@ -303,5 +311,19 @@ mod tests {
     fn test_case_sensitive_on_linux() {
         let completer = CommandCompleter::new();
         assert!(completer.case_sensitive);
+    }
+
+    #[test]
+    fn test_builtin_descriptions() {
+        let mut completer = CommandCompleter::new();
+        // Mock cache to include builtins
+        let mut cache = HashSet::new();
+        cache.insert("jobs".to_string());
+        completer.cache = Some(cache);
+
+        let suggestions = completer.complete("jo", 2);
+        assert!(!suggestions.is_empty());
+        assert_eq!(suggestions[0].value, "jobs");
+        assert_eq!(suggestions[0].description, Some("List active jobs".to_string()));
     }
 }

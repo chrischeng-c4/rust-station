@@ -12,6 +12,7 @@ pub mod input;
 pub mod lexer;
 pub mod prompt;
 pub mod suggest;
+pub mod validator;
 
 use crate::completion::CompletionRegistry; // US1: Add tab completion
 use crate::config::Config;
@@ -136,6 +137,9 @@ impl Repl {
         loop {
             iteration += 1;
             tracing::trace!(iteration, "REPL iteration start");
+
+            // Check for background jobs status
+            self.executor.check_background_jobs();
 
             // Create prompt with current exit code
             let prompt = RushPrompt::new(self.last_exit_code);
