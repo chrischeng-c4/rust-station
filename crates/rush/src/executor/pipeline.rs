@@ -94,26 +94,25 @@ impl PipelineExecutor {
 
     /// Execute a single command (no pipes)
     fn execute_single(&self, segment: &PipelineSegment) -> Result<i32> {
-        use super::parser::extract_redirections_from_args;
         use std::fs::{File, OpenOptions};
         use std::io::ErrorKind;
 
-        // Extract redirections from args
-        let (clean_args, redirections) = extract_redirections_from_args(&segment.args)?;
+        // Use redirections from segment (populated by parser)
+        let redirections = &segment.redirections;
 
         tracing::debug!(
             program = %segment.program,
-            args = ?clean_args,
+            args = ?segment.args,
             redirections = ?redirections,
-            "Executing single command"
+            "Executing single command with redirections"
         );
 
         let mut cmd = Command::new(&segment.program);
-        cmd.args(&clean_args);
+        cmd.args(&segment.args);
 
         // Apply redirections if any
         if !redirections.is_empty() {
-            for redir in &redirections {
+            for redir in redirections {
                 match redir.redir_type {
                     super::RedirectionType::Output => {
                         // Create/truncate file for output redirection
@@ -233,8 +232,6 @@ impl PipelineExecutor {
             }
         }
     }
-
-
 }
 
 impl Default for PipelineExecutor {
@@ -285,25 +282,96 @@ impl MultiCommandExecution {
         let mut prev_stdout: Option<std::process::ChildStdout> = None;
 
         for (i, segment) in pipeline.segments.iter().enumerate() {
+            use std::fs::{File, OpenOptions};
+            use std::io::ErrorKind;
+
             let mut cmd = Command::new(&segment.program);
             cmd.args(&segment.args);
 
-            // Configure stdin
-            if let Some(stdout) = prev_stdout.take() {
-                // Middle/last command: stdin from previous command's stdout
-                cmd.stdin(stdout);
-            } else {
-                // First command: stdin from terminal
-                cmd.stdin(Stdio::inherit());
+            // Apply redirections first (they override default stdio setup)
+            let mut has_output_redir = false;
+            let mut has_input_redir = false;
+
+            for redir in &segment.redirections {
+                match redir.redir_type {
+                    super::RedirectionType::Output => {
+                        let file = File::create(&redir.file_path).map_err(|e| {
+                            let msg = match e.kind() {
+                                ErrorKind::PermissionDenied => {
+                                    format!("{}: permission denied", redir.file_path)
+                                }
+                                ErrorKind::IsADirectory => {
+                                    format!("{}: is a directory", redir.file_path)
+                                }
+                                _ => format!("{}: {}", redir.file_path, e),
+                            };
+                            eprintln!("rush: {}", msg);
+                            RushError::Redirection(msg)
+                        })?;
+                        cmd.stdout(Stdio::from(file));
+                        has_output_redir = true;
+                    }
+                    super::RedirectionType::Append => {
+                        let file = OpenOptions::new()
+                            .create(true)
+                            .append(true)
+                            .open(&redir.file_path)
+                            .map_err(|e| {
+                                let msg = match e.kind() {
+                                    ErrorKind::PermissionDenied => {
+                                        format!("{}: permission denied", redir.file_path)
+                                    }
+                                    ErrorKind::IsADirectory => {
+                                        format!("{}: is a directory", redir.file_path)
+                                    }
+                                    _ => format!("{}: {}", redir.file_path, e),
+                                };
+                                eprintln!("rush: {}", msg);
+                                RushError::Redirection(msg)
+                            })?;
+                        cmd.stdout(Stdio::from(file));
+                        has_output_redir = true;
+                    }
+                    super::RedirectionType::Input => {
+                        let file = File::open(&redir.file_path).map_err(|e| {
+                            let msg = match e.kind() {
+                                ErrorKind::NotFound => {
+                                    format!("{}: file not found", redir.file_path)
+                                }
+                                ErrorKind::PermissionDenied => {
+                                    format!("{}: permission denied", redir.file_path)
+                                }
+                                _ => format!("{}: {}", redir.file_path, e),
+                            };
+                            eprintln!("rush: {}", msg);
+                            RushError::Redirection(msg)
+                        })?;
+                        cmd.stdin(Stdio::from(file));
+                        has_input_redir = true;
+                    }
+                }
             }
 
-            // Configure stdout
-            if i == pipeline.len() - 1 {
-                // Last command: stdout to terminal
-                cmd.stdout(Stdio::inherit());
-            } else {
-                // First/middle command: stdout to pipe
-                cmd.stdout(Stdio::piped());
+            // Configure stdin (only if not redirected)
+            if !has_input_redir {
+                if let Some(stdout) = prev_stdout.take() {
+                    // Middle/last command: stdin from previous command's stdout
+                    cmd.stdin(stdout);
+                } else {
+                    // First command: stdin from terminal
+                    cmd.stdin(Stdio::inherit());
+                }
+            }
+
+            // Configure stdout (only if not redirected)
+            if !has_output_redir {
+                if i == pipeline.len() - 1 {
+                    // Last command: stdout to terminal
+                    cmd.stdout(Stdio::inherit());
+                } else {
+                    // First/middle command: stdout to pipe
+                    cmd.stdout(Stdio::piped());
+                }
             }
 
             // All commands: stderr to terminal
@@ -387,10 +455,7 @@ impl MultiCommandExecution {
             children.push(child);
         }
 
-        Ok(Self {
-            children,
-            pipeline: pipeline.clone(),
-        })
+        Ok(Self { children, pipeline: pipeline.clone() })
     }
 
     /// Wait for all processes to complete and return last exit code

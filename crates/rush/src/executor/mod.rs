@@ -58,7 +58,10 @@ pub struct Command {
     ///
     /// This field is kept for backward compatibility but should not be used.
     /// Use the `redirections` field for all I/O redirection operations.
-    #[deprecated(since = "0.2.0", note = "Use redirections field for all I/O redirections")]
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use redirections field for all I/O redirections"
+    )]
     pub redirects: Vec<Redirect>,
 
     /// I/O redirections (>, >>, <) - current implementation
@@ -232,6 +235,7 @@ impl Pipeline {
 ///     program: "ls",
 ///     args: ["-la"],
 ///     index: 0,
+///     redirections: vec![],
 /// }
 /// ```
 #[derive(Debug, Clone, PartialEq)]
@@ -245,21 +249,34 @@ pub struct PipelineSegment {
     /// Position in pipeline (0-indexed)
     /// First command is 0, second is 1
     pub index: usize,
+
+    /// I/O redirections for this command (>, >>, <)
+    /// Stores parsed redirections that will be applied during execution
+    pub redirections: Vec<Redirection>,
 }
 
 impl PipelineSegment {
-    /// Create a new pipeline segment
-    pub fn new(program: String, args: Vec<String>, index: usize) -> Self {
-        Self { program, args, index }
+    /// Create a new pipeline segment with optional redirections
+    pub fn new(
+        program: String,
+        args: Vec<String>,
+        index: usize,
+        redirections: Vec<Redirection>,
+    ) -> Self {
+        Self { program, args, index, redirections }
     }
 
-    /// Validate segment
+    /// Validate segment including redirections
     pub fn validate(&self) -> Result<()> {
         if self.program.is_empty() {
             return Err(crate::error::RushError::Execution(format!(
                 "Empty program at position {}",
                 self.index
             )));
+        }
+        // Validate each redirection
+        for redir in &self.redirections {
+            redir.validate()?;
         }
         Ok(())
     }

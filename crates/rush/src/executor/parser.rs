@@ -143,10 +143,7 @@ pub fn extract_redirections_from_args(
                         "Redirection operator missing file path".to_string(),
                     ));
                 }
-                redirections.push(Redirection::new(
-                    RedirectionType::Output,
-                    args[i + 1].clone(),
-                ));
+                redirections.push(Redirection::new(RedirectionType::Output, args[i + 1].clone()));
                 i += 2; // Skip operator and path
             }
             ">>" => {
@@ -156,10 +153,7 @@ pub fn extract_redirections_from_args(
                         "Redirection operator missing file path".to_string(),
                     ));
                 }
-                redirections.push(Redirection::new(
-                    RedirectionType::Append,
-                    args[i + 1].clone(),
-                ));
+                redirections.push(Redirection::new(RedirectionType::Append, args[i + 1].clone()));
                 i += 2; // Skip operator and path
             }
             "<" => {
@@ -169,10 +163,7 @@ pub fn extract_redirections_from_args(
                         "Redirection operator missing file path".to_string(),
                     ));
                 }
-                redirections.push(Redirection::new(
-                    RedirectionType::Input,
-                    args[i + 1].clone(),
-                ));
+                redirections.push(Redirection::new(RedirectionType::Input, args[i + 1].clone()));
                 i += 2; // Skip operator and path
             }
             _ => {
@@ -586,56 +577,88 @@ fn tokenize_with_pipes(line: &str) -> Result<Vec<Token>> {
 /// Takes a flat list of tokens and groups them into segments, splitting at
 /// each Pipe token. Each segment becomes one command in the pipeline.
 ///
+/// Extracts I/O redirections from tokens and stores them in the segment's
+/// redirections field. Redirection operators (>, >>, <) must be followed
+/// by a file path token.
+///
 /// # Validation
 ///
 /// - Empty segment before pipe → Error: "Empty command before pipe"
 /// - Empty segment after pipe → Error: "Empty command after pipe"
 /// - No program in segment → Error: "Empty command"
+/// - Redirection without file path → Error: "Redirection operator missing file path"
 ///
 /// # Returns
 ///
-/// Vector of `PipelineSegment`s with assigned indices (0, 1, ...)
+/// Vector of `PipelineSegment`s with assigned indices (0, 1, ...) and extracted redirections
 fn split_into_segments(tokens: Vec<Token>) -> Result<Vec<PipelineSegment>> {
-    let mut segments = Vec::new();
-    let mut current_segment: Vec<String> = Vec::new();
+    use super::{Redirection, RedirectionType};
 
-    for token in tokens {
-        match token {
+    let mut segments = Vec::new();
+    let mut current_words: Vec<String> = Vec::new();
+    let mut current_redirections: Vec<Redirection> = Vec::new();
+    let mut i = 0;
+
+    while i < tokens.len() {
+        match &tokens[i] {
             Token::Word(word) => {
-                current_segment.push(word);
+                current_words.push(word.clone());
+                i += 1;
             }
             Token::Pipe => {
                 // Validate segment before pipe
-                if current_segment.is_empty() {
+                if current_words.is_empty() {
                     return Err(RushError::Execution("Empty command before pipe".to_string()));
                 }
 
-                // Create segment
-                let program = current_segment[0].clone();
-                let args = current_segment[1..].to_vec();
-                segments.push(PipelineSegment::new(program, args, segments.len()));
+                // Create segment with extracted redirections
+                let program = current_words[0].clone();
+                let args = current_words[1..].to_vec();
+                segments.push(PipelineSegment::new(
+                    program,
+                    args,
+                    segments.len(),
+                    current_redirections.clone(),
+                ));
 
-                current_segment.clear();
+                current_words.clear();
+                current_redirections.clear();
+                i += 1;
             }
-            // Redirection operators are treated as part of the command arguments
-            // They will be parsed later when the segment is executed
-            Token::RedirectOut => {
-                current_segment.push(">".to_string());
-            }
-            Token::RedirectAppend => {
-                current_segment.push(">>".to_string());
-            }
-            Token::RedirectIn => {
-                current_segment.push("<".to_string());
+            Token::RedirectOut | Token::RedirectAppend | Token::RedirectIn => {
+                // Redirection operator must be followed by a file path
+                if i + 1 >= tokens.len() {
+                    return Err(RushError::Execution(
+                        "Redirection operator missing file path".to_string(),
+                    ));
+                }
+
+                // Next token must be a Word (file path)
+                if let Token::Word(path) = &tokens[i + 1] {
+                    let redir_type = match &tokens[i] {
+                        Token::RedirectOut => RedirectionType::Output,
+                        Token::RedirectAppend => RedirectionType::Append,
+                        Token::RedirectIn => RedirectionType::Input,
+                        _ => unreachable!(),
+                    };
+                    current_redirections.push(Redirection::new(redir_type, path.clone()));
+                    i += 2; // Skip operator and path
+                } else {
+                    return Err(RushError::Execution(
+                        "Redirection operator must be followed by file path".to_string(),
+                    ));
+                }
             }
             Token::Background => {
-                return Err(RushError::Execution("Background operator '&' must be at the end of the command".to_string()));
+                return Err(RushError::Execution(
+                    "Background operator '&' must be at the end of the command".to_string(),
+                ));
             }
         }
     }
 
     // Validate final segment
-    if current_segment.is_empty() {
+    if current_words.is_empty() {
         if !segments.is_empty() {
             // Had pipes but no command after last pipe
             return Err(RushError::Execution("Empty command after pipe".to_string()));
@@ -644,10 +667,10 @@ fn split_into_segments(tokens: Vec<Token>) -> Result<Vec<PipelineSegment>> {
         return Err(RushError::Execution("Empty command".to_string()));
     }
 
-    // Add final segment
-    let program = current_segment[0].clone();
-    let args = current_segment[1..].to_vec();
-    segments.push(PipelineSegment::new(program, args, segments.len()));
+    // Add final segment with extracted redirections
+    let program = current_words[0].clone();
+    let args = current_words[1..].to_vec();
+    segments.push(PipelineSegment::new(program, args, segments.len(), current_redirections));
 
     Ok(segments)
 }
@@ -900,5 +923,77 @@ mod tests {
         assert_eq!(program, "echo");
         assert_eq!(args, vec!["test > file"]);
         assert_eq!(redirs.len(), 0); // No redirections, it's in quotes
+    }
+
+    // parse_pipeline tests with redirections (Phase 2 verification)
+    #[test]
+    fn test_parse_pipeline_with_output_redirection() {
+        let pipeline = parse_pipeline("ls -la > files.txt").unwrap();
+        assert_eq!(pipeline.segments.len(), 1);
+
+        let segment = &pipeline.segments[0];
+        assert_eq!(segment.program, "ls");
+        assert_eq!(segment.args, vec!["-la"]);
+        assert_eq!(segment.redirections.len(), 1);
+        assert_eq!(segment.redirections[0].redir_type, RedirectionType::Output);
+        assert_eq!(segment.redirections[0].file_path, "files.txt");
+    }
+
+    #[test]
+    fn test_parse_pipeline_with_append_redirection() {
+        let pipeline = parse_pipeline("echo line >> log.txt").unwrap();
+        assert_eq!(pipeline.segments.len(), 1);
+
+        let segment = &pipeline.segments[0];
+        assert_eq!(segment.program, "echo");
+        assert_eq!(segment.args, vec!["line"]);
+        assert_eq!(segment.redirections.len(), 1);
+        assert_eq!(segment.redirections[0].redir_type, RedirectionType::Append);
+        assert_eq!(segment.redirections[0].file_path, "log.txt");
+    }
+
+    #[test]
+    fn test_parse_pipeline_with_input_redirection() {
+        let pipeline = parse_pipeline("wc -l < input.txt").unwrap();
+        assert_eq!(pipeline.segments.len(), 1);
+
+        let segment = &pipeline.segments[0];
+        assert_eq!(segment.program, "wc");
+        assert_eq!(segment.args, vec!["-l"]);
+        assert_eq!(segment.redirections.len(), 1);
+        assert_eq!(segment.redirections[0].redir_type, RedirectionType::Input);
+        assert_eq!(segment.redirections[0].file_path, "input.txt");
+    }
+
+    #[test]
+    fn test_parse_pipeline_with_multiple_redirections() {
+        let pipeline = parse_pipeline("cat < in.txt > out.txt").unwrap();
+        assert_eq!(pipeline.segments.len(), 1);
+
+        let segment = &pipeline.segments[0];
+        assert_eq!(segment.program, "cat");
+        assert!(segment.args.is_empty());
+        assert_eq!(segment.redirections.len(), 2);
+        assert_eq!(segment.redirections[0].redir_type, RedirectionType::Input);
+        assert_eq!(segment.redirections[0].file_path, "in.txt");
+        assert_eq!(segment.redirections[1].redir_type, RedirectionType::Output);
+        assert_eq!(segment.redirections[1].file_path, "out.txt");
+    }
+
+    #[test]
+    fn test_parse_pipeline_with_redirections_in_pipeline() {
+        let pipeline = parse_pipeline("echo test | grep test > result.txt").unwrap();
+        assert_eq!(pipeline.segments.len(), 2);
+
+        // First segment has no redirections
+        assert_eq!(pipeline.segments[0].program, "echo");
+        assert_eq!(pipeline.segments[0].redirections.len(), 0);
+
+        // Second segment has output redirection
+        assert_eq!(pipeline.segments[1].program, "grep");
+        assert_eq!(pipeline.segments[1].args, vec!["test"]);
+        assert_eq!(pipeline.segments[1].redirections.len(), 1);
+        assert_eq!(pipeline.segments[1].redirections[0].redir_type, RedirectionType::Output);
+        assert_eq!(pipeline.segments[1].redirections[0].file_path, "result.txt");
     }
 }

@@ -2,12 +2,22 @@
 
 ## Test Summary
 
-**Total Tests: 247 tests**
-- Unit tests (Lib): 156
+**Total Tests: 260 tests** (+13 from 247)
+- Unit tests (Lib): 164 (+8 from 156)
 - Unit tests (External): 59
 - Integration tests: 29
+- Feature tests: 5 (+5 new)
 - Doc tests: 3
 - **All tests passing ✅**
+
+## Recent Changes (2025-11-23)
+
+**I/O Redirection Bug Fix** - Added comprehensive test coverage for I/O redirections:
+- Added 5 parser unit tests for `parse_pipeline()` with redirections (>, >>, <)
+- Added 3 parser unit tests for `PipelineSegment` validation
+- Added 1 feature test for input redirection (<)
+- Existing feature tests for output (>) and append (>>) now pass
+- All redirection types (>, >>, <) fully functional and tested
 
 ## Test Breakdown by Module
 
