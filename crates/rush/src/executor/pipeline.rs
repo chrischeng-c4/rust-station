@@ -597,4 +597,76 @@ mod tests {
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 0);
     }
+
+    #[test]
+    fn test_command_not_found() {
+        let executor = PipelineExecutor::new();
+        let pipeline = parse_pipeline("nonexistent_command_xyz123").unwrap();
+        let result = executor.execute(&pipeline);
+        // Should fail with command not found
+        assert!(result.is_ok()); // Returns exit code 127
+        assert_eq!(result.unwrap(), 127);
+    }
+
+    #[test]
+    fn test_pipeline_first_command_fails() {
+        let executor = PipelineExecutor::new();
+        let pipeline = parse_pipeline("false | cat").unwrap();
+        let result = executor.execute(&pipeline);
+        // Should return exit code of last command (cat succeeds with no input)
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_spawn_returns_multi_command_execution() {
+        let executor = PipelineExecutor::new();
+        let pipeline = parse_pipeline("echo test").unwrap();
+        let multi_exec = executor.spawn(&pipeline);
+        assert!(multi_exec.is_ok());
+        let exec = multi_exec.unwrap();
+        assert_eq!(exec.pids().len(), 1);
+    }
+
+    #[test]
+    fn test_multi_command_execution_pids() {
+        let executor = PipelineExecutor::new();
+        let pipeline = parse_pipeline("echo test | cat | cat").unwrap();
+        let multi_exec = executor.spawn(&pipeline).unwrap();
+        let pids = multi_exec.pids();
+        assert_eq!(pids.len(), 3);
+        // All PIDs should be non-zero
+        for pid in pids {
+            assert!(pid > 0);
+        }
+    }
+
+    #[test]
+    fn test_execute_with_redirections() {
+        let executor = PipelineExecutor::new();
+        let test_file = "/tmp/rush_pipeline_test.txt";
+        let _ = std::fs::remove_file(test_file);
+
+        let pipeline = parse_pipeline("echo hello > /tmp/rush_pipeline_test.txt").unwrap();
+        let result = executor.execute(&pipeline);
+        assert!(result.is_ok());
+        assert!(std::path::Path::new(test_file).exists());
+
+        std::fs::remove_file(test_file).unwrap();
+    }
+
+    #[test]
+    fn test_pipeline_with_redirection_middle_command() {
+        let executor = PipelineExecutor::new();
+        let test_file = "/tmp/rush_pipe_middle.txt";
+        let _ = std::fs::remove_file(test_file);
+
+        // Middle command can't have output redirection in our implementation
+        // (it would break the pipe), but we can test input redirection
+        std::fs::write("/tmp/rush_input.txt", "test\n").unwrap();
+        let pipeline = parse_pipeline("cat < /tmp/rush_input.txt | grep test").unwrap();
+        let result = executor.execute(&pipeline);
+        assert!(result.is_ok());
+
+        std::fs::remove_file("/tmp/rush_input.txt").unwrap();
+    }
 }

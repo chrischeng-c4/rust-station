@@ -179,4 +179,102 @@ mod tests {
         assert_eq!(config.history_size, 10_000);
         assert_eq!(config.prompt, "$ ");
     }
+
+    #[test]
+    fn test_config_path() {
+        let path = Config::config_path();
+        assert!(path.to_str().unwrap().contains("rush"));
+        assert!(path.to_str().unwrap().ends_with("rush.toml"));
+    }
+
+    #[test]
+    fn test_from_config_file_with_all_fields() {
+        let toml_str = r#"
+            [appearance]
+            prompt = ">> "
+            theme = "dark"
+
+            [behavior]
+            history_size = 5000
+            completion_timeout_ms = 200
+            suggestion_delay_ms = 100
+        "#;
+
+        let config_file: ConfigFile = toml::from_str(toml_str).unwrap();
+        let config = Config::from_config_file(config_file);
+
+        assert_eq!(config.history_size, 5000);
+        assert_eq!(config.prompt, ">> ");
+        assert_eq!(config.completion_timeout_ms, 200);
+        assert_eq!(config.suggestion_delay_ms, 100);
+    }
+
+    #[test]
+    fn test_from_config_file_partial_appearance() {
+        let toml_str = r#"
+            [appearance]
+            prompt = "λ "
+        "#;
+
+        let config_file: ConfigFile = toml::from_str(toml_str).unwrap();
+        let config = Config::from_config_file(config_file);
+
+        assert_eq!(config.prompt, "λ ");
+        // Other values should be defaults
+        assert_eq!(config.history_size, 10_000);
+    }
+
+    #[test]
+    fn test_from_config_file_partial_behavior() {
+        let toml_str = r#"
+            [behavior]
+            history_size = 20000
+        "#;
+
+        let config_file: ConfigFile = toml::from_str(toml_str).unwrap();
+        let config = Config::from_config_file(config_file);
+
+        assert_eq!(config.history_size, 20000);
+        // Other values should be defaults
+        assert_eq!(config.prompt, "$ ");
+        assert_eq!(config.completion_timeout_ms, 100);
+    }
+
+    #[test]
+    fn test_from_config_file_empty() {
+        let toml_str = r#""#;
+
+        let config_file: ConfigFile = toml::from_str(toml_str).unwrap();
+        let config = Config::from_config_file(config_file);
+
+        // All values should be defaults
+        assert_eq!(config.history_size, 10_000);
+        assert_eq!(config.prompt, "$ ");
+        assert_eq!(config.completion_timeout_ms, 100);
+        assert_eq!(config.suggestion_delay_ms, 50);
+    }
+
+    #[test]
+    fn test_theme_clone() {
+        let theme1 = Theme::default();
+        let theme2 = theme1.clone();
+
+        // Verify clone works (Color doesn't impl PartialEq, so just check types match)
+        match (theme1.command_color, theme2.command_color) {
+            (Color::Green, Color::Green) => (),
+            _ => panic!("Theme clone failed"),
+        }
+    }
+
+    #[test]
+    fn test_theme_all_colors_set() {
+        let theme = Theme::default();
+
+        // Verify all color fields exist and are valid
+        let _cmd = theme.command_color;
+        let _flag = theme.flag_color;
+        let _path = theme.path_color;
+        let _string = theme.string_color;
+        let _error = theme.error_color;
+    }
 }
