@@ -148,4 +148,51 @@ mod tests {
         let style = RushHighlighter::get_style(&TokenType::String, "\"hello\"");
         assert_eq!(style.foreground, Some(Color::Yellow));
     }
+
+    #[test]
+    fn test_get_style_for_path_valid() {
+        // Valid paths should be underlined
+        let style = RushHighlighter::get_style(&TokenType::Argument, ".");
+        assert!(style.is_underline);
+
+        let style = RushHighlighter::get_style(&TokenType::Argument, "..");
+        assert!(style.is_underline);
+    }
+
+    #[test]
+    fn test_get_style_for_path_invalid() {
+        // Invalid path-like arguments should use default style
+        let style = RushHighlighter::get_style(&TokenType::Argument, "/nonexistent/path/xyz");
+        // May or may not be underlined depending on filesystem
+        // Just verify it doesn't crash
+        drop(style);
+    }
+
+    #[test]
+    fn test_get_style_for_operators() {
+        // Test all operator token types
+        let style = RushHighlighter::get_style(&TokenType::Pipe, "|");
+        assert_eq!(style.foreground, Some(Color::Cyan));
+
+        let style = RushHighlighter::get_style(&TokenType::And, "&&");
+        assert_eq!(style.foreground, Some(Color::Cyan));
+
+        let style = RushHighlighter::get_style(&TokenType::Or, "||");
+        assert_eq!(style.foreground, Some(Color::Cyan));
+
+        let style = RushHighlighter::get_style(&TokenType::Semicolon, ";");
+        assert_eq!(style.foreground, Some(Color::Cyan));
+
+        let style = RushHighlighter::get_style(&TokenType::Background, "&");
+        assert_eq!(style.foreground, Some(Color::Cyan));
+
+        let style = RushHighlighter::get_style(&TokenType::Redirect, ">");
+        assert_eq!(style.foreground, Some(Color::Cyan));
+    }
+
+    #[test]
+    fn test_get_style_for_comment() {
+        let style = RushHighlighter::get_style(&TokenType::Comment, "# comment");
+        assert_eq!(style.foreground, Some(Color::DarkGray));
+    }
 }
