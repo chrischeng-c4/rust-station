@@ -669,4 +669,186 @@ mod tests {
 
         std::fs::remove_file("/tmp/rush_input.txt").unwrap();
     }
+
+    // === Error Path Coverage Tests ===
+
+    #[test]
+    fn test_output_redirection_permission_denied() {
+        let executor = PipelineExecutor::new();
+        // Try to write to /dev/null/impossible (directory, not file)
+        let pipeline = parse_pipeline("echo test > /dev/null/impossible").unwrap();
+        let result = executor.execute(&pipeline);
+        // Should fail with redirection error
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_output_redirection_to_directory() {
+        let executor = PipelineExecutor::new();
+        // Try to redirect to /tmp (which is a directory)
+        let pipeline = parse_pipeline("echo test > /tmp").unwrap();
+        let result = executor.execute(&pipeline);
+        // Should fail - can't write to directory
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert!(e.to_string().contains("directory"));
+        }
+    }
+
+    #[test]
+    fn test_append_redirection_permission_denied() {
+        let executor = PipelineExecutor::new();
+        // Try to append to impossible location
+        let pipeline = parse_pipeline("echo test >> /dev/null/impossible").unwrap();
+        let result = executor.execute(&pipeline);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_append_redirection_to_directory() {
+        let executor = PipelineExecutor::new();
+        // Try to append to /tmp (directory)
+        let pipeline = parse_pipeline("echo test >> /tmp").unwrap();
+        let result = executor.execute(&pipeline);
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert!(e.to_string().contains("directory"));
+        }
+    }
+
+    #[test]
+    fn test_input_redirection_file_not_found() {
+        let executor = PipelineExecutor::new();
+        // Try to read from nonexistent file
+        let pipeline = parse_pipeline("cat < /tmp/nonexistent_file_xyz123.txt").unwrap();
+        let result = executor.execute(&pipeline);
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert!(e.to_string().contains("not found"));
+        }
+    }
+
+    #[test]
+    fn test_input_redirection_permission_denied() {
+        use std::fs::File;
+        use std::os::unix::fs::PermissionsExt;
+
+        let executor = PipelineExecutor::new();
+        let test_file = "/tmp/rush_no_read_permission.txt";
+
+        // Create file with no read permissions
+        File::create(test_file).unwrap();
+        let mut perms = std::fs::metadata(test_file).unwrap().permissions();
+        perms.set_mode(0o000); // No permissions
+        std::fs::set_permissions(test_file, perms).unwrap();
+
+        let pipeline = parse_pipeline(&format!("cat < {}", test_file)).unwrap();
+        let result = executor.execute(&pipeline);
+
+        // Restore permissions for cleanup
+        let mut perms = std::fs::metadata(test_file).unwrap().permissions();
+        perms.set_mode(0o644);
+        std::fs::set_permissions(test_file, perms).unwrap();
+        std::fs::remove_file(test_file).unwrap();
+
+        // Should fail with permission denied
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert!(e.to_string().contains("permission denied"));
+        }
+    }
+
+    #[test]
+    fn test_append_redirection_success() {
+        let executor = PipelineExecutor::new();
+        let test_file = "/tmp/rush_append_test.txt";
+        let _ = std::fs::remove_file(test_file);
+
+        // First write
+        let pipeline1 = parse_pipeline(&format!("echo first >> {}", test_file)).unwrap();
+        assert!(executor.execute(&pipeline1).is_ok());
+
+        // Second append
+        let pipeline2 = parse_pipeline(&format!("echo second >> {}", test_file)).unwrap();
+        assert!(executor.execute(&pipeline2).is_ok());
+
+        // Verify both lines exist
+        let content = std::fs::read_to_string(test_file).unwrap();
+        assert!(content.contains("first"));
+        assert!(content.contains("second"));
+
+        std::fs::remove_file(test_file).unwrap();
+    }
+
+    #[test]
+    fn test_input_redirection_success() {
+        let executor = PipelineExecutor::new();
+        let test_file = "/tmp/rush_input_test.txt";
+
+        // Create input file
+        std::fs::write(test_file, "test content\n").unwrap();
+
+        // Read from file
+        let pipeline = parse_pipeline(&format!("cat < {}", test_file)).unwrap();
+        let result = executor.execute(&pipeline);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 0);
+
+        std::fs::remove_file(test_file).unwrap();
+    }
+
+    #[test]
+    fn test_multiple_redirections() {
+        let executor = PipelineExecutor::new();
+        let in_file = "/tmp/rush_multi_in.txt";
+        let out_file = "/tmp/rush_multi_out.txt";
+        let _ = std::fs::remove_file(out_file);
+
+        // Create input file
+        std::fs::write(in_file, "input data\n").unwrap();
+
+        // Redirect both input and output
+        let pipeline = parse_pipeline(&format!("cat < {} > {}", in_file, out_file)).unwrap();
+        let result = executor.execute(&pipeline);
+        assert!(result.is_ok());
+
+        // Verify output
+        let content = std::fs::read_to_string(out_file).unwrap();
+        assert!(content.contains("input data"));
+
+        std::fs::remove_file(in_file).unwrap();
+        std::fs::remove_file(out_file).unwrap();
+    }
+
+    #[test]
+    fn test_execute_single_no_redirections() {
+        let executor = PipelineExecutor::new();
+        // Test the else branch at line 179 (no redirections)
+        let pipeline = parse_pipeline("echo test").unwrap();
+        let result = executor.execute(&pipeline);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 0);
+    }
+
+    #[test]
+    fn test_spawn_single_command() {
+        let executor = PipelineExecutor::new();
+        // Test spawn() with single command (lines 85-88)
+        let pipeline = parse_pipeline("echo test").unwrap();
+        let execution = executor.spawn(&pipeline);
+        assert!(execution.is_ok());
+        let result = execution.unwrap().wait_all();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_spawn_multi_command() {
+        let executor = PipelineExecutor::new();
+        // Test spawn() with multi-command pipeline (lines 90)
+        let pipeline = parse_pipeline("echo test | cat").unwrap();
+        let execution = executor.spawn(&pipeline);
+        assert!(execution.is_ok());
+        let result = execution.unwrap().wait_all();
+        assert!(result.is_ok());
+    }
 }
