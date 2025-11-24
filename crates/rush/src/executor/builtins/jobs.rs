@@ -66,4 +66,42 @@ mod tests {
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 0);
     }
+
+    #[test]
+    fn test_jobs_prints_active_jobs_directly() {
+        use std::process::Command;
+        use std::time::Duration;
+        use std::thread;
+
+        // Spawn a long-running child process that we actually parent
+        // This process will still be alive when we call execute()
+        let child = Command::new("sleep")
+            .arg("5")
+            .spawn()
+            .expect("Failed to spawn sleep process");
+
+        let child_pid = child.id() as i32;
+
+        let mut executor = CommandExecutor::new();
+        let manager = executor.job_manager_mut();
+
+        let _id = manager.add_job(
+            nix::unistd::Pid::from_raw(child_pid),
+            "sleep 5".to_string(),
+            vec![nix::unistd::Pid::from_raw(child_pid)],
+        );
+
+        // Give the process a moment to ensure it's running
+        thread::sleep(Duration::from_millis(10));
+
+        // Now call execute() which will:
+        // 1. Call check_background_jobs() (updates status)
+        // 2. List jobs (the sleep process should still be running)
+        // 3. Print each job (executes line 20)
+        let result = execute(&mut executor, &[]);
+
+        // Verify the command ran successfully
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 0);
+    }
 }

@@ -194,4 +194,54 @@ mod tests {
         assert!(rendered.contains("test"));
         assert!(rendered.contains("failing"));
     }
+
+    #[test]
+    fn test_get_current_dir_exactly_home() {
+        // Test specifically the case where cwd == home (line 33)
+        // by temporarily changing to home directory
+        if let Some(home) = dirs::home_dir() {
+            let original_dir = env::current_dir().ok();
+
+            // Try to change to home and test
+            if std::env::set_current_dir(&home).is_ok() {
+                let prompt = RushPrompt::new(0);
+                let dir = prompt.get_current_dir();
+                assert_eq!(dir, "~");
+
+                // Restore original directory if we have it
+                if let Some(orig) = original_dir {
+                    let _ = std::env::set_current_dir(orig);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_get_current_dir_fallback_to_display() {
+        // Test line 41: cwd.display().to_string() fallback
+        // This tests the case where current_dir is outside the home directory
+        let original_dir = env::current_dir().ok();
+
+        // Try to change to /tmp (which is typically outside home)
+        let tmp_path = std::path::PathBuf::from("/tmp");
+        if tmp_path.exists() && std::env::set_current_dir(&tmp_path).is_ok() {
+            let prompt = RushPrompt::new(0);
+            let dir = prompt.get_current_dir();
+
+            // On macOS, /tmp is symlinked to /private/tmp
+            // On Linux, it's just /tmp
+            // Both should not be shortened to ~ since they're not under home
+            let current_actual_dir = env::current_dir()
+                .ok()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default();
+            assert_eq!(dir, current_actual_dir);
+            assert!(!dir.starts_with("~"));
+
+            // Restore original directory
+            if let Some(orig) = original_dir {
+                let _ = std::env::set_current_dir(orig);
+            }
+        }
+    }
 }

@@ -168,4 +168,75 @@ mod tests {
         // Result doesn't matter - we're testing that stopped jobs trigger SIGCONT path
         assert!(result.is_ok() || result.is_err());
     }
+
+    #[test]
+    fn test_fg_with_exiting_process() {
+        use std::process::Command;
+        use std::time::Duration;
+        use std::thread;
+
+        // Spawn a process that exits quickly
+        let child = Command::new("sh")
+            .arg("-c")
+            .arg("exit 42")
+            .spawn()
+            .expect("Failed to spawn process");
+
+        let child_pid = child.id() as i32;
+
+        let mut executor = CommandExecutor::new();
+
+        // Add the process as a job
+        let manager = executor.job_manager_mut();
+        let id = manager.add_job(
+            Pid::from_raw(child_pid),
+            "sh -c 'exit 42'".to_string(),
+            vec![Pid::from_raw(child_pid)],
+        );
+
+        // Give the process time to exit
+        thread::sleep(Duration::from_millis(100));
+
+        // fg should wait for the process and get exit code 42 (lines 62-63)
+        let result = execute(&mut executor, &[]);
+        assert!(result.is_ok());
+        // The exit code should be 42 from the sh -c exit
+        let exit_code = result.unwrap();
+        assert_eq!(exit_code, 42);
+    }
+
+    #[test]
+    fn test_fg_job_removed_on_exit() {
+        use std::process::Command;
+        use std::time::Duration;
+        use std::thread;
+
+        // Spawn a process that exits immediately
+        let child = Command::new("true")
+            .spawn()
+            .expect("Failed to spawn true process");
+
+        let child_pid = child.id() as i32;
+
+        let mut executor = CommandExecutor::new();
+
+        // Add the process as a job
+        let manager = executor.job_manager_mut();
+        let id = manager.add_job(
+            Pid::from_raw(child_pid),
+            "true".to_string(),
+            vec![Pid::from_raw(child_pid)],
+        );
+
+        // Give the process time to exit
+        thread::sleep(Duration::from_millis(100));
+
+        // fg should wait for the process and remove the job on exit (not stopped)
+        let result = execute(&mut executor, &[]);
+        assert!(result.is_ok());
+
+        // Verify job was removed (lines 85-86 executed, not stopped path)
+        let removed_job = executor.job_manager_mut().get_job(id);
+        assert!(removed_job.is_none(), "Job should be removed after exiting normally");
+    }
 }

@@ -157,4 +157,37 @@ mod tests {
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Failed to resume job"));
     }
+
+    #[test]
+    fn test_bg_with_valid_pid() {
+        use std::process::Command;
+
+        // Spawn a real process (sleep) that we can send signals to
+        let child = Command::new("sleep")
+            .arg("10")
+            .spawn()
+            .expect("Failed to spawn sleep process");
+
+        let child_pid = child.id() as i32;
+
+        let mut executor = CommandExecutor::new();
+
+        // Add the real process as a job with Stopped status
+        let manager = executor.job_manager_mut();
+        let id = manager.add_job(
+            Pid::from_raw(child_pid),
+            "sleep 10".to_string(),
+            vec![Pid::from_raw(child_pid)],
+        );
+        manager.get_job_mut(id).unwrap().status = JobStatus::Stopped;
+
+        // bg should succeed in resuming the job (lines 41-42, 44)
+        let result = execute(&mut executor, &[]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 0);
+
+        // Verify job status is now Running (line 41 executed)
+        let job = executor.job_manager_mut().get_job(id).unwrap();
+        assert_eq!(job.status, JobStatus::Running);
+    }
 }
