@@ -192,4 +192,30 @@ mod tests {
         let token = hinter.next_hint_token();
         assert_eq!(token, "");
     }
+
+    #[test]
+    fn test_hint_with_ansi_styling() {
+        use reedline::{Hinter, History, FileBackedHistory, HistoryItem};
+
+        let mut hinter = RushHinter::new();
+
+        // Create a temporary history file
+        let temp_dir = std::env::temp_dir();
+        let history_file = temp_dir.join(format!("rush_test_history_{}.txt", std::process::id()));
+
+        // Create history with a command
+        let mut history = FileBackedHistory::with_file(100, history_file.clone()).unwrap();
+        let item = HistoryItem::from_command_line("echo hello");
+        let _ = history.save(item);
+
+        // Test handle() with ansi coloring enabled (line 122)
+        let styled_hint = hinter.handle("echo", 4, &history, true, "/tmp");
+
+        // Should return styled hint (contains ANSI codes from line 122)
+        assert!(!styled_hint.is_empty());
+        assert!(styled_hint.contains("hello"));
+
+        // Clean up
+        let _ = std::fs::remove_file(history_file);
+    }
 }
