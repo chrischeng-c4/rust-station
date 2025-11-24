@@ -1165,4 +1165,279 @@ mod tests {
             assert_eq!(w, "\\test");
         }
     }
+
+    // === Additional Coverage Tests for Error Paths ===
+
+    #[test]
+    fn test_parse_command_with_redirections_empty() {
+        // Test empty string
+        let result = parse_command_with_redirections("");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Empty command"));
+    }
+
+    // NOTE: Lines 62-67 and 93-96 are dead code in parse_command_with_redirections
+    // because tokenize_with_redirections() does NOT create Token::Pipe or Token::Background
+    // Those tokens are only created by parse_pipeline's internal tokenizer
+    // The pipe and background characters become Word tokens in tokenize_with_redirections
+
+    #[test]
+    fn test_parse_command_with_redirections_only_redirections() {
+        // Test command with only redirections (line 102)
+        let result = parse_command_with_redirections("> output.txt");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Empty command"));
+    }
+
+    #[test]
+    fn test_parse_command_line_empty() {
+        // Test empty command in parse_command_line (line 200)
+        let result = parse_command_line("");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Empty command"));
+    }
+
+    #[test]
+    fn test_parse_command_line_whitespace_only() {
+        // Test whitespace-only command
+        let result = parse_command_line("   ");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Empty command"));
+    }
+
+    #[test]
+    fn test_tokenize_with_redirections_empty_token_before_redirect() {
+        // Test token boundaries (lines 256-258, 271-273)
+        let tokens = tokenize_with_redirections(">file.txt").unwrap();
+        assert_eq!(tokens.len(), 2);
+        assert!(matches!(tokens[0], Token::RedirectOut));
+        assert!(matches!(tokens[1], Token::Word(_)));
+    }
+
+    #[test]
+    fn test_tokenize_with_redirections_input_redirect_token_boundaries() {
+        // Test input redirect token boundaries
+        let tokens = tokenize_with_redirections("<input.txt").unwrap();
+        assert_eq!(tokens.len(), 2);
+        assert!(matches!(tokens[0], Token::RedirectIn));
+        assert!(matches!(tokens[1], Token::Word(_)));
+    }
+
+    #[test]
+    fn test_tokenize_filter_non_word_tokens() {
+        // Test that tokenize() filters out redirection operators (line 322)
+        let tokens = tokenize("echo test > file.txt").unwrap();
+        // Should only get words, not redirection operators
+        assert_eq!(tokens, vec!["echo", "test", "file.txt"]);
+    }
+
+    #[test]
+    fn test_parse_pipeline_empty() {
+        // Test empty pipeline (line 481-483)
+        let result = parse_pipeline("");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Empty command"));
+    }
+
+    #[test]
+    fn test_parse_pipeline_segment_empty() {
+        // Test pipeline with empty segment (line 487)
+        let result = parse_pipeline("ls | ");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Empty command"));
+    }
+
+    #[test]
+    fn test_parse_pipeline_segment_empty_after_pipe() {
+        // Test pipeline with empty segment after pipe (line 496)
+        let result = parse_pipeline(" | grep test");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Empty command"));
+    }
+
+    #[test]
+    fn test_parse_pipeline_redirect_missing_path_output() {
+        // Test missing file path after output redirect (line 503-505)
+        let result = parse_pipeline("echo test >");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("missing file path"));
+    }
+
+    #[test]
+    fn test_parse_pipeline_redirect_missing_path_append() {
+        // Test missing file path after append redirect (line 512-514)
+        let result = parse_pipeline("echo test >>");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("missing file path"));
+    }
+
+    #[test]
+    fn test_parse_pipeline_redirect_missing_path_input() {
+        // Test missing file path after input redirect (line 527-529)
+        let result = parse_pipeline("cat <");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("missing file path"));
+    }
+
+    #[test]
+    fn test_parse_pipeline_redirect_not_followed_by_path_output() {
+        // Test redirect not followed by path (line 536-538)
+        let result = parse_pipeline("echo test > >");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("must be followed by file path"));
+    }
+
+    #[test]
+    fn test_parse_pipeline_segment_only_redirections() {
+        // Test segment with only redirections (line 558)
+        let result = parse_pipeline("> out.txt");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Empty command"));
+    }
+
+    #[test]
+    fn test_parse_pipeline_background_middle_of_pipeline() {
+        // Test background in middle of pipeline (line 564)
+        let result = parse_pipeline("ls & | grep test");
+        assert!(result.is_err());
+        // Should error on empty command after &
+    }
+
+    #[test]
+    fn test_parse_pipeline_unclosed_single_quote() {
+        // Test unclosed single quote (line 647-648)
+        let result = parse_pipeline("echo 'unclosed");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Unclosed single quote"));
+    }
+
+    #[test]
+    fn test_parse_pipeline_unclosed_double_quote() {
+        // Test unclosed double quote (line 653-654)
+        let result = parse_pipeline("echo \"unclosed");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Unclosed double quote"));
+    }
+
+    #[test]
+    fn test_parse_pipeline_trailing_backslash() {
+        // Test trailing backslash (line 667)
+        let result = parse_pipeline("echo test\\");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Trailing backslash"));
+    }
+
+    #[test]
+    fn test_parse_pipeline_with_escaped_characters() {
+        // Test escaped characters in parse_pipeline (lines 481-483)
+        let pipeline = parse_pipeline("echo \\>\\<\\|\\&").unwrap();
+        assert_eq!(pipeline.segments.len(), 1);
+        let segment = &pipeline.segments[0];
+        assert_eq!(segment.program, "echo");
+        // Escaped operators should be treated as regular arguments
+        assert_eq!(segment.args.len(), 1);
+        assert!(segment.args[0].contains('>'));
+    }
+
+    #[test]
+    fn test_parse_pipeline_with_quoted_empty_string_before_pipe() {
+        // Test had_quotes flag before pipe (line 496, 503-505)
+        let pipeline = parse_pipeline("echo \"\" | grep test").unwrap();
+        assert_eq!(pipeline.segments.len(), 2);
+        assert_eq!(pipeline.segments[0].args, vec![""]);
+    }
+
+    #[test]
+    fn test_parse_pipeline_with_quoted_string_before_redirect() {
+        // Test had_quotes flag before redirection (lines 512-514, 527-529)
+        let pipeline = parse_pipeline("echo \"test\" > file.txt").unwrap();
+        assert_eq!(pipeline.segments.len(), 1);
+        assert_eq!(pipeline.segments[0].args, vec!["test"]);
+        assert_eq!(pipeline.segments[0].redirections.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_pipeline_redirect_after_redirect() {
+        // Test redirect followed by another redirect (line 536-538)
+        let result = parse_pipeline("echo test > < file.txt");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("must be followed by file path"));
+    }
+
+    #[test]
+    fn test_tokenize_with_redirections_quoted_empty_before_redirect() {
+        // Test had_quotes flag before redirect in tokenize_with_redirections (lines 256-258, 271-273)
+        let tokens = tokenize_with_redirections("echo \"\" >file.txt").unwrap();
+        // Should have: echo, "", >, file.txt
+        assert!(tokens.len() >= 3);
+        if let Token::Word(w) = &tokens[1] {
+            assert_eq!(w, "");
+        }
+    }
+
+    #[test]
+    fn test_tokenize_with_redirections_quoted_empty_before_input_redirect() {
+        // Test had_quotes flag before input redirect (lines 271-273)
+        let tokens = tokenize_with_redirections("cat \"\" <file.txt").unwrap();
+        assert!(tokens.len() >= 3);
+        if let Token::Word(w) = &tokens[1] {
+            assert_eq!(w, "");
+        }
+    }
+
+    #[test]
+    fn test_parse_pipeline_quoted_empty_before_pipe() {
+        // Test had_quotes before pipe in parse_pipeline tokenizer (lines 503-505)
+        let pipeline = parse_pipeline("cat \"\" |grep x").unwrap();
+        assert_eq!(pipeline.segments.len(), 2);
+        // Empty quoted string should be preserved
+        assert_eq!(pipeline.segments[0].args, vec![""]);
+    }
+
+    #[test]
+    fn test_parse_pipeline_quoted_empty_before_redirect_out() {
+        // Test had_quotes before > in parse_pipeline tokenizer (lines 512-514)
+        let pipeline = parse_pipeline("echo \"\" >out.txt").unwrap();
+        assert_eq!(pipeline.segments.len(), 1);
+        assert_eq!(pipeline.segments[0].args, vec![""]);
+    }
+
+    #[test]
+    fn test_parse_pipeline_quoted_empty_before_redirect_in() {
+        // Test had_quotes before < in parse_pipeline tokenizer (lines 527-529)
+        let pipeline = parse_pipeline("cat \"\" <in.txt").unwrap();
+        assert_eq!(pipeline.segments.len(), 1);
+        assert_eq!(pipeline.segments[0].args, vec![""]);
+    }
+
+    #[test]
+    fn test_parse_pipeline_quoted_empty_before_background() {
+        // Test had_quotes before & in parse_pipeline tokenizer (lines 536-538)
+        let pipeline = parse_pipeline("sleep \"\" &").unwrap();
+        assert!(pipeline.background);
+        assert_eq!(pipeline.segments[0].args, vec![""]);
+    }
+
+    #[test]
+    fn test_tokenize_with_redirections_quoted_empty_string_before_output_redirect() {
+        // Test had_quotes flag in tokenize_with_redirections before > (lines 256-258)
+        let tokens = tokenize_with_redirections("echo \"\" >file").unwrap();
+        assert!(tokens.len() >= 3);
+        // Check for empty string Word token
+        if let Token::Word(w) = &tokens[1] {
+            assert_eq!(w, "");
+        }
+        assert!(matches!(tokens[2], Token::RedirectOut));
+    }
+
+    #[test]
+    fn test_tokenize_with_redirections_quoted_empty_string_before_input_redirect() {
+        // Test had_quotes flag in tokenize_with_redirections before < (lines 271-273)
+        let tokens = tokenize_with_redirections("cat \"\" <file").unwrap();
+        assert!(tokens.len() >= 3);
+        if let Token::Word(w) = &tokens[1] {
+            assert_eq!(w, "");
+        }
+        assert!(matches!(tokens[2], Token::RedirectIn));
+    }
 }
