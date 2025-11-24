@@ -156,4 +156,40 @@ mod tests {
         let hinter = RushHinter::default();
         assert_eq!(hinter.current_hint, "");
     }
+
+    #[test]
+    fn test_complete_hint() {
+        use reedline::Hinter;
+
+        let mut hinter = RushHinter::new();
+        hinter.current_hint = "full hint text".to_string();
+
+        // Test complete_hint() returns the full hint
+        let complete = hinter.complete_hint();
+        assert_eq!(complete, "full hint text");
+    }
+
+    #[test]
+    fn test_next_hint_token() {
+        use reedline::Hinter;
+
+        let mut hinter = RushHinter::new();
+        hinter.current_hint = "first second third".to_string();
+
+        // Test next_hint_token() returns only the first token
+        let token = hinter.next_hint_token();
+        assert_eq!(token, "first");
+    }
+
+    #[test]
+    fn test_next_hint_token_empty() {
+        use reedline::Hinter;
+
+        let mut hinter = RushHinter::new();
+        hinter.current_hint = "".to_string();
+
+        // Test next_hint_token() with empty hint
+        let token = hinter.next_hint_token();
+        assert_eq!(token, "");
+    }
 }
