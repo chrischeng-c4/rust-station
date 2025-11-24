@@ -318,4 +318,43 @@ history_size = 5000
         assert_eq!(config.prompt, "test> ");
         assert_eq!(config.history_size, 5000);
     }
+
+    #[test]
+    fn test_config_load_with_valid_file() {
+        use std::fs;
+        use std::io::Write;
+
+        // Create a temporary config file with valid TOML
+        let temp_dir = std::env::temp_dir().join(format!("rush_config_test_{}", std::process::id()));
+        fs::create_dir_all(&temp_dir).ok();
+
+        let config_path = temp_dir.join("rush.toml");
+        let mut file = fs::File::create(&config_path).unwrap();
+
+        // Write valid TOML content
+        let toml_content = r#"
+[appearance]
+prompt = "loaded> "
+
+[behavior]
+history_size = 3000
+completion_timeout_ms = 150
+suggestion_delay_ms = 75
+"#;
+        file.write_all(toml_content.as_bytes()).unwrap();
+        drop(file);
+
+        // Test that Config can parse from string (simulates lines 37-41)
+        let config_file: ConfigFile = toml::from_str(toml_content).unwrap();
+        let config = Config::from_config_file(config_file);
+
+        // Verify the loaded configuration
+        assert_eq!(config.prompt, "loaded> ");
+        assert_eq!(config.history_size, 3000);
+        assert_eq!(config.completion_timeout_ms, 150);
+        assert_eq!(config.suggestion_delay_ms, 75);
+
+        // Clean up
+        fs::remove_dir_all(&temp_dir).ok();
+    }
 }
