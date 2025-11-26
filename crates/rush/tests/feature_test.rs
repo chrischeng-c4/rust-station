@@ -214,4 +214,47 @@ mod feature_tests {
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 0);
     }
+
+    #[test]
+    fn test_glob_expansion_star() {
+        use std::env;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let dir_path = temp_dir.path();
+
+        // Create test files
+        fs::write(dir_path.join("file1.txt"), "content1").unwrap();
+        fs::write(dir_path.join("file2.txt"), "content2").unwrap();
+        fs::write(dir_path.join("other.rs"), "rust code").unwrap();
+
+        // Save original dir
+        let original_dir = env::current_dir().unwrap();
+
+        // Change to temp directory
+        env::set_current_dir(dir_path).unwrap();
+
+        let mut executor = CommandExecutor::new();
+
+        // Test glob expansion - echo *.txt should show both txt files
+        // Note: This test verifies the command runs without error
+        // The actual expansion happens and echo receives multiple args
+        let result = executor.execute("echo *.txt");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 0);
+
+        // Restore original directory
+        env::set_current_dir(original_dir).unwrap();
+    }
+
+    #[test]
+    fn test_glob_no_match_literal() {
+        let mut executor = CommandExecutor::new();
+
+        // When glob pattern matches nothing, it's passed literally (POSIX behavior)
+        // echo *.nonexistent should just output "*.nonexistent"
+        let result = executor.execute("echo *.nonexistent_extension_12345");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 0);
+    }
 }

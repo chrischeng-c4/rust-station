@@ -2,7 +2,7 @@
 
 use super::environment::EnvironmentManager;
 use super::job::JobManager;
-use super::parser::{expand_variables, parse_pipeline};
+use super::parser::{expand_globs, expand_variables, parse_pipeline};
 use super::pipeline::PipelineExecutor;
 use crate::error::Result;
 use nix::unistd::Pid;
@@ -80,6 +80,9 @@ impl CommandExecutor {
 
         // Expand environment variables in all pipeline segments
         expand_variables(&mut pipeline.segments, &self.env_manager);
+
+        // Expand glob patterns (*, ?, [...]) in arguments
+        expand_globs(&mut pipeline.segments);
 
         // Check for built-ins (only if single command and not background)
         if pipeline.len() == 1 && !pipeline.background {

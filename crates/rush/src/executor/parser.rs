@@ -714,6 +714,39 @@ pub fn expand_variables(segments: &mut [PipelineSegment], env: &EnvironmentManag
     }
 }
 
+/// Expand glob patterns in all pipeline segment arguments
+///
+/// This function expands wildcard patterns (*, ?, [...]) in command arguments
+/// to matching file paths. It should be called after variable expansion.
+///
+/// # Behavior
+///
+/// - Patterns matching files are expanded to the list of matching paths
+/// - Patterns with no matches are preserved as literals (POSIX behavior)
+/// - Quoted arguments are not expanded
+/// - Hidden files (starting with .) are excluded unless pattern explicitly matches them
+///
+/// # Arguments
+///
+/// * `segments` - Mutable slice of pipeline segments to expand
+pub fn expand_globs(segments: &mut [PipelineSegment]) {
+    use super::glob::expand_globs as expand_glob_args;
+
+    for segment in segments {
+        // Expand glob patterns in arguments
+        // Note: We don't expand the program name (that would be unusual)
+        let expanded_args: Vec<String> = segment
+            .args
+            .iter()
+            .flat_map(|arg| expand_glob_args(std::slice::from_ref(arg)))
+            .collect();
+        segment.args = expanded_args;
+
+        // Note: We intentionally do NOT expand globs in redirection paths
+        // e.g., "ls > *.txt" should create a file literally named "*.txt"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

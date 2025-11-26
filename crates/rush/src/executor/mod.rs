@@ -29,6 +29,7 @@
 pub mod builtins;
 pub mod environment;
 pub mod execute;
+pub mod glob;
 pub mod job;
 pub mod parser;
 pub mod pipeline;
