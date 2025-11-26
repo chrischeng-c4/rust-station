@@ -80,7 +80,11 @@ mod tests {
 
         // Add a stopped job first
         let manager = executor.job_manager_mut();
-        let id = manager.add_job(Pid::from_raw(1234), "echo test".to_string(), vec![Pid::from_raw(1234)]);
+        let id = manager.add_job(
+            Pid::from_raw(1234),
+            "echo test".to_string(),
+            vec![Pid::from_raw(1234)],
+        );
         manager.get_job_mut(id).unwrap().status = JobStatus::Stopped;
 
         // Try to bg a non-existent job
@@ -95,7 +99,11 @@ mod tests {
 
         // Add a stopped job first
         let manager = executor.job_manager_mut();
-        let id = manager.add_job(Pid::from_raw(1234), "echo test".to_string(), vec![Pid::from_raw(1234)]);
+        let id = manager.add_job(
+            Pid::from_raw(1234),
+            "echo test".to_string(),
+            vec![Pid::from_raw(1234)],
+        );
         manager.get_job_mut(id).unwrap().status = JobStatus::Stopped;
 
         // Try to parse invalid job ID
@@ -110,8 +118,10 @@ mod tests {
 
         // Add multiple stopped jobs
         let manager = executor.job_manager_mut();
-        let id1 = manager.add_job(Pid::from_raw(1234), "cmd1".to_string(), vec![Pid::from_raw(1234)]);
-        let id2 = manager.add_job(Pid::from_raw(5678), "cmd2".to_string(), vec![Pid::from_raw(5678)]);
+        let id1 =
+            manager.add_job(Pid::from_raw(1234), "cmd1".to_string(), vec![Pid::from_raw(1234)]);
+        let id2 =
+            manager.add_job(Pid::from_raw(5678), "cmd2".to_string(), vec![Pid::from_raw(5678)]);
 
         manager.get_job_mut(id1).unwrap().status = JobStatus::Stopped;
         manager.get_job_mut(id2).unwrap().status = JobStatus::Stopped;
@@ -128,9 +138,12 @@ mod tests {
 
         // Add multiple jobs
         let manager = executor.job_manager_mut();
-        let id1 = manager.add_job(Pid::from_raw(1234), "cmd1".to_string(), vec![Pid::from_raw(1234)]);
-        let id2 = manager.add_job(Pid::from_raw(5678), "cmd2".to_string(), vec![Pid::from_raw(5678)]);
-        let id3 = manager.add_job(Pid::from_raw(9012), "cmd3".to_string(), vec![Pid::from_raw(9012)]);
+        let id1 =
+            manager.add_job(Pid::from_raw(1234), "cmd1".to_string(), vec![Pid::from_raw(1234)]);
+        let id2 =
+            manager.add_job(Pid::from_raw(5678), "cmd2".to_string(), vec![Pid::from_raw(5678)]);
+        let id3 =
+            manager.add_job(Pid::from_raw(9012), "cmd3".to_string(), vec![Pid::from_raw(9012)]);
 
         // Stop some jobs
         manager.get_job_mut(id1).unwrap().status = JobStatus::Stopped;
@@ -149,13 +162,17 @@ mod tests {
 
         // Add a stopped job with non-existent PID
         let manager = executor.job_manager_mut();
-        let id = manager.add_job(Pid::from_raw(99999), "cmd".to_string(), vec![Pid::from_raw(99999)]);
+        let id =
+            manager.add_job(Pid::from_raw(99999), "cmd".to_string(), vec![Pid::from_raw(99999)]);
         manager.get_job_mut(id).unwrap().status = JobStatus::Stopped;
 
         // bg will fail to send SIGCONT to non-existent PID
         let result = execute(&mut executor, &[]);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Failed to resume job"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Failed to resume job"));
     }
 
     #[test]

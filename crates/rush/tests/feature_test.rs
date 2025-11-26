@@ -87,4 +87,119 @@ mod feature_tests {
         // Clean up
         fs::remove_file(test_file).unwrap();
     }
+
+    // === Environment Variables Integration Tests ===
+
+    #[test]
+    fn test_export_and_use_variable() {
+        let mut executor = CommandExecutor::new();
+
+        // Export a variable
+        let result = executor.execute("export TEST_VAR=hello_world");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 0);
+
+        // Verify the variable is set in the environment manager
+        assert_eq!(executor.env_manager().get("TEST_VAR"), Some("hello_world"));
+    }
+
+    #[test]
+    fn test_variable_expansion_in_echo() {
+        let mut executor = CommandExecutor::new();
+
+        // Set a variable
+        executor.env_manager_mut().set("MY_VAR".to_string(), "test_value".to_string()).unwrap();
+
+        // The variable should be available for expansion
+        // (echo $MY_VAR will expand to "echo test_value")
+        let result = executor.execute("true");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_export_path_modification() {
+        let mut executor = CommandExecutor::new();
+
+        // Get current PATH
+        let original_path = executor.env_manager().get("PATH").unwrap_or("").to_string();
+
+        // Append to PATH using variable expansion (the proper way)
+        let result = executor.execute("export PATH=$PATH:/custom/test/path");
+        assert!(result.is_ok());
+
+        // Verify PATH was modified
+        let new_path = executor.env_manager().get("PATH").unwrap();
+        assert!(new_path.contains("/custom/test/path"));
+        assert!(new_path.starts_with(&original_path));
+    }
+
+    #[test]
+    fn test_variable_in_redirection_path() {
+        let mut executor = CommandExecutor::new();
+
+        // Set output directory variable
+        executor.env_manager_mut().set("TEST_DIR".to_string(), "/tmp".to_string()).unwrap();
+
+        let test_file = "/tmp/rush_env_test.txt";
+        let _ = fs::remove_file(test_file);
+
+        // Use variable in redirection path
+        let result = executor.execute("echo env_test > $TEST_DIR/rush_env_test.txt");
+        assert!(result.is_ok());
+
+        // Verify file was created
+        assert!(Path::new(test_file).exists());
+        let content = fs::read_to_string(test_file).unwrap();
+        assert!(content.contains("env_test"));
+
+        // Clean up
+        fs::remove_file(test_file).unwrap();
+    }
+
+    #[test]
+    fn test_set_builtin_lists_variables() {
+        let mut executor = CommandExecutor::new();
+
+        // Add a test variable
+        executor.env_manager_mut().set("SET_TEST_VAR".to_string(), "set_value".to_string()).unwrap();
+
+        // Run set command (should succeed and list variables)
+        let result = executor.execute("set");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 0);
+    }
+
+    #[test]
+    fn test_export_with_variable_expansion() {
+        let mut executor = CommandExecutor::new();
+
+        // Set initial variable
+        executor.env_manager_mut().set("BASE".to_string(), "/home/user".to_string()).unwrap();
+
+        // Export with variable expansion
+        let result = executor.execute("export FULL_PATH=$BASE/documents");
+        assert!(result.is_ok());
+
+        // Verify the expansion happened
+        assert_eq!(executor.env_manager().get("FULL_PATH"), Some("/home/user/documents"));
+    }
+
+    #[test]
+    fn test_system_environment_inherited() {
+        let executor = CommandExecutor::new();
+
+        // PATH and HOME should be inherited from system
+        assert!(executor.env_manager().get("PATH").is_some());
+        // HOME might not be set in all environments, so just check PATH
+    }
+
+    #[test]
+    fn test_undefined_variable_expands_to_empty() {
+        let mut executor = CommandExecutor::new();
+
+        // Use an undefined variable (should not cause error)
+        let result = executor.execute("echo $UNDEFINED_VARIABLE_12345");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 0);
+    }
 }

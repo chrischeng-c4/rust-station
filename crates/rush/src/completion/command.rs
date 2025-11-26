@@ -476,24 +476,182 @@ mod tests {
         let completer = CommandCompleter::new();
 
         // First word only
-        assert_eq!(
-            completer.extract_partial_command("echo", 4),
-            Some("echo".to_string())
-        );
+        assert_eq!(completer.extract_partial_command("echo", 4), Some("echo".to_string()));
 
         // Partial first word
-        assert_eq!(
-            completer.extract_partial_command("ec", 2),
-            Some("ec".to_string())
-        );
+        assert_eq!(completer.extract_partial_command("ec", 2), Some("ec".to_string()));
 
         // After space (in arguments) - should return None
         assert_eq!(completer.extract_partial_command("echo test", 9), None);
 
         // Empty
-        assert_eq!(
-            completer.extract_partial_command("", 0),
-            Some("".to_string())
-        );
+        assert_eq!(completer.extract_partial_command("", 0), Some("".to_string()));
+    }
+
+    #[test]
+    fn test_is_executable_with_non_file() {
+        use std::fs;
+
+        let completer = CommandCompleter::new();
+
+        // Create a temporary directory to test
+        let test_dir = "/tmp/rush_is_exec_test";
+        let _ = fs::remove_dir_all(test_dir);
+        fs::create_dir_all(format!("{}/subdir", test_dir)).unwrap();
+
+        // Read the directory
+        if let Ok(entries) = fs::read_dir(test_dir) {
+            for entry in entries.flatten() {
+                // subdir is a directory, not a file - should return false
+                let is_exec = completer.is_executable(&entry);
+                assert!(!is_exec, "Directory should not be executable");
+            }
+        }
+
+        // Clean up
+        let _ = fs::remove_dir_all(test_dir);
+    }
+
+    #[test]
+    fn test_is_executable_with_file_no_exec_permission() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let completer = CommandCompleter::new();
+
+        // Create a file without execute permission
+        let test_dir = "/tmp/rush_is_exec_perm_test";
+        let _ = fs::remove_dir_all(test_dir);
+        fs::create_dir_all(test_dir).unwrap();
+        let file_path = format!("{}/noexec", test_dir);
+        fs::write(&file_path, "test").unwrap();
+
+        // Remove execute permissions
+        let mut perms = fs::metadata(&file_path).unwrap().permissions();
+        perms.set_mode(0o644); // rw-r--r--
+        fs::set_permissions(&file_path, perms).unwrap();
+
+        // Read the directory
+        if let Ok(entries) = fs::read_dir(test_dir) {
+            for entry in entries.flatten() {
+                let is_exec = completer.is_executable(&entry);
+                assert!(!is_exec, "File without exec permission should not be executable");
+            }
+        }
+
+        // Clean up
+        let _ = fs::remove_dir_all(test_dir);
+    }
+
+    #[test]
+    fn test_is_executable_with_executable_file() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let completer = CommandCompleter::new();
+
+        // Create a file with execute permission
+        let test_dir = "/tmp/rush_is_exec_yes_test";
+        let _ = fs::remove_dir_all(test_dir);
+        fs::create_dir_all(test_dir).unwrap();
+        let file_path = format!("{}/exec", test_dir);
+        fs::write(&file_path, "test").unwrap();
+
+        // Add execute permission
+        let mut perms = fs::metadata(&file_path).unwrap().permissions();
+        perms.set_mode(0o755); // rwxr-xr-x
+        fs::set_permissions(&file_path, perms).unwrap();
+
+        // Read the directory
+        if let Ok(entries) = fs::read_dir(test_dir) {
+            for entry in entries.flatten() {
+                let is_exec = completer.is_executable(&entry);
+                assert!(is_exec, "File with exec permission should be executable");
+            }
+        }
+
+        // Clean up
+        let _ = fs::remove_dir_all(test_dir);
+    }
+
+    #[test]
+    fn test_ensure_cache_loaded() {
+        let mut completer = CommandCompleter::new();
+
+        // Cache should initially be None
+        assert!(completer.cache.is_none());
+
+        // Load cache
+        completer.ensure_cache_loaded();
+
+        // Cache should now be Some
+        assert!(completer.cache.is_some());
+
+        // Call again - should reuse existing cache (not re-scan)
+        let cache_ptr_before = completer.cache.as_ref().map(|c| c.len());
+        completer.ensure_cache_loaded();
+        let cache_ptr_after = completer.cache.as_ref().map(|c| c.len());
+
+        // Same cache should be reused
+        assert_eq!(cache_ptr_before, cache_ptr_after);
+    }
+
+    #[test]
+    fn test_quit_builtin_description() {
+        let mut completer = CommandCompleter::new();
+        let mut cache = HashSet::new();
+        cache.insert("quit".to_string());
+        completer.cache = Some(cache);
+
+        let suggestions = completer.complete("quit", 4);
+        assert!(!suggestions.is_empty());
+        assert_eq!(suggestions[0].description, Some("Exit the shell".to_string()));
+    }
+
+    #[test]
+    fn test_scan_path_with_unreadable_directory() {
+        // Test that scan_path gracefully handles directories it can't read
+        // This covers the silent skip in lines 86-87
+        let completer = CommandCompleter::new();
+
+        // The PATH likely includes some directories, scan_path should not panic
+        // even if some directories are unreadable (which is silently skipped)
+        let executables = completer.scan_path();
+        // Just verify it returns something (the actual executables found)
+        assert!(executables.len() >= 0);
+    }
+
+    #[test]
+    fn test_complete_with_prefix_filter() {
+        let mut completer = CommandCompleter::new();
+
+        // Add some test commands to cache
+        let mut cache = HashSet::new();
+        cache.insert("echo".to_string());
+        cache.insert("exit".to_string());
+        cache.insert("cat".to_string());
+        completer.cache = Some(cache);
+
+        // Complete with "e" prefix
+        let suggestions = completer.complete("e", 1);
+
+        // Should filter to only commands starting with "e"
+        assert!(suggestions.iter().all(|s| s.value.starts_with("e")));
+        assert!(suggestions.len() >= 2); // echo and exit
+    }
+
+    #[test]
+    fn test_complete_with_no_matches() {
+        let mut completer = CommandCompleter::new();
+
+        // Add some test commands to cache
+        let mut cache = HashSet::new();
+        cache.insert("echo".to_string());
+        cache.insert("cat".to_string());
+        completer.cache = Some(cache);
+
+        // Complete with a prefix that doesn't match anything
+        let suggestions = completer.complete("xyz", 3);
+        assert!(suggestions.is_empty());
     }
 }

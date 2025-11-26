@@ -27,11 +27,14 @@
 //! ```
 
 pub mod builtins;
+pub mod environment;
 pub mod execute;
 pub mod job;
 pub mod parser;
 pub mod pipeline;
 pub mod script;
+
+pub use environment::EnvironmentManager;
 
 use crate::error::Result;
 use std::path::PathBuf;
@@ -458,14 +461,16 @@ mod tests {
     #[test]
     fn test_command_validate_with_valid_redirections() {
         let mut cmd = Command::new("echo".to_string(), vec!["test".to_string()]);
-        cmd.redirections.push(Redirection::new(RedirectionType::Output, "out.txt".to_string()));
+        cmd.redirections
+            .push(Redirection::new(RedirectionType::Output, "out.txt".to_string()));
         assert!(cmd.validate().is_ok());
     }
 
     #[test]
     fn test_command_validate_with_invalid_redirection() {
         let mut cmd = Command::new("echo".to_string(), vec!["test".to_string()]);
-        cmd.redirections.push(Redirection::new(RedirectionType::Output, "".to_string()));
+        cmd.redirections
+            .push(Redirection::new(RedirectionType::Output, "".to_string()));
         assert!(cmd.validate().is_err());
     }
 
@@ -473,7 +478,11 @@ mod tests {
     fn test_pipeline_validate_empty() {
         let pipeline = Pipeline::new(vec![], "".to_string(), false);
         assert!(pipeline.validate().is_err());
-        assert!(pipeline.validate().unwrap_err().to_string().contains("Empty pipeline"));
+        assert!(pipeline
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("Empty pipeline"));
     }
 
     #[test]
@@ -494,13 +503,19 @@ mod tests {
     fn test_pipeline_segment_validate_empty_program() {
         let segment = PipelineSegment::new("".to_string(), vec![], 0, vec![]);
         assert!(segment.validate().is_err());
-        assert!(segment.validate().unwrap_err().to_string().contains("Empty program"));
+        assert!(segment
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("Empty program"));
     }
 
     #[test]
     fn test_pipeline_segment_validate_with_invalid_redirection() {
         let mut segment = PipelineSegment::new("echo".to_string(), vec![], 0, vec![]);
-        segment.redirections.push(Redirection::new(RedirectionType::Output, "".to_string()));
+        segment
+            .redirections
+            .push(Redirection::new(RedirectionType::Output, "".to_string()));
         assert!(segment.validate().is_err());
     }
 

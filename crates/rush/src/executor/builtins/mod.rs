@@ -1,10 +1,12 @@
 //! Built-in commands module
 //!
-//! Handles execution of shell built-ins like `jobs`, `fg`, `bg`, `cd`, etc.
+//! Handles execution of shell built-ins like `jobs`, `fg`, `bg`, `export`, `set`, etc.
 
 pub mod bg;
+pub mod export;
 pub mod fg;
 pub mod jobs;
+pub mod set;
 
 use crate::error::Result;
 use crate::executor::execute::CommandExecutor;
@@ -23,6 +25,8 @@ pub fn execute_builtin(
         "jobs" => Some(jobs::execute(executor, args)),
         "fg" => Some(fg::execute(executor, args)),
         "bg" => Some(bg::execute(executor, args)),
+        "export" => Some(export::execute(executor, args)),
+        "set" => Some(set::execute(executor, args)),
         _ => None,
     }
 }

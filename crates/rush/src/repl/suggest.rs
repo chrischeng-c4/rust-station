@@ -195,7 +195,7 @@ mod tests {
 
     #[test]
     fn test_hint_with_ansi_styling() {
-        use reedline::{Hinter, History, FileBackedHistory, HistoryItem};
+        use reedline::{FileBackedHistory, Hinter, History, HistoryItem};
 
         let mut hinter = RushHinter::new();
 
@@ -214,6 +214,113 @@ mod tests {
         // Should return styled hint (contains ANSI codes from line 122)
         assert!(!styled_hint.is_empty());
         assert!(styled_hint.contains("hello"));
+
+        // Clean up
+        let _ = std::fs::remove_file(history_file);
+    }
+
+    #[test]
+    fn test_hint_cursor_not_at_end() {
+        use reedline::{FileBackedHistory, Hinter};
+
+        let mut hinter = RushHinter::new();
+
+        // Create a temporary history file
+        let temp_dir = std::env::temp_dir();
+        let history_file =
+            temp_dir.join(format!("rush_test_hint_cursor_{}.txt", std::process::id()));
+
+        let history = FileBackedHistory::with_file(100, history_file.clone()).unwrap();
+
+        // Set a hint first
+        hinter.current_hint = "some hint".to_string();
+
+        // Test handle() with cursor NOT at end of line (lines 92-94)
+        // Line is "echo hello" (10 chars) but cursor is at position 4
+        let hint = hinter.handle("echo hello", 4, &history, true, "/tmp");
+
+        // Should return empty and clear current_hint
+        assert!(hint.is_empty());
+        assert!(hinter.current_hint.is_empty());
+
+        // Clean up
+        let _ = std::fs::remove_file(history_file);
+    }
+
+    #[test]
+    fn test_hint_empty_input() {
+        use reedline::{FileBackedHistory, Hinter};
+
+        let mut hinter = RushHinter::new();
+
+        // Create a temporary history file
+        let temp_dir = std::env::temp_dir();
+        let history_file =
+            temp_dir.join(format!("rush_test_hint_empty_{}.txt", std::process::id()));
+
+        let history = FileBackedHistory::with_file(100, history_file.clone()).unwrap();
+
+        // Set a hint first
+        hinter.current_hint = "some hint".to_string();
+
+        // Test handle() with empty input (lines 98-100)
+        let hint = hinter.handle("", 0, &history, true, "/tmp");
+
+        // Should return empty and clear current_hint
+        assert!(hint.is_empty());
+        assert!(hinter.current_hint.is_empty());
+
+        // Clean up
+        let _ = std::fs::remove_file(history_file);
+    }
+
+    #[test]
+    fn test_hint_exact_match_skipped() {
+        use reedline::{FileBackedHistory, Hinter, History, HistoryItem};
+
+        let mut hinter = RushHinter::new();
+
+        // Create a temporary history file
+        let temp_dir = std::env::temp_dir();
+        let history_file =
+            temp_dir.join(format!("rush_test_hint_exact_{}.txt", std::process::id()));
+
+        // Create history with exact command
+        let mut history = FileBackedHistory::with_file(100, history_file.clone()).unwrap();
+        let item = HistoryItem::from_command_line("echo");
+        let _ = history.save(item);
+
+        // Test handle() with exact match (lines 111-112)
+        let hint = hinter.handle("echo", 4, &history, true, "/tmp");
+
+        // Should return empty because exact match is skipped
+        assert!(hint.is_empty());
+
+        // Clean up
+        let _ = std::fs::remove_file(history_file);
+    }
+
+    #[test]
+    fn test_hint_without_ansi_styling() {
+        use reedline::{FileBackedHistory, Hinter, History, HistoryItem};
+
+        let mut hinter = RushHinter::new();
+
+        // Create a temporary history file
+        let temp_dir = std::env::temp_dir();
+        let history_file =
+            temp_dir.join(format!("rush_test_hint_nostyle_{}.txt", std::process::id()));
+
+        // Create history with a command
+        let mut history = FileBackedHistory::with_file(100, history_file.clone()).unwrap();
+        let item = HistoryItem::from_command_line("echo hello");
+        let _ = history.save(item);
+
+        // Test handle() with ansi coloring disabled (line 124)
+        let hint = hinter.handle("echo", 4, &history, false, "/tmp");
+
+        // Should return plain hint without ANSI codes
+        assert_eq!(hint, " hello");
 
         // Clean up
         let _ = std::fs::remove_file(history_file);

@@ -51,11 +51,8 @@ mod tests {
             "sleep 100".to_string(),
             vec![Pid::from_raw(1234)],
         );
-        let id2 = manager.add_job(
-            Pid::from_raw(5678),
-            "cat file".to_string(),
-            vec![Pid::from_raw(5678)],
-        );
+        let id2 =
+            manager.add_job(Pid::from_raw(5678), "cat file".to_string(), vec![Pid::from_raw(5678)]);
 
         // Set different statuses
         manager.get_job_mut(id1).unwrap().status = JobStatus::Running;
@@ -70,8 +67,8 @@ mod tests {
     #[test]
     fn test_jobs_prints_active_jobs_directly() {
         use std::process::Command;
-        use std::time::Duration;
         use std::thread;
+        use std::time::Duration;
 
         // Spawn a long-running child process that we actually parent
         // This process will still be alive when we call execute()

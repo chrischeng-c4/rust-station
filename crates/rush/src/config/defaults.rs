@@ -280,9 +280,9 @@ mod tests {
 
     #[test]
     fn test_config_load_with_invalid_toml() {
+        use std::env;
         use std::fs;
         use std::io::Write;
-        use std::env;
 
         // Use a unique temporary directory to avoid test pollution
         let temp_dir = env::temp_dir().join(format!("rush_test_{}", std::process::id()));
@@ -325,7 +325,8 @@ history_size = 5000
         use std::io::Write;
 
         // Create a temporary config file with valid TOML
-        let temp_dir = std::env::temp_dir().join(format!("rush_config_test_{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("rush_config_test_{}", std::process::id()));
         fs::create_dir_all(&temp_dir).ok();
 
         let config_path = temp_dir.join("rush.toml");

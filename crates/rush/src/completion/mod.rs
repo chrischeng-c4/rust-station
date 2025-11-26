@@ -138,4 +138,48 @@ mod tests {
         // Main thing is it doesn't crash
         assert!(suggestions.len() >= 0);
     }
+
+    #[test]
+    fn test_determine_context_command() {
+        let registry = CompletionRegistry::new();
+        // No space before cursor = command context
+        assert_eq!(registry.determine_context("ls", 2), CompletionContext::Command);
+        assert_eq!(registry.determine_context("ca", 2), CompletionContext::Command);
+        assert_eq!(registry.determine_context("", 0), CompletionContext::Command);
+    }
+
+    #[test]
+    fn test_determine_context_path() {
+        let registry = CompletionRegistry::new();
+        // After space, not starting with - = path context
+        assert_eq!(registry.determine_context("ls ", 3), CompletionContext::Path);
+        assert_eq!(registry.determine_context("ls src/", 7), CompletionContext::Path);
+        assert_eq!(registry.determine_context("cat file", 8), CompletionContext::Path);
+    }
+
+    #[test]
+    fn test_determine_context_flag() {
+        let registry = CompletionRegistry::new();
+        // After space, starting with - = flag context
+        assert_eq!(registry.determine_context("ls -", 4), CompletionContext::Flag);
+        assert_eq!(registry.determine_context("ls --", 5), CompletionContext::Flag);
+        assert_eq!(registry.determine_context("grep -i", 7), CompletionContext::Flag);
+    }
+
+    #[test]
+    fn test_completion_registry_routes_to_path() {
+        let mut registry = CompletionRegistry::new();
+        // Path completion context - should delegate to PathCompleter
+        let _suggestions = registry.complete("ls /tmp/", 8);
+        // Just verify it doesn't panic - results depend on filesystem
+    }
+
+    #[test]
+    fn test_completion_registry_routes_to_flag() {
+        let mut registry = CompletionRegistry::new();
+        // Flag completion context - should delegate to FlagCompleter
+        let suggestions = registry.complete("ls -", 4);
+        // ls flags should be found
+        assert!(suggestions.len() > 0);
+    }
 }

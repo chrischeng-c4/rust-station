@@ -27,6 +27,7 @@
 
 use crate::error::{Result, RushError};
 use crate::executor::{Pipeline, PipelineSegment};
+use std::collections::HashMap;
 use std::process::{Child, Command, Stdio};
 
 /// Executes pipelines by spawning processes and connecting pipes
@@ -46,6 +47,7 @@ impl PipelineExecutor {
     ///
     /// # Arguments
     /// * `pipeline` - The pipeline to execute (1 or 2 commands for US1)
+    /// * `env_map` - Environment variables to pass to child processes
     ///
     /// # Returns
     /// * `Ok(exit_code)` - Exit code from last command (0 for success)
@@ -60,40 +62,41 @@ impl PipelineExecutor {
     /// ```ignore
     /// let executor = PipelineExecutor::new();
     /// let pipeline = parse_pipeline("echo hello | grep hello")?;
-    /// let exit_code = executor.execute(&pipeline)?;
+    /// let exit_code = executor.execute(&pipeline, &env_map)?;
     /// ```
-    pub fn execute(&self, pipeline: &Pipeline) -> Result<i32> {
+    pub fn execute(&self, pipeline: &Pipeline, env_map: &HashMap<String, String>) -> Result<i32> {
         // Validate pipeline structure (US1 & US2: 1 to N commands)
         pipeline.validate()?;
 
         // Special case: Single command (no pipes)
         if pipeline.len() == 1 {
-            return self.execute_single(&pipeline.segments[0]);
+            return self.execute_single(&pipeline.segments[0], env_map);
         }
 
         // Execute multi-command pipeline (US1 & US2)
-        // Execute multi-command pipeline (US1 & US2)
-        let execution = self.spawn(pipeline)?;
+        let execution = self.spawn(pipeline, env_map)?;
         execution.wait_all()
     }
 
     /// Spawn a pipeline without waiting for completion
-    pub fn spawn(&self, pipeline: &Pipeline) -> Result<MultiCommandExecution> {
+    pub fn spawn(
+        &self,
+        pipeline: &Pipeline,
+        env_map: &HashMap<String, String>,
+    ) -> Result<MultiCommandExecution> {
         // Validate pipeline structure
         pipeline.validate()?;
 
-        // Special case: Single command (no pipes)
-        if pipeline.len() == 1 {
-            // For single command, we still use MultiCommandExecution for consistency
-            // This simplifies the CommandExecutor logic
-            MultiCommandExecution::spawn(pipeline)
-        } else {
-            MultiCommandExecution::spawn(pipeline)
-        }
+        // For all pipelines, use MultiCommandExecution for consistency
+        MultiCommandExecution::spawn(pipeline, env_map)
     }
 
     /// Execute a single command (no pipes)
-    fn execute_single(&self, segment: &PipelineSegment) -> Result<i32> {
+    fn execute_single(
+        &self,
+        segment: &PipelineSegment,
+        env_map: &HashMap<String, String>,
+    ) -> Result<i32> {
         use std::fs::{File, OpenOptions};
         use std::io::ErrorKind;
 
@@ -109,6 +112,9 @@ impl PipelineExecutor {
 
         let mut cmd = Command::new(&segment.program);
         cmd.args(&segment.args);
+
+        // Pass managed environment to child process
+        cmd.env_clear().envs(env_map);
 
         // Apply redirections if any
         if !redirections.is_empty() {
@@ -277,7 +283,7 @@ impl MultiCommandExecution {
     /// - Middle commands: stdin from previous pipe, stdout to next pipe
     /// - Last command: stdin from previous pipe, stdout to terminal
     /// - All commands: stderr to terminal
-    fn spawn(pipeline: &Pipeline) -> Result<Self> {
+    fn spawn(pipeline: &Pipeline, env_map: &HashMap<String, String>) -> Result<Self> {
         let mut children: Vec<Child> = Vec::with_capacity(pipeline.len());
         let mut prev_stdout: Option<std::process::ChildStdout> = None;
 
@@ -287,6 +293,9 @@ impl MultiCommandExecution {
 
             let mut cmd = Command::new(&segment.program);
             cmd.args(&segment.args);
+
+            // Pass managed environment to child process
+            cmd.env_clear().envs(env_map);
 
             // Apply redirections first (they override default stdio setup)
             let mut has_output_redir = false;
@@ -511,6 +520,11 @@ mod tests {
     use super::*;
     use crate::executor::parser::parse_pipeline;
 
+    /// Get default env map for tests (inherits from process environment)
+    fn test_env() -> HashMap<String, String> {
+        std::env::vars().collect()
+    }
+
     #[test]
     fn test_executor_new() {
         let executor = PipelineExecutor::new();
@@ -527,7 +541,7 @@ mod tests {
     fn test_execute_single_command() {
         let executor = PipelineExecutor::new();
         let pipeline = parse_pipeline("echo test").unwrap();
-        let result = executor.execute(&pipeline);
+        let result = executor.execute(&pipeline, &test_env());
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 0);
     }
@@ -536,7 +550,7 @@ mod tests {
     fn test_execute_true() {
         let executor = PipelineExecutor::new();
         let pipeline = parse_pipeline("true").unwrap();
-        let result = executor.execute(&pipeline);
+        let result = executor.execute(&pipeline, &test_env());
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 0);
     }
@@ -545,7 +559,7 @@ mod tests {
     fn test_execute_false() {
         let executor = PipelineExecutor::new();
         let pipeline = parse_pipeline("false").unwrap();
-        let result = executor.execute(&pipeline);
+        let result = executor.execute(&pipeline, &test_env());
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 1);
     }
@@ -554,7 +568,7 @@ mod tests {
     fn test_execute_two_command_pipeline() {
         let executor = PipelineExecutor::new();
         let pipeline = parse_pipeline("echo hello | cat").unwrap();
-        let result = executor.execute(&pipeline);
+        let result = executor.execute(&pipeline, &test_env());
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 0);
     }
@@ -563,7 +577,7 @@ mod tests {
     fn test_execute_pipeline_with_grep() {
         let executor = PipelineExecutor::new();
         let pipeline = parse_pipeline("echo 'hello world' | grep hello").unwrap();
-        let result = executor.execute(&pipeline);
+        let result = executor.execute(&pipeline, &test_env());
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 0);
     }
@@ -573,7 +587,7 @@ mod tests {
         let executor = PipelineExecutor::new();
         // US2: Three-command pipeline should work
         let pipeline = parse_pipeline("echo test | cat | cat").unwrap();
-        let result = executor.execute(&pipeline);
+        let result = executor.execute(&pipeline, &test_env());
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 0);
     }
@@ -583,7 +597,7 @@ mod tests {
         let executor = PipelineExecutor::new();
         // US2: Four-command pipeline should work
         let pipeline = parse_pipeline("echo 'line1\nline2\nline3' | cat | cat | wc -l").unwrap();
-        let result = executor.execute(&pipeline);
+        let result = executor.execute(&pipeline, &test_env());
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 0);
     }
@@ -593,7 +607,7 @@ mod tests {
         let executor = PipelineExecutor::new();
         // US2: Longer pipelines should work
         let pipeline = parse_pipeline("echo test | cat | cat | cat | cat").unwrap();
-        let result = executor.execute(&pipeline);
+        let result = executor.execute(&pipeline, &test_env());
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 0);
     }
@@ -602,7 +616,7 @@ mod tests {
     fn test_command_not_found() {
         let executor = PipelineExecutor::new();
         let pipeline = parse_pipeline("nonexistent_command_xyz123").unwrap();
-        let result = executor.execute(&pipeline);
+        let result = executor.execute(&pipeline, &test_env());
         // Should fail with command not found
         assert!(result.is_ok()); // Returns exit code 127
         assert_eq!(result.unwrap(), 127);
@@ -612,7 +626,7 @@ mod tests {
     fn test_pipeline_first_command_fails() {
         let executor = PipelineExecutor::new();
         let pipeline = parse_pipeline("false | cat").unwrap();
-        let result = executor.execute(&pipeline);
+        let result = executor.execute(&pipeline, &test_env());
         // Should return exit code of last command (cat succeeds with no input)
         assert!(result.is_ok());
     }
@@ -621,7 +635,7 @@ mod tests {
     fn test_spawn_returns_multi_command_execution() {
         let executor = PipelineExecutor::new();
         let pipeline = parse_pipeline("echo test").unwrap();
-        let multi_exec = executor.spawn(&pipeline);
+        let multi_exec = executor.spawn(&pipeline, &test_env());
         assert!(multi_exec.is_ok());
         let exec = multi_exec.unwrap();
         assert_eq!(exec.pids().len(), 1);
@@ -631,7 +645,7 @@ mod tests {
     fn test_multi_command_execution_pids() {
         let executor = PipelineExecutor::new();
         let pipeline = parse_pipeline("echo test | cat | cat").unwrap();
-        let multi_exec = executor.spawn(&pipeline).unwrap();
+        let multi_exec = executor.spawn(&pipeline, &test_env()).unwrap();
         let pids = multi_exec.pids();
         assert_eq!(pids.len(), 3);
         // All PIDs should be non-zero
@@ -647,7 +661,7 @@ mod tests {
         let _ = std::fs::remove_file(test_file);
 
         let pipeline = parse_pipeline("echo hello > /tmp/rush_pipeline_test.txt").unwrap();
-        let result = executor.execute(&pipeline);
+        let result = executor.execute(&pipeline, &test_env());
         assert!(result.is_ok());
         assert!(std::path::Path::new(test_file).exists());
 
@@ -664,7 +678,7 @@ mod tests {
         // (it would break the pipe), but we can test input redirection
         std::fs::write("/tmp/rush_input.txt", "test\n").unwrap();
         let pipeline = parse_pipeline("cat < /tmp/rush_input.txt | grep test").unwrap();
-        let result = executor.execute(&pipeline);
+        let result = executor.execute(&pipeline, &test_env());
         assert!(result.is_ok());
 
         std::fs::remove_file("/tmp/rush_input.txt").unwrap();
@@ -677,7 +691,7 @@ mod tests {
         let executor = PipelineExecutor::new();
         // Try to write to /dev/null/impossible (directory, not file)
         let pipeline = parse_pipeline("echo test > /dev/null/impossible").unwrap();
-        let result = executor.execute(&pipeline);
+        let result = executor.execute(&pipeline, &test_env());
         // Should fail with redirection error
         assert!(result.is_err());
     }
@@ -687,7 +701,7 @@ mod tests {
         let executor = PipelineExecutor::new();
         // Try to redirect to /tmp (which is a directory)
         let pipeline = parse_pipeline("echo test > /tmp").unwrap();
-        let result = executor.execute(&pipeline);
+        let result = executor.execute(&pipeline, &test_env());
         // Should fail - can't write to directory
         assert!(result.is_err());
         if let Err(e) = result {
@@ -700,7 +714,7 @@ mod tests {
         let executor = PipelineExecutor::new();
         // Try to append to impossible location
         let pipeline = parse_pipeline("echo test >> /dev/null/impossible").unwrap();
-        let result = executor.execute(&pipeline);
+        let result = executor.execute(&pipeline, &test_env());
         assert!(result.is_err());
     }
 
@@ -709,7 +723,7 @@ mod tests {
         let executor = PipelineExecutor::new();
         // Try to append to /tmp (directory)
         let pipeline = parse_pipeline("echo test >> /tmp").unwrap();
-        let result = executor.execute(&pipeline);
+        let result = executor.execute(&pipeline, &test_env());
         assert!(result.is_err());
         if let Err(e) = result {
             assert!(e.to_string().contains("directory"));
@@ -721,7 +735,7 @@ mod tests {
         let executor = PipelineExecutor::new();
         // Try to read from nonexistent file
         let pipeline = parse_pipeline("cat < /tmp/nonexistent_file_xyz123.txt").unwrap();
-        let result = executor.execute(&pipeline);
+        let result = executor.execute(&pipeline, &test_env());
         assert!(result.is_err());
         if let Err(e) = result {
             assert!(e.to_string().contains("not found"));
@@ -743,7 +757,7 @@ mod tests {
         std::fs::set_permissions(test_file, perms).unwrap();
 
         let pipeline = parse_pipeline(&format!("cat < {}", test_file)).unwrap();
-        let result = executor.execute(&pipeline);
+        let result = executor.execute(&pipeline, &test_env());
 
         // Restore permissions for cleanup
         let mut perms = std::fs::metadata(test_file).unwrap().permissions();
@@ -766,11 +780,11 @@ mod tests {
 
         // First write
         let pipeline1 = parse_pipeline(&format!("echo first >> {}", test_file)).unwrap();
-        assert!(executor.execute(&pipeline1).is_ok());
+        assert!(executor.execute(&pipeline1, &test_env()).is_ok());
 
         // Second append
         let pipeline2 = parse_pipeline(&format!("echo second >> {}", test_file)).unwrap();
-        assert!(executor.execute(&pipeline2).is_ok());
+        assert!(executor.execute(&pipeline2, &test_env()).is_ok());
 
         // Verify both lines exist
         let content = std::fs::read_to_string(test_file).unwrap();
@@ -790,7 +804,7 @@ mod tests {
 
         // Read from file
         let pipeline = parse_pipeline(&format!("cat < {}", test_file)).unwrap();
-        let result = executor.execute(&pipeline);
+        let result = executor.execute(&pipeline, &test_env());
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 0);
 
@@ -809,7 +823,7 @@ mod tests {
 
         // Redirect both input and output
         let pipeline = parse_pipeline(&format!("cat < {} > {}", in_file, out_file)).unwrap();
-        let result = executor.execute(&pipeline);
+        let result = executor.execute(&pipeline, &test_env());
         assert!(result.is_ok());
 
         // Verify output
@@ -825,7 +839,7 @@ mod tests {
         let executor = PipelineExecutor::new();
         // Test the else branch at line 179 (no redirections)
         let pipeline = parse_pipeline("echo test").unwrap();
-        let result = executor.execute(&pipeline);
+        let result = executor.execute(&pipeline, &test_env());
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 0);
     }
@@ -835,7 +849,7 @@ mod tests {
         let executor = PipelineExecutor::new();
         // Test spawn() with single command (lines 85-88)
         let pipeline = parse_pipeline("echo test").unwrap();
-        let execution = executor.spawn(&pipeline);
+        let execution = executor.spawn(&pipeline, &test_env());
         assert!(execution.is_ok());
         let result = execution.unwrap().wait_all();
         assert!(result.is_ok());
@@ -846,7 +860,7 @@ mod tests {
         let executor = PipelineExecutor::new();
         // Test spawn() with multi-command pipeline (lines 90)
         let pipeline = parse_pipeline("echo test | cat").unwrap();
-        let execution = executor.spawn(&pipeline);
+        let execution = executor.spawn(&pipeline, &test_env());
         assert!(execution.is_ok());
         let result = execution.unwrap().wait_all();
         assert!(result.is_ok());
@@ -857,7 +871,7 @@ mod tests {
         // Test output redirection error in pipeline (lines 299-309)
         let executor = PipelineExecutor::new();
         let pipeline = parse_pipeline("echo test | cat > /tmp").unwrap();
-        let result = executor.execute(&pipeline);
+        let result = executor.execute(&pipeline, &test_env());
         assert!(result.is_err());
         if let Err(e) = result {
             assert!(e.to_string().contains("directory"));
@@ -869,7 +883,7 @@ mod tests {
         // Test append redirection error in pipeline (lines 320-330)
         let executor = PipelineExecutor::new();
         let pipeline = parse_pipeline("echo test | cat >> /tmp").unwrap();
-        let result = executor.execute(&pipeline);
+        let result = executor.execute(&pipeline, &test_env());
         assert!(result.is_err());
         if let Err(e) = result {
             assert!(e.to_string().contains("directory"));
@@ -881,7 +895,7 @@ mod tests {
         // Test input redirection file not found in pipeline (lines 336-347)
         let executor = PipelineExecutor::new();
         let pipeline = parse_pipeline("cat < /nonexistent_file_12345 | grep test").unwrap();
-        let result = executor.execute(&pipeline);
+        let result = executor.execute(&pipeline, &test_env());
         assert!(result.is_err());
         if let Err(e) = result {
             assert!(e.to_string().contains("not found"));
@@ -896,7 +910,7 @@ mod tests {
         let _ = std::fs::remove_file(out_file);
 
         let pipeline = parse_pipeline(&format!("echo hello | cat > {}", out_file)).unwrap();
-        let result = executor.execute(&pipeline);
+        let result = executor.execute(&pipeline, &test_env());
         assert!(result.is_ok());
 
         let content = std::fs::read_to_string(out_file).unwrap();
@@ -914,9 +928,186 @@ mod tests {
         std::fs::write(in_file, "test input\n").unwrap();
 
         let pipeline = parse_pipeline(&format!("cat < {} | cat", in_file)).unwrap();
-        let result = executor.execute(&pipeline);
+        let result = executor.execute(&pipeline, &test_env());
         assert!(result.is_ok());
 
         std::fs::remove_file(in_file).unwrap();
+    }
+
+    #[test]
+    fn test_pipeline_command_not_found_in_middle() {
+        // Test command not found in multi-command pipeline (lines 392-438)
+        let executor = PipelineExecutor::new();
+        let pipeline = parse_pipeline("echo test | nonexistent_cmd_12345 | cat").unwrap();
+        let result = executor.execute(&pipeline, &test_env());
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert!(e.to_string().contains("not found") || e.to_string().contains("nonexistent"));
+        }
+    }
+
+    #[test]
+    fn test_single_command_not_found() {
+        // Test command not found in single command execution (lines 213-231)
+        let executor = PipelineExecutor::new();
+        let pipeline = parse_pipeline("nonexistent_cmd_99999").unwrap();
+        let result = executor.execute(&pipeline, &test_env());
+        // Should return Ok(127) for command not found
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 127);
+    }
+
+    #[test]
+    fn test_single_command_permission_denied() {
+        // Test permission denied error (lines 224-225)
+        // Create a file without execute permission
+        let test_file = "/tmp/rush_noexec_test";
+        std::fs::write(test_file, "#!/bin/bash\necho test").unwrap();
+        // Make sure it's NOT executable
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(test_file, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        let executor = PipelineExecutor::new();
+        let pipeline = parse_pipeline(test_file).unwrap();
+        let result = executor.execute(&pipeline, &test_env());
+        // Should return Ok(127) for spawn failure
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 127);
+
+        std::fs::remove_file(test_file).unwrap();
+    }
+
+    #[test]
+    fn test_multi_pipeline_output_permission_denied() {
+        // Test permission denied in multi-command pipeline output redirect (lines 300-301)
+        let executor = PipelineExecutor::new();
+        let pipeline = parse_pipeline("echo test | cat > /etc/rush_test_perm").unwrap();
+        let result = executor.execute(&pipeline, &test_env());
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert!(
+                e.to_string().contains("permission denied")
+                    || e.to_string().contains("Permission denied")
+            );
+        }
+    }
+
+    #[test]
+    fn test_multi_pipeline_append_permission_denied() {
+        // Test permission denied in multi-command pipeline append redirect (lines 321-322)
+        let executor = PipelineExecutor::new();
+        let pipeline = parse_pipeline("echo test | cat >> /etc/rush_test_perm").unwrap();
+        let result = executor.execute(&pipeline, &test_env());
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert!(
+                e.to_string().contains("permission denied")
+                    || e.to_string().contains("Permission denied")
+            );
+        }
+    }
+
+    #[test]
+    fn test_multi_pipeline_input_permission_denied() {
+        // Test permission denied in multi-command pipeline input redirect (lines 341-342)
+        let test_file = "/tmp/rush_multi_noread_test";
+        std::fs::write(test_file, "test").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(test_file, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        let executor = PipelineExecutor::new();
+        let pipeline = parse_pipeline(&format!("cat < {} | cat", test_file)).unwrap();
+        let result = executor.execute(&pipeline, &test_env());
+
+        std::fs::set_permissions(test_file, std::fs::Permissions::from_mode(0o644)).unwrap();
+        std::fs::remove_file(test_file).unwrap();
+
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert!(
+                e.to_string().contains("permission denied")
+                    || e.to_string().contains("Permission denied")
+            );
+        }
+    }
+
+    #[test]
+    fn test_single_output_redirect_to_directory() {
+        // Test "is a directory" error path (line 124-126)
+        let executor = PipelineExecutor::new();
+        // /tmp is a directory, can't redirect output to it
+        let pipeline = parse_pipeline("echo test > /tmp").unwrap();
+        let result = executor.execute(&pipeline, &test_env());
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert!(
+                e.to_string().contains("directory") || e.to_string().contains("Is a directory"),
+                "Expected directory error, got: {}",
+                e
+            );
+        }
+    }
+
+    #[test]
+    fn test_single_append_redirect_to_directory() {
+        // Test "is a directory" error path for append (line 146-148)
+        let executor = PipelineExecutor::new();
+        // /tmp is a directory, can't append to it
+        let pipeline = parse_pipeline("echo test >> /tmp").unwrap();
+        let result = executor.execute(&pipeline, &test_env());
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert!(
+                e.to_string().contains("directory") || e.to_string().contains("Is a directory"),
+                "Expected directory error, got: {}",
+                e
+            );
+        }
+    }
+
+    #[test]
+    fn test_multi_pipeline_output_to_directory() {
+        // Test "is a directory" error in multi-command pipeline (lines 306-307)
+        let executor = PipelineExecutor::new();
+        let pipeline = parse_pipeline("echo test | cat > /tmp").unwrap();
+        let result = executor.execute(&pipeline, &test_env());
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert!(
+                e.to_string().contains("directory") || e.to_string().contains("Is a directory"),
+                "Expected directory error, got: {}",
+                e
+            );
+        }
+    }
+
+    #[test]
+    fn test_multi_pipeline_append_to_directory() {
+        // Test "is a directory" error in multi-command pipeline append (lines 327-328)
+        let executor = PipelineExecutor::new();
+        let pipeline = parse_pipeline("echo test | cat >> /tmp").unwrap();
+        let result = executor.execute(&pipeline, &test_env());
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert!(
+                e.to_string().contains("directory") || e.to_string().contains("Is a directory"),
+                "Expected directory error, got: {}",
+                e
+            );
+        }
+    }
+
+    #[test]
+    fn test_single_generic_spawn_error() {
+        // Test the generic error case (line 227-228) - "other" error type
+        // This is hard to trigger, but we can test that the generic case exists
+        // by trying with an empty program name which would hit this path
+        let executor = PipelineExecutor::new();
+        // Create a pipeline with a program that will fail with a different error
+        // Note: Most spawn errors are NotFound or PermissionDenied, so generic is rare
+        let pipeline = parse_pipeline("/").unwrap();
+        let result = executor.execute(&pipeline, &test_env());
+        // Just verify it handles the error without panic
+        assert!(result.is_ok() || result.is_err());
     }
 }

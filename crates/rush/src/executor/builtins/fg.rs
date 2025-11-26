@@ -139,8 +139,10 @@ mod tests {
 
         // Add multiple jobs
         let manager = executor.job_manager_mut();
-        let id1 = manager.add_job(Pid::from_raw(1234), "cmd1".to_string(), vec![Pid::from_raw(1234)]);
-        let id2 = manager.add_job(Pid::from_raw(5678), "cmd2".to_string(), vec![Pid::from_raw(5678)]);
+        let id1 =
+            manager.add_job(Pid::from_raw(1234), "cmd1".to_string(), vec![Pid::from_raw(1234)]);
+        let id2 =
+            manager.add_job(Pid::from_raw(5678), "cmd2".to_string(), vec![Pid::from_raw(5678)]);
 
         // Mark job as stopped so we can test the stopped path
         let job = manager.get_job_mut(id2).unwrap();
@@ -158,7 +160,11 @@ mod tests {
 
         // Add a stopped job
         let manager = executor.job_manager_mut();
-        let id = manager.add_job(Pid::from_raw(1234), "sleep 100".to_string(), vec![Pid::from_raw(1234)]);
+        let id = manager.add_job(
+            Pid::from_raw(1234),
+            "sleep 100".to_string(),
+            vec![Pid::from_raw(1234)],
+        );
         let job = manager.get_job_mut(id).unwrap();
         job.status = JobStatus::Stopped;
 
@@ -172,8 +178,8 @@ mod tests {
     #[test]
     fn test_fg_with_exiting_process() {
         use std::process::Command;
-        use std::time::Duration;
         use std::thread;
+        use std::time::Duration;
 
         // Spawn a process that exits quickly
         let child = Command::new("sh")
@@ -208,8 +214,8 @@ mod tests {
     #[test]
     fn test_fg_job_removed_on_exit() {
         use std::process::Command;
-        use std::time::Duration;
         use std::thread;
+        use std::time::Duration;
 
         // Spawn a process that exits immediately
         let child = Command::new("true")
@@ -238,5 +244,70 @@ mod tests {
         // Verify job was removed (lines 85-86 executed, not stopped path)
         let removed_job = executor.job_manager_mut().get_job(id);
         assert!(removed_job.is_none(), "Job should be removed after exiting normally");
+    }
+
+    #[test]
+    fn test_fg_process_killed_by_signal() {
+        use nix::sys::signal::{kill, Signal};
+        use std::process::Command;
+        use std::thread;
+        use std::time::Duration;
+
+        // Spawn a long-running process that we'll kill
+        let child = Command::new("sleep")
+            .arg("60")
+            .spawn()
+            .expect("Failed to spawn sleep process");
+
+        let child_pid = child.id() as i32;
+        let pid = Pid::from_raw(child_pid);
+
+        let mut executor = CommandExecutor::new();
+
+        // Add the process as a job
+        let manager = executor.job_manager_mut();
+        let _id = manager.add_job(pid, "sleep 60".to_string(), vec![pid]);
+
+        // Kill the process in a separate thread after a short delay
+        let pid_for_kill = pid;
+        thread::spawn(move || {
+            thread::sleep(Duration::from_millis(50));
+            let _ = kill(pid_for_kill, Signal::SIGKILL);
+        });
+
+        // fg should wait for the process and catch the Signaled status (lines 65-66)
+        let result = execute(&mut executor, &[]);
+        assert!(result.is_ok());
+        // exit_code should be 128 + 9 = 137 for SIGKILL
+        let exit_code = result.unwrap();
+        assert_eq!(exit_code, 137);
+    }
+
+    #[test]
+    fn test_fg_catch_all_wait_status() {
+        use std::process::Command;
+        use std::thread;
+        use std::time::Duration;
+
+        // Spawn a quick process
+        let child = Command::new("true")
+            .spawn()
+            .expect("Failed to spawn true process");
+
+        let child_pid = child.id() as i32;
+        let pid = Pid::from_raw(child_pid);
+
+        let mut executor = CommandExecutor::new();
+
+        // Add the process as a job
+        let manager = executor.job_manager_mut();
+        let _id = manager.add_job(pid, "true".to_string(), vec![pid]);
+
+        // Give the process time to exit
+        thread::sleep(Duration::from_millis(100));
+
+        // This exercises the waitpid path - just ensure it doesn't panic
+        let result = execute(&mut executor, &[]);
+        assert!(result.is_ok());
     }
 }

@@ -496,4 +496,80 @@ mod tests {
         let has_version = git_flags.iter().any(|f| f.long == "--version");
         assert!(has_version);
     }
+
+    #[test]
+    fn test_flag_completer_default() {
+        let _completer = FlagCompleter::default();
+        // Should create successfully using Default trait (lines 124-125)
+    }
+
+    #[test]
+    fn test_extract_command_and_flag_empty_line() {
+        let completer = FlagCompleter::new();
+        // Empty line should return None (line 80)
+        assert_eq!(completer.extract_command_and_flag("", 0), None);
+    }
+
+    #[test]
+    fn test_complete_unknown_command_returns_empty() {
+        let mut completer = FlagCompleter::new();
+        // Command not in registry should return empty vec (lines 159-164)
+        let suggestions = completer.complete("unknowncmd123 --flag", 20);
+        assert!(suggestions.is_empty());
+    }
+
+    #[test]
+    fn test_complete_no_matching_flags() {
+        let mut completer = FlagCompleter::new();
+        // git --zzz has no matching flags (lines 180-188)
+        let suggestions = completer.complete("git --zzz", 9);
+        assert!(suggestions.is_empty());
+    }
+
+    #[test]
+    fn test_complete_short_flag() {
+        let mut completer = FlagCompleter::new();
+        // Complete short flag (uses matches_flag with short)
+        let suggestions = completer.complete("git -v", 6);
+        assert!(!suggestions.is_empty());
+        // -v matches --version short form
+        let has_version = suggestions.iter().any(|s| s.value == "--version");
+        assert!(has_version);
+    }
+
+    #[test]
+    fn test_complete_ls_flags() {
+        let mut completer = FlagCompleter::new();
+        // Complete ls --all
+        let suggestions = completer.complete("ls --al", 7);
+        assert!(!suggestions.is_empty());
+        let has_all = suggestions.iter().any(|s| s.value == "--all");
+        assert!(has_all);
+    }
+
+    #[test]
+    fn test_suggestion_includes_short_in_extra() {
+        let mut completer = FlagCompleter::new();
+        let suggestions = completer.complete("git --help", 10);
+
+        assert!(!suggestions.is_empty());
+        let help_suggestion = suggestions.iter().find(|s| s.value == "--help");
+        assert!(help_suggestion.is_some());
+        let help = help_suggestion.unwrap();
+        // Short form should be in extra field
+        assert_eq!(help.extra, Some(vec!["-h".to_string()]));
+    }
+
+    #[test]
+    fn test_long_only_flag_has_no_extra() {
+        let mut completer = FlagCompleter::new();
+        let suggestions = completer.complete("git --git-dir", 13);
+
+        assert!(!suggestions.is_empty());
+        let gitdir_suggestion = suggestions.iter().find(|s| s.value == "--git-dir");
+        assert!(gitdir_suggestion.is_some());
+        let gitdir = gitdir_suggestion.unwrap();
+        // Long-only flags have None for extra
+        assert_eq!(gitdir.extra, None);
+    }
 }

@@ -429,4 +429,60 @@ mod tests {
         let job = manager.get_job(id).expect("Job should still exist");
         assert_eq!(job.status, JobStatus::Running);
     }
+
+    #[test]
+    fn test_update_status_with_signaled_process() {
+        use nix::sys::signal::{kill, Signal};
+        use std::process::Command;
+        use std::thread;
+        use std::time::Duration;
+
+        // Spawn a long-running process
+        let child = Command::new("sleep")
+            .arg("60")
+            .spawn()
+            .expect("Failed to spawn sleep process");
+
+        let child_pid = child.id() as i32;
+        let pid = Pid::from_raw(child_pid);
+
+        let mut manager = JobManager::new();
+        let pids = vec![pid];
+
+        let id = manager.add_job(pid, "sleep 60".to_string(), pids);
+
+        // Give the process a moment to start
+        thread::sleep(Duration::from_millis(50));
+
+        // Kill the process with SIGKILL (triggers line 113 Signaled path)
+        let _ = kill(pid, Signal::SIGKILL);
+
+        // Give it time to die
+        thread::sleep(Duration::from_millis(100));
+
+        // update_status should detect the signaled process and mark as Done
+        manager.update_status();
+
+        // Status should now be Done (process was killed)
+        let job = manager.get_job(id).expect("Job should still exist");
+        assert_eq!(job.status, JobStatus::Done);
+    }
+
+    #[test]
+    fn test_update_status_with_nonexistent_pid() {
+        let mut manager = JobManager::new();
+
+        // Use a PID that definitely doesn't exist
+        let fake_pid = Pid::from_raw(999999);
+        let pids = vec![fake_pid];
+
+        let id = manager.add_job(fake_pid, "fake command".to_string(), pids);
+
+        // update_status should handle the error gracefully (lines 124-126)
+        manager.update_status();
+
+        // The job should remain (status handling of errors doesn't immediately remove jobs)
+        let job = manager.get_job(id);
+        assert!(job.is_some());
+    }
 }

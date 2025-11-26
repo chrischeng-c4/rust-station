@@ -449,4 +449,162 @@ mod tests {
         // Just verify it doesn't panic
         let _ = suggestions.len();
     }
+
+    #[test]
+    fn test_list_directory_entries_with_spaces() {
+        use std::fs;
+
+        // Create temp directory with file containing space
+        let test_dir = "/tmp/rush_path_test_spaces";
+        let _ = fs::remove_dir_all(test_dir);
+        fs::create_dir_all(test_dir).unwrap();
+        fs::write(format!("{}/file with space.txt", test_dir), "test").unwrap();
+
+        let completer = PathCompleter::new();
+        let result = completer.list_directory_entries(&format!("{}/", test_dir), "");
+
+        fs::remove_dir_all(test_dir).unwrap();
+
+        assert!(result.is_ok());
+        let entries = result.unwrap();
+        // Should have the file with space, quoted (line 164)
+        assert!(entries
+            .iter()
+            .any(|e| e.contains("\"") && e.contains("space")));
+    }
+
+    #[test]
+    fn test_list_directory_entries_with_directory() {
+        use std::fs;
+
+        // Create temp directory with a subdirectory
+        let test_dir = "/tmp/rush_path_test_dir";
+        let _ = fs::remove_dir_all(test_dir);
+        fs::create_dir_all(format!("{}/subdir", test_dir)).unwrap();
+
+        let completer = PathCompleter::new();
+        let result = completer.list_directory_entries(&format!("{}/", test_dir), "");
+
+        fs::remove_dir_all(test_dir).unwrap();
+
+        assert!(result.is_ok());
+        let entries = result.unwrap();
+        // Subdirectory should have / appended (line 158)
+        assert!(entries.iter().any(|e| e == "subdir/"));
+    }
+
+    #[test]
+    fn test_case_sensitive_path_matching() {
+        let completer = PathCompleter::new();
+
+        #[cfg(target_os = "macos")]
+        {
+            // Case-insensitive on macOS (line 122)
+            assert!(completer.matches_prefix("README.md", "readme"));
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            // Case-sensitive on Linux (line 120)
+            assert!(completer.matches_prefix("readme.md", "readme"));
+            assert!(!completer.matches_prefix("README.md", "readme"));
+        }
+    }
+
+    #[test]
+    fn test_complete_nonexistent_directory() {
+        let mut completer = PathCompleter::new();
+
+        // Complete in a nonexistent directory (lines 223-229)
+        let suggestions = completer.complete("ls /nonexistent_dir_xyz123/", 27);
+        // Should return empty vec when directory doesn't exist
+        assert!(suggestions.is_empty());
+    }
+
+    #[test]
+    fn test_complete_no_matches() {
+        use std::fs;
+
+        let mut completer = PathCompleter::new();
+
+        // Create a temp directory with specific files
+        let test_dir = "/tmp/rush_path_nomatch_test";
+        let _ = fs::remove_dir_all(test_dir);
+        fs::create_dir_all(test_dir).unwrap();
+        fs::write(format!("{}/apple.txt", test_dir), "test").unwrap();
+
+        // Complete with a prefix that doesn't match anything (lines 251-258)
+        let cmd = format!("ls {}/xyz", test_dir);
+        let suggestions = completer.complete(&cmd, cmd.len());
+
+        fs::remove_dir_all(test_dir).unwrap();
+
+        assert!(suggestions.is_empty());
+    }
+
+    #[test]
+    fn test_complete_too_many_matches() {
+        use std::fs;
+
+        let mut completer = PathCompleter::new();
+
+        // Create a temp directory with >50 files (lines 240-248)
+        let test_dir = "/tmp/rush_path_toomany_test";
+        let _ = fs::remove_dir_all(test_dir);
+        fs::create_dir_all(test_dir).unwrap();
+
+        // Create 55 files
+        for i in 0..55 {
+            fs::write(format!("{}/file_{:03}.txt", test_dir, i), "test").unwrap();
+        }
+
+        // Complete with empty prefix - should trigger "too many matches"
+        let cmd = format!("ls {}/", test_dir);
+        let suggestions = completer.complete(&cmd, cmd.len());
+
+        fs::remove_dir_all(test_dir).unwrap();
+
+        // Should return empty when >50 matches
+        assert!(suggestions.is_empty());
+    }
+
+    #[test]
+    fn test_complete_hidden_files() {
+        use std::fs;
+
+        let mut completer = PathCompleter::new();
+
+        // Create temp directory with hidden and non-hidden files
+        let test_dir = "/tmp/rush_path_hidden_test";
+        let _ = fs::remove_dir_all(test_dir);
+        fs::create_dir_all(test_dir).unwrap();
+        fs::write(format!("{}/.hidden", test_dir), "test").unwrap();
+        fs::write(format!("{}/visible", test_dir), "test").unwrap();
+
+        // Complete without . prefix - should not show hidden file
+        let cmd1 = format!("ls {}/v", test_dir);
+        let suggestions1 = completer.complete(&cmd1, cmd1.len());
+
+        // Complete with . prefix - should show hidden file (T027)
+        let cmd2 = format!("ls {}/.", test_dir);
+        let suggestions2 = completer.complete(&cmd2, cmd2.len());
+
+        fs::remove_dir_all(test_dir).unwrap();
+
+        // Visible file should be found
+        assert!(suggestions1.iter().any(|s| s.value.contains("visible")));
+        // Hidden should only show with . prefix
+        assert!(suggestions2.iter().any(|s| s.value.contains(".hidden")));
+    }
+
+    #[test]
+    fn test_expand_tilde_just_tilde() {
+        let completer = PathCompleter::new();
+
+        // Test "~" expansion (line 107-108)
+        let expanded = completer.expand_tilde("~");
+        if let Some(home) = dirs::home_dir() {
+            assert_eq!(expanded, home.to_string_lossy().to_string());
+        }
+    }
 }

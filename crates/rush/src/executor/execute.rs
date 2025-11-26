@@ -1,7 +1,8 @@
 //! Command execution implementation
 
+use super::environment::EnvironmentManager;
 use super::job::JobManager;
-use super::parser::parse_pipeline;
+use super::parser::{expand_variables, parse_pipeline};
 use super::pipeline::PipelineExecutor;
 use crate::error::Result;
 use nix::unistd::Pid;
@@ -26,12 +27,27 @@ use nix::unistd::Pid;
 pub struct CommandExecutor {
     pipeline_executor: PipelineExecutor,
     job_manager: JobManager,
+    env_manager: EnvironmentManager,
 }
 
 impl CommandExecutor {
     /// Create a new command executor
     pub fn new() -> Self {
-        Self { pipeline_executor: PipelineExecutor::new(), job_manager: JobManager::new() }
+        Self {
+            pipeline_executor: PipelineExecutor::new(),
+            job_manager: JobManager::new(),
+            env_manager: EnvironmentManager::new(),
+        }
+    }
+
+    /// Get reference to environment manager
+    pub fn env_manager(&self) -> &EnvironmentManager {
+        &self.env_manager
+    }
+
+    /// Get mutable reference to environment manager
+    pub fn env_manager_mut(&mut self) -> &mut EnvironmentManager {
+        &mut self.env_manager
     }
 
     /// Execute a command line and return the exit code
@@ -53,7 +69,7 @@ impl CommandExecutor {
         }
 
         // Parse command line into pipeline (handles quotes, pipes, and redirections)
-        let pipeline = match parse_pipeline(line) {
+        let mut pipeline = match parse_pipeline(line) {
             Ok(parsed) => parsed,
             Err(e) => {
                 tracing::warn!(error = %e, "Command parsing failed");
@@ -61,6 +77,9 @@ impl CommandExecutor {
                 return Ok(1); // Parsing error, non-zero exit
             }
         };
+
+        // Expand environment variables in all pipeline segments
+        expand_variables(&mut pipeline.segments, &self.env_manager);
 
         // Check for built-ins (only if single command and not background)
         if pipeline.len() == 1 && !pipeline.background {
@@ -78,8 +97,9 @@ impl CommandExecutor {
             "Executing command line"
         );
 
-        // Execute the pipeline
-        let execution = match self.pipeline_executor.spawn(&pipeline) {
+        // Execute the pipeline with shell's environment
+        let env_map = self.env_manager.as_env_map();
+        let execution = match self.pipeline_executor.spawn(&pipeline, env_map) {
             Ok(execution) => execution,
             Err(_) => return Ok(127),
         };
@@ -320,5 +340,28 @@ mod tests {
 
         // Job should be removed
         assert!(executor.job_manager_mut().get_job(id).is_none());
+    }
+
+    #[test]
+    fn test_execute_background_command() {
+        use std::thread;
+        use std::time::Duration;
+
+        let mut executor = CommandExecutor::new();
+
+        // Run a short-lived command in background
+        let result = executor.execute("sleep 0.1 &");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 0); // Background commands return 0 immediately
+
+        // Should have a job in the job manager
+        let job_count = executor.job_manager_mut().jobs().count();
+        assert!(job_count > 0, "Background job should be added to manager");
+
+        // Wait for it to finish
+        thread::sleep(Duration::from_millis(200));
+
+        // Check and cleanup
+        executor.check_background_jobs();
     }
 }

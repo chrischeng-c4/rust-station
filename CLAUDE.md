@@ -716,6 +716,8 @@ MCP configuration is in `.mcp.json`:
 - Rust 1.75+ (Rust 2021 edition) + reedline (line editing library with Hinter trait support) (003-autosuggestions)
 - File-based command history (existing FileBackedHistory from reedline) (003-autosuggestions)
 - File system operations (create, open, truncate, append files) (005-output-redirection)
+- Rust 1.75+ (edition 2021) + std::env, std::process::Command (standard library only) (007-env-vars)
+- In-memory HashMap for session variables; no persistent storage (007-env-vars)
 
 ## Recent Changes
 - 001-rush-mvp: Added Rust 1.75+ (edition 2021)

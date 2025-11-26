@@ -16,7 +16,7 @@
 //! Pipes and redirections inside quotes are treated as literal text, not operators.
 
 use crate::error::{Result, RushError};
-use crate::executor::{Pipeline, PipelineSegment};
+use crate::executor::{EnvironmentManager, Pipeline, PipelineSegment};
 
 /// Token types for parsing command lines with pipes and redirections
 #[derive(Debug, Clone, PartialEq)]
@@ -59,13 +59,6 @@ pub fn parse_command_with_redirections(
                 words.push(w.clone());
                 i += 1;
             }
-            Token::Pipe => {
-                // Pipes are not supported in this legacy function
-                // Use parse_pipeline() instead
-                return Err(RushError::Execution(
-                    "Pipe operator not supported - use parse_pipeline() instead".to_string(),
-                ));
-            }
             Token::RedirectOut | Token::RedirectAppend | Token::RedirectIn => {
                 // Redirection operator must be followed by a file path
                 if i + 1 >= tokens.len() {
@@ -90,11 +83,11 @@ pub fn parse_command_with_redirections(
                     ));
                 }
             }
-            Token::Background => {
-                return Err(RushError::Execution(
-                    "Background operator not supported in this context".to_string(),
-                ));
-            }
+            // Note: Pipe and Background tokens are never produced by tokenize_with_redirections
+            // They are only created by tokenize_pipeline, which is used for parse_pipeline
+            Token::Pipe | Token::Background => unreachable!(
+                "Pipe/Background tokens cannot be produced by tokenize_with_redirections"
+            ),
         }
     }
 
@@ -323,80 +316,6 @@ fn tokenize(line: &str) -> Result<Vec<String>> {
             }
         })
         .collect())
-}
-
-/// Original tokenize implementation kept for reference
-fn _tokenize_original(line: &str) -> Result<Vec<String>> {
-    let mut tokens = Vec::new();
-    let mut current_token = String::new();
-    let mut in_single_quote = false;
-    let mut in_double_quote = false;
-    let mut escape_next = false;
-    let mut had_quotes = false; // Track if current token was quoted
-    let chars = line.chars();
-
-    for ch in chars {
-        if escape_next {
-            // Escaped character - add literally
-            current_token.push(ch);
-            escape_next = false;
-            continue;
-        }
-
-        match ch {
-            '\\' => {
-                // Backslash escapes next character
-                escape_next = true;
-            }
-            '\'' if !in_double_quote => {
-                // Single quote - toggle single quote mode
-                if in_single_quote {
-                    // Closing quote - mark that we had quotes
-                    had_quotes = true;
-                }
-                in_single_quote = !in_single_quote;
-            }
-            '"' if !in_single_quote => {
-                // Double quote - toggle double quote mode
-                if in_double_quote {
-                    // Closing quote - mark that we had quotes
-                    had_quotes = true;
-                }
-                in_double_quote = !in_double_quote;
-            }
-            ' ' | '\t' if !in_single_quote && !in_double_quote => {
-                // Whitespace outside quotes - end current token
-                if !current_token.is_empty() || had_quotes {
-                    // Push token if non-empty OR if it was a quoted empty string
-                    tokens.push(current_token.clone());
-                    current_token.clear();
-                    had_quotes = false;
-                }
-            }
-            _ => {
-                // Regular character - add to current token
-                current_token.push(ch);
-            }
-        }
-    }
-
-    // Check for unclosed quotes
-    if in_single_quote {
-        return Err(RushError::Execution("Unclosed single quote in command".to_string()));
-    }
-    if in_double_quote {
-        return Err(RushError::Execution("Unclosed double quote in command".to_string()));
-    }
-    if escape_next {
-        return Err(RushError::Execution("Trailing backslash in command".to_string()));
-    }
-
-    // Add final token if non-empty or was quoted empty string
-    if !current_token.is_empty() || had_quotes {
-        tokens.push(current_token);
-    }
-
-    Ok(tokens)
 }
 
 /// Parse command line into pipeline
@@ -673,6 +592,126 @@ fn split_into_segments(tokens: Vec<Token>) -> Result<Vec<PipelineSegment>> {
     segments.push(PipelineSegment::new(program, args, segments.len(), current_redirections));
 
     Ok(segments)
+}
+
+/// Expand environment variables in a string
+///
+/// Handles:
+/// - `$VAR` - Simple variable reference
+/// - `${VAR}` - Braced variable reference (for clarity/concatenation)
+/// - `\$` - Escaped dollar sign (produces literal `$`)
+/// - Undefined variables expand to empty string
+///
+/// # Arguments
+///
+/// * `input` - String potentially containing variable references
+/// * `env` - Environment manager for variable lookups
+///
+/// # Returns
+///
+/// String with all variable references expanded
+///
+/// # Examples
+///
+/// ```ignore
+/// let env = EnvironmentManager::new();
+/// // Given HOME=/Users/user
+///
+/// expand_variables_in_string("$HOME", &env) // "/Users/user"
+/// expand_variables_in_string("${HOME}_backup", &env) // "/Users/user_backup"
+/// expand_variables_in_string("\\$HOME", &env) // "$HOME" (literal)
+/// expand_variables_in_string("$UNDEFINED", &env) // "" (empty)
+/// ```
+pub fn expand_variables_in_string(input: &str, env: &EnvironmentManager) -> String {
+    let mut result = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            // Handle escaped characters
+            if let Some(&next) = chars.peek() {
+                if next == '$' {
+                    // Escaped dollar sign - produce literal $
+                    result.push('$');
+                    chars.next();
+                    continue;
+                }
+            }
+            // Not escaping $, keep the backslash
+            result.push(c);
+        } else if c == '$' {
+            // Variable expansion
+            if chars.peek() == Some(&'{') {
+                // ${VAR} syntax - braced variable reference
+                chars.next(); // consume '{'
+                let var_name: String = chars.by_ref().take_while(|&ch| ch != '}').collect();
+                // Expand variable (undefined = empty string)
+                if let Some(value) = env.get(&var_name) {
+                    result.push_str(value);
+                }
+            } else {
+                // $VAR syntax - simple variable reference
+                // Variable names: [a-zA-Z_][a-zA-Z0-9_]*
+                let mut var_name = String::new();
+                // First character must be letter or underscore
+                if let Some(&first) = chars.peek() {
+                    if first.is_ascii_alphabetic() || first == '_' {
+                        var_name.push(chars.next().unwrap());
+                        // Subsequent characters: alphanumeric or underscore
+                        while let Some(&ch) = chars.peek() {
+                            if ch.is_ascii_alphanumeric() || ch == '_' {
+                                var_name.push(chars.next().unwrap());
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if var_name.is_empty() {
+                    // No valid variable name follows $ - keep literal $
+                    result.push('$');
+                } else {
+                    // Expand variable (undefined = empty string)
+                    if let Some(value) = env.get(&var_name) {
+                        result.push_str(value);
+                    }
+                }
+            }
+        } else {
+            result.push(c);
+        }
+    }
+
+    result
+}
+
+/// Expand environment variables in all pipeline segments
+///
+/// Expands variables in:
+/// - Program name (command)
+/// - All arguments
+/// - Redirection file paths
+///
+/// # Arguments
+///
+/// * `segments` - Mutable slice of pipeline segments to expand
+/// * `env` - Environment manager for variable lookups
+pub fn expand_variables(segments: &mut [PipelineSegment], env: &EnvironmentManager) {
+    for segment in segments {
+        // Expand program name (rare but possible, e.g., $EDITOR)
+        segment.program = expand_variables_in_string(&segment.program, env);
+
+        // Expand all arguments
+        for arg in &mut segment.args {
+            *arg = expand_variables_in_string(arg, env);
+        }
+
+        // Expand redirection file paths
+        for redir in &mut segment.redirections {
+            redir.file_path = expand_variables_in_string(&redir.file_path, env);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1003,7 +1042,10 @@ mod tests {
         // Redirection operator followed by another redirection operator
         let result = parse_command_with_redirections("echo > >");
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("must be followed by file path"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("must be followed by file path"));
     }
 
     #[test]
@@ -1011,7 +1053,10 @@ mod tests {
         // Redirection operator at end of command
         let result = parse_command_with_redirections("echo test >");
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("missing file path"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("missing file path"));
     }
 
     #[test]
@@ -1073,7 +1118,10 @@ mod tests {
         let args = vec![">".to_string()];
         let result = extract_redirections_from_args(&args);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("missing file path"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("missing file path"));
     }
 
     #[test]
@@ -1095,7 +1143,10 @@ mod tests {
     fn test_parse_pipeline_empty_after_pipe() {
         let result = parse_pipeline("echo test |");
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Empty command after pipe"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Empty command after pipe"));
     }
 
     #[test]
@@ -1108,7 +1159,10 @@ mod tests {
     fn test_parse_pipeline_redirect_at_end() {
         let result = parse_pipeline("echo test >");
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("missing file path"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("missing file path"));
     }
 
     #[test]
@@ -1260,7 +1314,10 @@ mod tests {
         // Test missing file path after output redirect (line 503-505)
         let result = parse_pipeline("echo test >");
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("missing file path"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("missing file path"));
     }
 
     #[test]
@@ -1268,7 +1325,10 @@ mod tests {
         // Test missing file path after append redirect (line 512-514)
         let result = parse_pipeline("echo test >>");
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("missing file path"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("missing file path"));
     }
 
     #[test]
@@ -1276,7 +1336,10 @@ mod tests {
         // Test missing file path after input redirect (line 527-529)
         let result = parse_pipeline("cat <");
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("missing file path"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("missing file path"));
     }
 
     #[test]
@@ -1284,7 +1347,10 @@ mod tests {
         // Test redirect not followed by path (line 536-538)
         let result = parse_pipeline("echo test > >");
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("must be followed by file path"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("must be followed by file path"));
     }
 
     #[test]
@@ -1308,7 +1374,10 @@ mod tests {
         // Test unclosed single quote (line 647-648)
         let result = parse_pipeline("echo 'unclosed");
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Unclosed single quote"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Unclosed single quote"));
     }
 
     #[test]
@@ -1316,7 +1385,10 @@ mod tests {
         // Test unclosed double quote (line 653-654)
         let result = parse_pipeline("echo \"unclosed");
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Unclosed double quote"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Unclosed double quote"));
     }
 
     #[test]
@@ -1324,7 +1396,10 @@ mod tests {
         // Test trailing backslash (line 667)
         let result = parse_pipeline("echo test\\");
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Trailing backslash"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Trailing backslash"));
     }
 
     #[test]
@@ -1361,7 +1436,10 @@ mod tests {
         // Test redirect followed by another redirect (line 536-538)
         let result = parse_pipeline("echo test > < file.txt");
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("must be followed by file path"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("must be followed by file path"));
     }
 
     #[test]
@@ -1439,5 +1517,298 @@ mod tests {
             assert_eq!(w, "");
         }
         assert!(matches!(tokens[2], Token::RedirectIn));
+    }
+
+    // Tests for no-space before operators (lines 429-431, 438-440, 453-455, 462-464)
+    #[test]
+    fn test_parse_pipeline_no_space_before_pipe() {
+        // Test word immediately before pipe (lines 429-431 in tokenize_pipeline)
+        let pipeline = parse_pipeline("echo test|cat").unwrap();
+        assert_eq!(pipeline.segments.len(), 2);
+        assert_eq!(pipeline.segments[0].program, "echo");
+        assert_eq!(pipeline.segments[0].args, vec!["test"]);
+        assert_eq!(pipeline.segments[1].program, "cat");
+    }
+
+    #[test]
+    fn test_parse_pipeline_no_space_before_redirect_out() {
+        // Test word immediately before > (lines 438-440 in tokenize_pipeline)
+        let pipeline = parse_pipeline("echo test>file.txt").unwrap();
+        assert_eq!(pipeline.segments.len(), 1);
+        assert_eq!(pipeline.segments[0].redirections.len(), 1);
+        assert_eq!(pipeline.segments[0].redirections[0].redir_type, RedirectionType::Output);
+    }
+
+    #[test]
+    fn test_parse_pipeline_no_space_before_redirect_in() {
+        // Test word immediately before < (lines 453-455 in tokenize_pipeline)
+        let pipeline = parse_pipeline("cat<input.txt").unwrap();
+        assert_eq!(pipeline.segments.len(), 1);
+        assert_eq!(pipeline.segments[0].redirections.len(), 1);
+        assert_eq!(pipeline.segments[0].redirections[0].redir_type, RedirectionType::Input);
+    }
+
+    #[test]
+    fn test_parse_pipeline_no_space_before_background() {
+        // Test word immediately before & (lines 462-464 in tokenize_pipeline)
+        let pipeline = parse_pipeline("sleep 5&").unwrap();
+        assert!(pipeline.background);
+        assert_eq!(pipeline.segments[0].args, vec!["5"]);
+    }
+
+    // Tests for word before redirect operators in tokenize_with_redirections
+    #[test]
+    fn test_tokenize_with_redirections_word_before_output_redirect() {
+        // Test word immediately before > in tokenize_with_redirections (lines 256-258)
+        let tokens = tokenize_with_redirections("echo test>file.txt").unwrap();
+        assert_eq!(tokens.len(), 4);
+        assert_eq!(tokens[0], Token::Word("echo".to_string()));
+        assert_eq!(tokens[1], Token::Word("test".to_string()));
+        assert_eq!(tokens[2], Token::RedirectOut);
+        assert_eq!(tokens[3], Token::Word("file.txt".to_string()));
+    }
+
+    #[test]
+    fn test_tokenize_with_redirections_word_before_input_redirect() {
+        // Test word immediately before < in tokenize_with_redirections (lines 271-273)
+        let tokens = tokenize_with_redirections("cat file<input.txt").unwrap();
+        assert_eq!(tokens.len(), 4);
+        assert_eq!(tokens[0], Token::Word("cat".to_string()));
+        assert_eq!(tokens[1], Token::Word("file".to_string()));
+        assert_eq!(tokens[2], Token::RedirectIn);
+        assert_eq!(tokens[3], Token::Word("input.txt".to_string()));
+    }
+
+    // === Environment Variable Expansion Tests (US1 + US4) ===
+
+    // T014: Test basic $VAR expansion
+    #[test]
+    fn test_expand_basic_var() {
+        let mut env = EnvironmentManager::new();
+        env.set("FOO".to_string(), "bar".to_string()).unwrap();
+
+        let result = expand_variables_in_string("$FOO", &env);
+        assert_eq!(result, "bar");
+    }
+
+    // T015: Test ${VAR} braced expansion
+    #[test]
+    fn test_expand_braced_var() {
+        let mut env = EnvironmentManager::new();
+        env.set("HOME".to_string(), "/Users/test".to_string())
+            .unwrap();
+
+        let result = expand_variables_in_string("${HOME}_backup", &env);
+        assert_eq!(result, "/Users/test_backup");
+    }
+
+    // T016: Test undefined variable expanding to empty string
+    #[test]
+    fn test_expand_undefined_var() {
+        let env = EnvironmentManager::new();
+        let result = expand_variables_in_string("$UNDEFINED_VAR_12345", &env);
+        assert_eq!(result, "");
+    }
+
+    // T017: Test escaped \$ producing literal dollar sign
+    #[test]
+    fn test_expand_escaped_dollar() {
+        let env = EnvironmentManager::new();
+        let result = expand_variables_in_string("\\$HOME", &env);
+        assert_eq!(result, "$HOME");
+    }
+
+    // T018: Test variable in middle of string
+    #[test]
+    fn test_expand_var_in_middle() {
+        let mut env = EnvironmentManager::new();
+        env.set("VAR".to_string(), "middle".to_string()).unwrap();
+
+        let result = expand_variables_in_string("foo$VAR bar", &env);
+        assert_eq!(result, "foomiddle bar");
+    }
+
+    // Additional expansion tests
+    #[test]
+    fn test_expand_multiple_vars() {
+        let mut env = EnvironmentManager::new();
+        env.set("A".to_string(), "1".to_string()).unwrap();
+        env.set("B".to_string(), "2".to_string()).unwrap();
+
+        let result = expand_variables_in_string("$A and $B", &env);
+        assert_eq!(result, "1 and 2");
+    }
+
+    #[test]
+    fn test_expand_adjacent_vars() {
+        let mut env = EnvironmentManager::new();
+        env.set("X".to_string(), "hello".to_string()).unwrap();
+        env.set("Y".to_string(), "world".to_string()).unwrap();
+
+        let result = expand_variables_in_string("${X}${Y}", &env);
+        assert_eq!(result, "helloworld");
+    }
+
+    #[test]
+    fn test_expand_var_with_numbers() {
+        let mut env = EnvironmentManager::new();
+        env.set("VAR123".to_string(), "value".to_string()).unwrap();
+
+        let result = expand_variables_in_string("$VAR123", &env);
+        assert_eq!(result, "value");
+    }
+
+    #[test]
+    fn test_expand_underscore_var() {
+        let mut env = EnvironmentManager::new();
+        env.set("_PRIVATE".to_string(), "secret".to_string())
+            .unwrap();
+
+        let result = expand_variables_in_string("$_PRIVATE", &env);
+        assert_eq!(result, "secret");
+    }
+
+    #[test]
+    fn test_expand_no_vars() {
+        let env = EnvironmentManager::new();
+        let result = expand_variables_in_string("just plain text", &env);
+        assert_eq!(result, "just plain text");
+    }
+
+    #[test]
+    fn test_expand_empty_string() {
+        let env = EnvironmentManager::new();
+        let result = expand_variables_in_string("", &env);
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn test_expand_lone_dollar() {
+        let env = EnvironmentManager::new();
+        // Lone $ with nothing after - should remain as $
+        let result = expand_variables_in_string("test$", &env);
+        assert_eq!(result, "test$");
+    }
+
+    #[test]
+    fn test_expand_dollar_followed_by_non_var_char() {
+        let env = EnvironmentManager::new();
+        // $ followed by non-variable character (like space)
+        let result = expand_variables_in_string("$ test", &env);
+        assert_eq!(result, "$ test");
+    }
+
+    #[test]
+    fn test_expand_dollar_number() {
+        let env = EnvironmentManager::new();
+        // $123 - 1 is not a valid first char, so $ remains
+        let result = expand_variables_in_string("$123", &env);
+        assert_eq!(result, "$123");
+    }
+
+    #[test]
+    fn test_expand_empty_braces() {
+        let env = EnvironmentManager::new();
+        // ${} - empty braces expand to empty (undefined var)
+        let result = expand_variables_in_string("${}", &env);
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn test_expand_backslash_not_before_dollar() {
+        let env = EnvironmentManager::new();
+        // Backslash not before $ should be preserved
+        let result = expand_variables_in_string("path\\to\\file", &env);
+        assert_eq!(result, "path\\to\\file");
+    }
+
+    #[test]
+    fn test_expand_system_vars_inherited() {
+        // Test that system environment variables are inherited
+        let env = EnvironmentManager::new();
+        // PATH should exist on all systems
+        let result = expand_variables_in_string("$PATH", &env);
+        // PATH should expand to something non-empty
+        assert!(!result.is_empty() || env.get("PATH").is_none());
+    }
+
+    // Test expand_variables on pipeline segments
+    #[test]
+    fn test_expand_variables_in_segment_program() {
+        use crate::executor::PipelineSegment;
+
+        let mut env = EnvironmentManager::new();
+        env.set("EDITOR".to_string(), "vim".to_string()).unwrap();
+
+        let mut segments = vec![PipelineSegment::new(
+            "$EDITOR".to_string(),
+            vec!["file.txt".to_string()],
+            0,
+            vec![],
+        )];
+
+        expand_variables(&mut segments, &env);
+
+        assert_eq!(segments[0].program, "vim");
+    }
+
+    #[test]
+    fn test_expand_variables_in_segment_args() {
+        use crate::executor::PipelineSegment;
+
+        let mut env = EnvironmentManager::new();
+        env.set("HOME".to_string(), "/home/user".to_string())
+            .unwrap();
+
+        let mut segments = vec![PipelineSegment::new(
+            "ls".to_string(),
+            vec!["$HOME".to_string(), "$HOME/Documents".to_string()],
+            0,
+            vec![],
+        )];
+
+        expand_variables(&mut segments, &env);
+
+        assert_eq!(segments[0].args[0], "/home/user");
+        assert_eq!(segments[0].args[1], "/home/user/Documents");
+    }
+
+    #[test]
+    fn test_expand_variables_in_redirections() {
+        use crate::executor::{PipelineSegment, Redirection, RedirectionType};
+
+        let mut env = EnvironmentManager::new();
+        env.set("OUTDIR".to_string(), "/tmp".to_string()).unwrap();
+
+        let mut segments = vec![PipelineSegment::new(
+            "echo".to_string(),
+            vec!["test".to_string()],
+            0,
+            vec![Redirection::new(
+                RedirectionType::Output,
+                "$OUTDIR/output.txt".to_string(),
+            )],
+        )];
+
+        expand_variables(&mut segments, &env);
+
+        assert_eq!(segments[0].redirections[0].file_path, "/tmp/output.txt");
+    }
+
+    #[test]
+    fn test_expand_variables_multiple_segments() {
+        use crate::executor::PipelineSegment;
+
+        let mut env = EnvironmentManager::new();
+        env.set("PATTERN".to_string(), "error".to_string()).unwrap();
+
+        let mut segments = vec![
+            PipelineSegment::new("cat".to_string(), vec!["log.txt".to_string()], 0, vec![]),
+            PipelineSegment::new("grep".to_string(), vec!["$PATTERN".to_string()], 1, vec![]),
+        ];
+
+        expand_variables(&mut segments, &env);
+
+        assert_eq!(segments[1].args[0], "error");
     }
 }
