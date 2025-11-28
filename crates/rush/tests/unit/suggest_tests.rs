@@ -1,114 +1,54 @@
 // Unit tests for RushHinter (autosuggestions)
 
-use reedline::{
-    CommandLineSearch, Hinter, History, HistoryItem, HistoryItemId, HistorySessionId,
-    Result as ReedlineResult, SearchQuery,
-};
 use rush::repl::suggest::RushHinter;
+use reedline::{Hinter, History, HistoryItem, HistoryItemId, SearchQuery};
 
 /// Mock history implementation for testing
 struct MockHistory {
-    entries: Vec<HistoryItem>,
-    next_id: i64,
+    entries: Vec<String>,
 }
 
 impl MockHistory {
     fn new() -> Self {
-        Self { entries: Vec::new(), next_id: 1 }
+        Self {
+            entries: Vec::new(),
+        }
     }
 
     fn add(&mut self, cmd: impl Into<String>) {
-        let item = HistoryItem {
-            id: Some(HistoryItemId::new(self.next_id)),
+        self.entries.push(cmd.into());
+    }
+}
+
+impl History for MockHistory {
+    fn save(&mut self, _entry: &str) -> Result<(), Box<dyn std::error::Error>> {
+        Ok(())
+    }
+
+    fn load(&self) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        Ok(self.entries.clone())
+    }
+
+    fn clear(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        Ok(())
+    }
+
+    fn iter_chronologic(&self) -> impl Iterator<Item = HistoryItem> {
+        self.entries.iter().enumerate().map(|(id, cmd)| HistoryItem {
+            id: Some(HistoryItemId::new(id as i64)),
             start_timestamp: None,
-            command_line: cmd.into(),
+            command_line: cmd.clone(),
             session_id: None,
             hostname: None,
             cwd: None,
             duration: None,
             exit_status: None,
             more_info: None,
-        };
-        self.next_id += 1;
-        self.entries.push(item);
-    }
-}
-
-impl History for MockHistory {
-    fn save(&mut self, mut h: HistoryItem) -> ReedlineResult<HistoryItem> {
-        if h.id.is_none() {
-            h.id = Some(HistoryItemId::new(self.next_id));
-            self.next_id += 1;
-        }
-        self.entries.push(h.clone());
-        Ok(h)
+        })
     }
 
-    fn load(&self, id: HistoryItemId) -> ReedlineResult<HistoryItem> {
-        self.entries
-            .iter()
-            .find(|item| item.id == Some(id))
-            .cloned()
-            .ok_or_else(|| {
-                std::io::Error::new(std::io::ErrorKind::NotFound, "Item not found").into()
-            })
-    }
-
-    fn count(&self, query: SearchQuery) -> ReedlineResult<i64> {
-        Ok(self.search(query)?.len() as i64)
-    }
-
-    fn search(&self, query: SearchQuery) -> ReedlineResult<Vec<HistoryItem>> {
-        let prefix = match query.filter.command_line {
-            Some(CommandLineSearch::Prefix(s)) => s,
-            Some(CommandLineSearch::Substring(s)) => s,
-            Some(CommandLineSearch::Exact(s)) => s,
-            None => String::new(),
-        };
-
-        let results: Vec<HistoryItem> = self
-            .entries
-            .iter()
-            .filter(|item| {
-                if prefix.is_empty() {
-                    true
-                } else {
-                    item.command_line.starts_with(&prefix)
-                }
-            })
-            .rev() // Most recent first
-            .cloned()
-            .collect();
-        Ok(results)
-    }
-
-    fn update(
-        &mut self,
-        id: HistoryItemId,
-        updater: &dyn Fn(HistoryItem) -> HistoryItem,
-    ) -> ReedlineResult<()> {
-        if let Some(item) = self.entries.iter_mut().find(|item| item.id == Some(id)) {
-            *item = updater(item.clone());
-        }
-        Ok(())
-    }
-
-    fn clear(&mut self) -> ReedlineResult<()> {
-        self.entries.clear();
-        Ok(())
-    }
-
-    fn delete(&mut self, id: HistoryItemId) -> ReedlineResult<()> {
-        self.entries.retain(|item| item.id != Some(id));
-        Ok(())
-    }
-
-    fn sync(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-
-    fn session(&self) -> Option<HistorySessionId> {
-        None
+    fn count(&self, _query: SearchQuery) -> Result<i64, Box<dyn std::error::Error>> {
+        Ok(self.entries.len() as i64)
     }
 }
 
@@ -153,7 +93,11 @@ mod tests {
         history.add("git stash"); // Newer
 
         let result = hinter.handle("git s", 5, &history, false, "");
-        assert_eq!(result, "tash", "Should suggest 'tash' from most recent 'git stash'");
+        assert_eq!(
+            result,
+            "tash",
+            "Should suggest 'tash' from most recent 'git stash'"
+        );
     }
 
     #[test]
@@ -224,7 +168,11 @@ mod tests {
         history.add("cargo build --release");
 
         let result = hinter.handle("cargo b", 7, &history, false, "");
-        assert_eq!(result, "uild --release", "Should return suffix only");
+        assert_eq!(
+            result,
+            "uild --release",
+            "Should return suffix only"
+        );
     }
 
     #[test]
@@ -236,9 +184,17 @@ mod tests {
 
         // Should handle quotes
         let result = hinter.handle("echo \"", 6, &history, false, "");
-        assert_eq!(result, "hello world\"", "Should handle double quotes");
+        assert_eq!(
+            result,
+            "hello world\"",
+            "Should handle double quotes"
+        );
 
         let result = hinter.handle("git commit -m '", 15, &history, false, "");
-        assert_eq!(result, "fix: bug'", "Should handle single quotes");
+        assert_eq!(
+            result,
+            "fix: bug'",
+            "Should handle single quotes"
+        );
     }
 }
