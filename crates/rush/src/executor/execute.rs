@@ -1,5 +1,6 @@
 //! Command execution implementation
 
+use super::expansion::expand_variables;
 use super::job::JobManager;
 use super::parser::parse_pipeline;
 use super::pipeline::PipelineExecutor;
@@ -61,8 +62,11 @@ impl CommandExecutor {
             return Ok(0);
         }
 
+        // Expand variables in the command line
+        let expanded_line = expand_variables(line, self);
+
         // Parse command line into pipeline (handles quotes, pipes, and redirections)
-        let pipeline = match parse_pipeline(line) {
+        let pipeline = match parse_pipeline(&expanded_line) {
             Ok(parsed) => parsed,
             Err(e) => {
                 tracing::warn!(error = %e, "Command parsing failed");
@@ -77,7 +81,10 @@ impl CommandExecutor {
             if let Some(result) =
                 super::builtins::execute_builtin(self, &segment.program, &segment.args)
             {
-                return result;
+                // Store exit code for $? expansion
+                let exit_code = result?;
+                self.last_exit_code = exit_code;
+                return Ok(exit_code);
             }
         }
 
@@ -90,10 +97,13 @@ impl CommandExecutor {
         // Execute the pipeline
         let execution = match self.pipeline_executor.spawn(&pipeline) {
             Ok(execution) => execution,
-            Err(_) => return Ok(127),
+            Err(_) => {
+                self.last_exit_code = 127;
+                return Ok(127);
+            }
         };
 
-        if pipeline.background {
+        let exit_code = if pipeline.background {
             // Background execution
             let pids: Vec<Pid> = execution
                 .pids()
@@ -114,11 +124,14 @@ impl CommandExecutor {
                 println!("[{}] {}", job_id, last_pid);
             }
 
-            Ok(0)
+            0
         } else {
             // Foreground execution
-            execution.wait_all()
-        }
+            execution.wait_all()?
+        };
+
+        self.last_exit_code = exit_code;
+        Ok(exit_code)
     }
 
     /// Get mutable reference to job manager (for builtins)
