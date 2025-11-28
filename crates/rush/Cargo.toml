@@ -52,6 +52,7 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
 tracing-appender = "0.2"  # For file logging
+which = "8.0.0"
 
 [dev-dependencies]
 # Integration testing

@@ -26,11 +26,14 @@
 //! executor.execute("echo 'hello world' | grep hello")?;
 //! ```
 
+pub mod builtins;
 pub mod execute;
+pub mod expansion;
 pub mod job;
 pub mod parser;
 pub mod pipeline;
 pub mod script;
+pub mod variables;
 
 use crate::error::Result;
 use std::path::PathBuf;
@@ -57,7 +60,10 @@ pub struct Command {
     ///
     /// This field is kept for backward compatibility but should not be used.
     /// Use the `redirections` field for all I/O redirection operations.
-    #[deprecated(since = "0.2.0", note = "Use redirections field for all I/O redirections")]
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use redirections field for all I/O redirections"
+    )]
     pub redirects: Vec<Redirect>,
 
     /// I/O redirections (>, >>, <) - current implementation
@@ -183,12 +189,15 @@ pub struct Pipeline {
 
     /// Original user input for error messages and logging
     pub raw_input: String,
+
+    /// Run in background (ends with &)
+    pub background: bool,
 }
 
 impl Pipeline {
     /// Create a new pipeline from segments
-    pub fn new(segments: Vec<PipelineSegment>, raw_input: String) -> Self {
-        Self { segments, raw_input }
+    pub fn new(segments: Vec<PipelineSegment>, raw_input: String, background: bool) -> Self {
+        Self { segments, raw_input, background }
     }
 
     /// Number of commands in the pipeline

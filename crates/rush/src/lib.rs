@@ -64,3 +64,17 @@ pub mod error {
 
 // Re-export error types
 pub use error::{Result, RushError};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_error_formatting() {
+        let err = RushError::Config("Missing file".to_string());
+        assert_eq!(format!("{}", err), "Configuration error: Missing file");
+
+        let err = RushError::Execution("Command failed".to_string());
+        assert_eq!(format!("{}", err), "Execution error: Command failed");
+    }
+}

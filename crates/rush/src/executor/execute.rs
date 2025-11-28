@@ -1,8 +1,12 @@
 //! Command execution implementation
 
+use super::expansion::expand_variables;
+use super::job::JobManager;
 use super::parser::parse_pipeline;
 use super::pipeline::PipelineExecutor;
+use super::variables::VariableManager;
 use crate::error::Result;
+use nix::unistd::Pid;
 
 /// Simple command executor
 ///
@@ -14,6 +18,7 @@ use crate::error::Result;
 /// - Pipelines via PipelineExecutor (single and multi-command)
 /// - Command execution with proper exit codes
 /// - Signal handling (FR-009) for pipeline processes
+/// - Environment variables
 ///
 /// # Future Enhancements
 ///
@@ -23,6 +28,9 @@ use crate::error::Result;
 /// - Combining redirections with pipelines
 pub struct CommandExecutor {
     pipeline_executor: PipelineExecutor,
+    job_manager: JobManager,
+    variable_manager: VariableManager,
+    last_exit_code: i32,
 }
 
 impl CommandExecutor {
@@ -30,9 +38,11 @@ impl CommandExecutor {
     pub fn new() -> Self {
         Self {
             pipeline_executor: PipelineExecutor::new(),
+            job_manager: JobManager::new(),
+            variable_manager: VariableManager::new(),
+            last_exit_code: 0,
         }
     }
-
 
     /// Execute a command line and return the exit code
     ///
@@ -45,15 +55,18 @@ impl CommandExecutor {
     /// # Returns
     /// * `Ok(exit_code)` - The command's exit code (0 for success)
     /// * `Err(_)` - If the command could not be executed
-    pub fn execute(&self, line: &str) -> Result<i32> {
+    pub fn execute(&mut self, line: &str) -> Result<i32> {
         // Handle empty input
         if line.trim().is_empty() {
             tracing::trace!("Empty command line");
             return Ok(0);
         }
 
+        // Expand variables in the command line
+        let expanded_line = expand_variables(line, self);
+
         // Parse command line into pipeline (handles quotes, pipes, and redirections)
-        let pipeline = match parse_pipeline(line) {
+        let pipeline = match parse_pipeline(&expanded_line) {
             Ok(parsed) => parsed,
             Err(e) => {
                 tracing::warn!(error = %e, "Command parsing failed");
@@ -62,6 +75,19 @@ impl CommandExecutor {
             }
         };
 
+        // Check for built-ins (only if single command and not background)
+        if pipeline.len() == 1 && !pipeline.background {
+            let segment = &pipeline.segments[0];
+            if let Some(result) =
+                super::builtins::execute_builtin(self, &segment.program, &segment.args)
+            {
+                // Store exit code for $? expansion
+                let exit_code = result?;
+                self.last_exit_code = exit_code;
+                return Ok(exit_code);
+            }
+        }
+
         tracing::debug!(
             segments = pipeline.len(),
             raw_input = %pipeline.raw_input,
@@ -69,7 +95,78 @@ impl CommandExecutor {
         );
 
         // Execute the pipeline
-        self.pipeline_executor.execute(&pipeline)
+        let execution = match self.pipeline_executor.spawn(&pipeline) {
+            Ok(execution) => execution,
+            Err(_) => {
+                self.last_exit_code = 127;
+                return Ok(127);
+            }
+        };
+
+        let exit_code = if pipeline.background {
+            // Background execution
+            let pids: Vec<Pid> = execution
+                .pids()
+                .into_iter()
+                .map(|id| Pid::from_raw(id as i32))
+                .collect();
+
+            // Use the process group of the first process as the job's PGID
+            // In a real shell, we would setpgid here, but for MVP we trust the OS/spawn
+            let pgid = pids.first().copied().unwrap_or_else(|| Pid::from_raw(0));
+
+            let job_id = self
+                .job_manager
+                .add_job(pgid, pipeline.raw_input.clone(), pids.clone());
+
+            // Print job info: [1] 12345
+            if let Some(last_pid) = pids.last() {
+                println!("[{}] {}", job_id, last_pid);
+            }
+
+            0
+        } else {
+            // Foreground execution
+            execution.wait_all()?
+        };
+
+        self.last_exit_code = exit_code;
+        Ok(exit_code)
+    }
+
+    /// Get mutable reference to job manager (for builtins)
+    pub fn job_manager_mut(&mut self) -> &mut JobManager {
+        &mut self.job_manager
+    }
+
+    /// Get mutable reference to variable manager (for builtins)
+    pub fn variable_manager_mut(&mut self) -> &mut VariableManager {
+        &mut self.variable_manager
+    }
+
+    /// Get reference to variable manager
+    pub fn variable_manager(&self) -> &VariableManager {
+        &self.variable_manager
+    }
+
+    /// Set the last exit code (for $? expansion)
+    pub fn set_last_exit_code(&mut self, code: i32) {
+        self.last_exit_code = code;
+    }
+
+    /// Get the last exit code
+    pub fn last_exit_code(&self) -> i32 {
+        self.last_exit_code
+    }
+
+    /// Check for finished background jobs and print their status
+    pub fn check_background_jobs(&mut self) {
+        self.job_manager.update_status();
+        let finished_jobs = self.job_manager.cleanup();
+
+        for job in finished_jobs {
+            println!("[{}] {} {}", job.id, job.status, job.command);
+        }
     }
 }
 
@@ -95,7 +192,7 @@ mod tests {
 
     #[test]
     fn test_execute_empty_command() {
-        let executor = CommandExecutor::new();
+        let mut executor = CommandExecutor::new();
         let result = executor.execute("");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 0);
@@ -103,7 +200,7 @@ mod tests {
 
     #[test]
     fn test_execute_echo() {
-        let executor = CommandExecutor::new();
+        let mut executor = CommandExecutor::new();
         let result = executor.execute("echo test");
         assert!(result.is_ok());
         // echo should succeed (exit code 0)
@@ -112,7 +209,7 @@ mod tests {
 
     #[test]
     fn test_execute_true() {
-        let executor = CommandExecutor::new();
+        let mut executor = CommandExecutor::new();
         let result = executor.execute("true");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 0);
@@ -120,7 +217,7 @@ mod tests {
 
     #[test]
     fn test_execute_false() {
-        let executor = CommandExecutor::new();
+        let mut executor = CommandExecutor::new();
         let result = executor.execute("false");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 1); // false returns 1
@@ -128,7 +225,7 @@ mod tests {
 
     #[test]
     fn test_execute_nonexistent_command() {
-        let executor = CommandExecutor::new();
+        let mut executor = CommandExecutor::new();
         let result = executor.execute("this_command_definitely_does_not_exist_12345");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 127); // Command not found
@@ -136,7 +233,7 @@ mod tests {
 
     #[test]
     fn test_execute_with_args() {
-        let executor = CommandExecutor::new();
+        let mut executor = CommandExecutor::new();
         // Test command with arguments
         let result = executor.execute("printf hello");
         assert!(result.is_ok());
@@ -145,7 +242,7 @@ mod tests {
 
     #[test]
     fn test_execute_pwd() {
-        let executor = CommandExecutor::new();
+        let mut executor = CommandExecutor::new();
         let result = executor.execute("pwd");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 0);
@@ -153,7 +250,7 @@ mod tests {
 
     #[test]
     fn test_execute_with_multiple_args() {
-        let executor = CommandExecutor::new();
+        let mut executor = CommandExecutor::new();
         let result = executor.execute("echo hello world test");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 0);
@@ -161,7 +258,7 @@ mod tests {
 
     #[test]
     fn test_execute_with_flags() {
-        let executor = CommandExecutor::new();
+        let mut executor = CommandExecutor::new();
         let result = executor.execute("ls -l -a");
         assert!(result.is_ok());
         // ls should succeed
@@ -170,7 +267,7 @@ mod tests {
 
     #[test]
     fn test_execute_with_special_chars_in_args() {
-        let executor = CommandExecutor::new();
+        let mut executor = CommandExecutor::new();
         let result = executor.execute("printf test123");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 0);
@@ -178,7 +275,7 @@ mod tests {
 
     #[test]
     fn test_execute_date() {
-        let executor = CommandExecutor::new();
+        let mut executor = CommandExecutor::new();
         let result = executor.execute("date");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 0);
@@ -186,7 +283,7 @@ mod tests {
 
     #[test]
     fn test_execute_whoami() {
-        let executor = CommandExecutor::new();
+        let mut executor = CommandExecutor::new();
         let result = executor.execute("whoami");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 0);
@@ -194,7 +291,7 @@ mod tests {
 
     #[test]
     fn test_execute_whitespace_command() {
-        let executor = CommandExecutor::new();
+        let mut executor = CommandExecutor::new();
         let result = executor.execute("   ");
         assert!(result.is_ok());
         // Empty/whitespace-only should return 0
@@ -203,7 +300,7 @@ mod tests {
 
     #[test]
     fn test_executor_is_reusable() {
-        let executor = CommandExecutor::new();
+        let mut executor = CommandExecutor::new();
 
         // Execute multiple commands with same executor
         let result1 = executor.execute("true");

@@ -31,6 +31,8 @@ enum Token {
     RedirectAppend,
     /// Input redirection (<)
     RedirectIn,
+    /// Background execution (&)
+    Background,
 }
 
 /// Parse a command line into program, arguments, and redirections
@@ -88,6 +90,11 @@ pub fn parse_command_with_redirections(
                     ));
                 }
             }
+            Token::Background => {
+                return Err(RushError::Execution(
+                    "Background operator not supported in this context".to_string(),
+                ));
+            }
         }
     }
 
@@ -136,10 +143,7 @@ pub fn extract_redirections_from_args(
                         "Redirection operator missing file path".to_string(),
                     ));
                 }
-                redirections.push(Redirection::new(
-                    RedirectionType::Output,
-                    args[i + 1].clone(),
-                ));
+                redirections.push(Redirection::new(RedirectionType::Output, args[i + 1].clone()));
                 i += 2; // Skip operator and path
             }
             ">>" => {
@@ -149,10 +153,7 @@ pub fn extract_redirections_from_args(
                         "Redirection operator missing file path".to_string(),
                     ));
                 }
-                redirections.push(Redirection::new(
-                    RedirectionType::Append,
-                    args[i + 1].clone(),
-                ));
+                redirections.push(Redirection::new(RedirectionType::Append, args[i + 1].clone()));
                 i += 2; // Skip operator and path
             }
             "<" => {
@@ -162,10 +163,7 @@ pub fn extract_redirections_from_args(
                         "Redirection operator missing file path".to_string(),
                     ));
                 }
-                redirections.push(Redirection::new(
-                    RedirectionType::Input,
-                    args[i + 1].clone(),
-                ));
+                redirections.push(Redirection::new(RedirectionType::Input, args[i + 1].clone()));
                 i += 2; // Skip operator and path
             }
             _ => {
@@ -437,13 +435,20 @@ fn _tokenize_original(line: &str) -> Result<Vec<String>> {
 /// - Empty input after trimming
 pub fn parse_pipeline(line: &str) -> Result<Pipeline> {
     // Tokenize with pipe detection
-    let tokens = tokenize_with_pipes(line)?;
+    let mut tokens = tokenize_with_pipes(line)?;
+
+    // Check for background execution
+    let mut background = false;
+    if let Some(Token::Background) = tokens.last() {
+        background = true;
+        tokens.pop();
+    }
 
     // Split tokens at pipe boundaries
     let segments = split_into_segments(tokens)?;
 
     // Build pipeline
-    let pipeline = Pipeline::new(segments, line.to_string());
+    let pipeline = Pipeline::new(segments, line.to_string(), background);
 
     // Validate (US1: will reject 3+ commands)
     pipeline.validate()?;
@@ -525,6 +530,15 @@ fn tokenize_with_pipes(line: &str) -> Result<Vec<Token>> {
                 }
                 tokens.push(Token::RedirectIn);
             }
+            '&' if !in_single_quote && !in_double_quote => {
+                // Background operator outside quotes
+                if !current_word.is_empty() || had_quotes {
+                    tokens.push(Token::Word(current_word.clone()));
+                    current_word.clear();
+                    had_quotes = false;
+                }
+                tokens.push(Token::Background);
+            }
             ' ' | '\t' if !in_single_quote && !in_double_quote => {
                 // Whitespace outside quotes - end word
                 if !current_word.is_empty() || had_quotes {
@@ -604,6 +618,11 @@ fn split_into_segments(tokens: Vec<Token>) -> Result<Vec<PipelineSegment>> {
             }
             Token::RedirectIn => {
                 current_segment.push("<".to_string());
+            }
+            Token::Background => {
+                return Err(RushError::Execution(
+                    "Background operator '&' must be at the end of the command".to_string(),
+                ));
             }
         }
     }
