@@ -32,6 +32,7 @@ pub mod job;
 pub mod parser;
 pub mod pipeline;
 pub mod script;
+pub mod variables;
 
 use crate::error::Result;
 use std::path::PathBuf;
@@ -58,7 +59,10 @@ pub struct Command {
     ///
     /// This field is kept for backward compatibility but should not be used.
     /// Use the `redirections` field for all I/O redirection operations.
-    #[deprecated(since = "0.2.0", note = "Use redirections field for all I/O redirections")]
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use redirections field for all I/O redirections"
+    )]
     pub redirects: Vec<Redirect>,
 
     /// I/O redirections (>, >>, <) - current implementation
