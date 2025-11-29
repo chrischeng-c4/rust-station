@@ -2,6 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Language Preference
+
+**Claude should respond in: English (U.S.) or Chinese (Traditional - Taiwan)**
+
+When unclear, prefer English (U.S.). Use Traditional Chinese only when the user explicitly writes in Traditional Chinese.
+
 ## Repository Overview
 
 This is a Rust monorepo workspace called `rust-station` that contains multiple Rust projects. The primary project is **rush**, a shell implementation written in Rust designed to replace traditional shells like zsh, bash, and fish.
