@@ -115,6 +115,7 @@ impl PipelineExecutor {
         cmd.args(&clean_args);
 
         // Apply redirections if any
+        let mut has_stderr_redirection = false;
         if !redirections.is_empty() {
             for redir in &redirections {
                 match redir.redir_type {
@@ -176,10 +177,44 @@ impl PipelineExecutor {
                         })?;
                         cmd.stdin(Stdio::from(file));
                     }
+                    super::RedirectionType::Stderr(append) => {
+                        // Create/open file for stderr redirection
+                        let file = if append {
+                            // 2>> - append mode
+                            OpenOptions::new()
+                                .create(true)
+                                .append(true)
+                                .open(&redir.file_path)
+                        } else {
+                            // 2> - truncate mode
+                            OpenOptions::new()
+                                .create(true)
+                                .write(true)
+                                .truncate(true)
+                                .open(&redir.file_path)
+                        }.map_err(|e| {
+                            let msg = match e.kind() {
+                                ErrorKind::PermissionDenied => {
+                                    format!("{}: permission denied", redir.file_path)
+                                }
+                                ErrorKind::IsADirectory => {
+                                    format!("{}: is a directory", redir.file_path)
+                                }
+                                _ => format!("{}: {}", redir.file_path, e),
+                            };
+                            tracing::error!(error = %msg, "Stderr redirection failed");
+                            eprintln!("rush: {}", msg);
+                            RushError::Redirection(msg)
+                        })?;
+                        cmd.stderr(Stdio::from(file));
+                        has_stderr_redirection = true;
+                    }
                 }
             }
-            // If we have redirections, stderr still inherits unless redirected
-            cmd.stderr(Stdio::inherit());
+            // If we have redirections, set default stderr to inherit unless already redirected
+            if !has_stderr_redirection {
+                cmd.stderr(Stdio::inherit());
+            }
         } else {
             // No redirections - use inherited stdio for all streams
             cmd.stdin(Stdio::inherit())

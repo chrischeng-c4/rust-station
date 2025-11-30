@@ -31,6 +31,10 @@ enum Token {
     RedirectAppend,
     /// Input redirection (<)
     RedirectIn,
+    /// Stderr redirection (2>)
+    StderrOut,
+    /// Stderr append redirection (2>>)
+    StderrAppend,
     /// Background execution (&)
     Background,
 }
@@ -66,7 +70,7 @@ pub fn parse_command_with_redirections(
                     "Pipe operator not supported - use parse_pipeline() instead".to_string(),
                 ));
             }
-            Token::RedirectOut | Token::RedirectAppend | Token::RedirectIn => {
+            Token::RedirectOut | Token::RedirectAppend | Token::RedirectIn | Token::StderrOut | Token::StderrAppend => {
                 // Redirection operator must be followed by a file path
                 if i + 1 >= tokens.len() {
                     return Err(RushError::Execution(
@@ -80,6 +84,8 @@ pub fn parse_command_with_redirections(
                         Token::RedirectOut => RedirectionType::Output,
                         Token::RedirectAppend => RedirectionType::Append,
                         Token::RedirectIn => RedirectionType::Input,
+                        Token::StderrOut => RedirectionType::Stderr(false),
+                        Token::StderrAppend => RedirectionType::Stderr(true),
                         _ => unreachable!(),
                     };
                     redirections.push(Redirection::new(redir_type, path.clone()));
@@ -166,6 +172,26 @@ pub fn extract_redirections_from_args(
                 redirections.push(Redirection::new(RedirectionType::Input, args[i + 1].clone()));
                 i += 2; // Skip operator and path
             }
+            "2>" => {
+                // Stderr redirection (truncate) - next arg is the file path
+                if i + 1 >= args.len() {
+                    return Err(RushError::Execution(
+                        "Invalid redirection: 2> requires filename".to_string(),
+                    ));
+                }
+                redirections.push(Redirection::new(RedirectionType::Stderr(false), args[i + 1].clone()));
+                i += 2; // Skip operator and path
+            }
+            "2>>" => {
+                // Stderr redirection (append) - next arg is the file path
+                if i + 1 >= args.len() {
+                    return Err(RushError::Execution(
+                        "Invalid redirection: 2>> requires filename".to_string(),
+                    ));
+                }
+                redirections.push(Redirection::new(RedirectionType::Stderr(true), args[i + 1].clone()));
+                i += 2; // Skip operator and path
+            }
             _ => {
                 // Regular argument
                 clean_args.push(args[i].clone());
@@ -250,8 +276,31 @@ fn tokenize_with_redirections(line: &str) -> Result<Vec<Token>> {
                 }
                 in_double_quote = !in_double_quote;
             }
+            '2' if !in_single_quote && !in_double_quote && (current_token.is_empty() || current_token == "2") => {
+                // Check for 2> or 2>> (stderr redirection operators)
+                // Only recognize 2 as redirection prefix if token is empty (we're at start of word)
+                if current_token.is_empty() && chars.peek() == Some(&'>') {
+                    // Finalize any previous token
+                    if had_quotes {
+                        tokens.push(Token::Word(current_token.clone()));
+                        current_token.clear();
+                        had_quotes = false;
+                    }
+
+                    chars.next(); // Consume the >
+                    if chars.peek() == Some(&'>') {
+                        chars.next(); // Consume second >
+                        tokens.push(Token::StderrAppend);
+                    } else {
+                        tokens.push(Token::StderrOut);
+                    }
+                } else {
+                    // Regular character - add to current token
+                    current_token.push(ch);
+                }
+            }
             '>' if !in_single_quote && !in_double_quote => {
-                // Check for >> (append) operator
+                // Check for >> (append) operator or > (output operator)
                 if !current_token.is_empty() || had_quotes {
                     tokens.push(Token::Word(current_token.clone()));
                     current_token.clear();
@@ -619,6 +668,12 @@ fn split_into_segments(tokens: Vec<Token>) -> Result<Vec<PipelineSegment>> {
             Token::RedirectIn => {
                 current_segment.push("<".to_string());
             }
+            Token::StderrOut => {
+                current_segment.push("2>".to_string());
+            }
+            Token::StderrAppend => {
+                current_segment.push("2>>".to_string());
+            }
             Token::Background => {
                 return Err(RushError::Execution(
                     "Background operator '&' must be at the end of the command".to_string(),
@@ -893,5 +948,64 @@ mod tests {
         assert_eq!(program, "echo");
         assert_eq!(args, vec!["test > file"]);
         assert_eq!(redirs.len(), 0); // No redirections, it's in quotes
+    }
+
+    // Stderr redirection tests
+    #[test]
+    fn test_tokenize_with_stderr_redirect() {
+        let tokens = tokenize_with_redirections("echo error 2>error.txt").unwrap();
+        // Should have: echo, error, 2>, error.txt
+        assert!(tokens.iter().any(|t| matches!(t, Token::StderrOut)));
+    }
+
+    #[test]
+    fn test_tokenize_with_stderr_append_redirect() {
+        let tokens = tokenize_with_redirections("echo msg 2>>error.txt").unwrap();
+        // Should recognize 2>> as StderrAppend token
+        assert!(tokens.iter().any(|t| matches!(t, Token::StderrAppend)));
+    }
+
+    #[test]
+    fn test_parse_with_stderr_redirection() {
+        let (program, args, redirs) =
+            parse_command_with_redirections("cat somefile 2>error.txt").unwrap();
+        assert_eq!(program, "cat");
+        assert_eq!(args, vec!["somefile"]);
+        assert_eq!(redirs.len(), 1);
+        assert_eq!(redirs[0].redir_type, RedirectionType::Stderr(false));
+        assert_eq!(redirs[0].file_path, "error.txt");
+    }
+
+    #[test]
+    fn test_parse_with_stderr_append_redirection() {
+        let (program, args, redirs) =
+            parse_command_with_redirections("echo msg 2>>log.txt").unwrap();
+        assert_eq!(program, "echo");
+        assert_eq!(args, vec!["msg"]);
+        assert_eq!(redirs.len(), 1);
+        assert_eq!(redirs[0].redir_type, RedirectionType::Stderr(true));
+        assert_eq!(redirs[0].file_path, "log.txt");
+    }
+
+    #[test]
+    fn test_parse_stderr_redirect_missing_path() {
+        let result = parse_command_with_redirections("echo test 2>");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("missing file path"));
+    }
+
+    #[test]
+    fn test_parse_combined_stdout_stderr_redirections() {
+        let (program, args, redirs) =
+            parse_command_with_redirections("cmd > out.txt 2> err.txt").unwrap();
+        assert_eq!(program, "cmd");
+        assert_eq!(redirs.len(), 2);
+        assert_eq!(redirs[0].redir_type, RedirectionType::Output);
+        assert_eq!(redirs[0].file_path, "out.txt");
+        assert_eq!(redirs[1].redir_type, RedirectionType::Stderr(false));
+        assert_eq!(redirs[1].file_path, "err.txt");
     }
 }
