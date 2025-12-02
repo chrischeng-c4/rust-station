@@ -2,15 +2,49 @@
 //!
 //! Manages variables for the shell, tracking which ones are exported
 //! (visible to subshells) and which are local to the shell session.
+//!
+//! Supports both string and array variables.
 
 use crate::error::{Result, RushError};
 use std::collections::{HashMap, HashSet};
+
+/// Variable value types
+#[derive(Debug, Clone, PartialEq)]
+pub enum Variable {
+    /// String variable
+    String(String),
+    /// Array variable
+    Array(Vec<String>),
+}
+
+impl Variable {
+    /// Get string representation for display/export
+    pub fn as_string(&self) -> String {
+        match self {
+            Variable::String(s) => s.clone(),
+            Variable::Array(arr) => {
+                // Arrays are displayed as space-separated values
+                arr.join(" ")
+            }
+        }
+    }
+
+    /// Check if this is a string variable
+    pub fn is_string(&self) -> bool {
+        matches!(self, Variable::String(_))
+    }
+
+    /// Check if this is an array variable
+    pub fn is_array(&self) -> bool {
+        matches!(self, Variable::Array(_))
+    }
+}
 
 /// Manages shell environment variables
 #[derive(Debug, Clone)]
 pub struct VariableManager {
     /// All variables (name -> value)
-    variables: HashMap<String, String>,
+    variables: HashMap<String, Variable>,
     /// Which variables are exported (for subshells)
     exported: HashSet<String>,
 }
@@ -21,7 +55,7 @@ impl VariableManager {
         Self { variables: HashMap::new(), exported: HashSet::new() }
     }
 
-    /// Set a variable
+    /// Set a string variable
     ///
     /// # Arguments
     /// * `name` - Variable name (must be valid identifier)
@@ -34,13 +68,105 @@ impl VariableManager {
         if !Self::is_valid_name(&name) {
             return Err(RushError::Execution(format!("set: {}: invalid identifier", name)));
         }
-        self.variables.insert(name, value);
+        self.variables.insert(name, Variable::String(value));
         Ok(())
     }
 
-    /// Get a variable value
+    /// Get a string variable value (returns None if variable is an array)
     pub fn get(&self, name: &str) -> Option<&str> {
-        self.variables.get(name).map(|s| s.as_str())
+        self.variables.get(name).and_then(|v| match v {
+            Variable::String(s) => Some(s.as_str()),
+            Variable::Array(_) => None,
+        })
+    }
+
+    /// Set an array variable
+    ///
+    /// # Arguments
+    /// * `name` - Variable name (must be valid identifier)
+    /// * `values` - Array values
+    ///
+    /// # Returns
+    /// * `Ok(())` - Array set successfully
+    /// * `Err(_)` - Invalid variable name
+    pub fn set_array(&mut self, name: String, values: Vec<String>) -> Result<()> {
+        if !Self::is_valid_name(&name) {
+            return Err(RushError::Execution(format!("set_array: {}: invalid identifier", name)));
+        }
+        self.variables.insert(name, Variable::Array(values));
+        Ok(())
+    }
+
+    /// Get an array variable (returns None if variable is a string or doesn't exist)
+    pub fn get_array(&self, name: &str) -> Option<&Vec<String>> {
+        self.variables.get(name).and_then(|v| match v {
+            Variable::Array(arr) => Some(arr),
+            Variable::String(_) => None,
+        })
+    }
+
+    /// Get an element from an array by index (zero-based)
+    ///
+    /// # Returns
+    /// * `Some(value)` - Element exists at that index
+    /// * `None` - Array doesn't exist, index out of bounds, or variable is string
+    pub fn array_get(&self, name: &str, index: usize) -> Option<&str> {
+        self.variables.get(name).and_then(|v| match v {
+            Variable::Array(arr) => arr.get(index).map(|s| s.as_str()),
+            Variable::String(_) => None,
+        })
+    }
+
+    /// Get the length of an array
+    ///
+    /// # Returns
+    /// * `Some(length)` - Array exists
+    /// * `None` - Variable doesn't exist or is a string
+    pub fn array_length(&self, name: &str) -> Option<usize> {
+        self.variables.get(name).and_then(|v| match v {
+            Variable::Array(arr) => Some(arr.len()),
+            Variable::String(_) => None,
+        })
+    }
+
+    /// Append a value to an array
+    ///
+    /// Creates a new array if it doesn't exist.
+    /// If the variable exists but is a string, converts it to an array with [string, value]
+    ///
+    /// # Returns
+    /// * `Ok(())` - Value appended successfully
+    /// * `Err(_)` - Invalid variable name
+    pub fn append_to_array(&mut self, name: String, value: String) -> Result<()> {
+        if !Self::is_valid_name(&name) {
+            return Err(RushError::Execution(format!("append_to_array: {}: invalid identifier", name)));
+        }
+
+        match self.variables.get_mut(&name) {
+            Some(Variable::Array(arr)) => {
+                // Append to existing array
+                arr.push(value);
+            }
+            Some(Variable::String(s)) => {
+                // Convert string to array: [old_string, new_value]
+                let old_value = s.clone();
+                self.variables.insert(name, Variable::Array(vec![old_value, value]));
+            }
+            None => {
+                // Create new array with single element
+                self.variables.insert(name, Variable::Array(vec![value]));
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Get the type of a variable
+    pub fn get_type(&self, name: &str) -> Option<&str> {
+        self.variables.get(name).map(|v| match v {
+            Variable::String(_) => "string",
+            Variable::Array(_) => "array",
+        })
     }
 
     /// Remove a variable
@@ -76,7 +202,10 @@ impl VariableManager {
         let mut vars: Vec<_> = self
             .variables
             .iter()
-            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .filter_map(|(k, v)| match v {
+                Variable::String(s) => Some((k.as_str(), s.as_str())),
+                Variable::Array(_) => None, // Arrays not listed in string format
+            })
             .collect();
         vars.sort_by(|a, b| a.0.cmp(b.0));
         vars
@@ -87,8 +216,16 @@ impl VariableManager {
         let mut vars: Vec<_> = self
             .variables
             .iter()
-            .filter(|(k, _)| self.exported.contains(k.as_str()))
-            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .filter_map(|(k, v)| {
+                if self.exported.contains(k.as_str()) {
+                    match v {
+                        Variable::String(s) => Some((k.as_str(), s.as_str())),
+                        Variable::Array(_) => None,
+                    }
+                } else {
+                    None
+                }
+            })
             .collect();
         vars.sort_by(|a, b| a.0.cmp(b.0));
         vars
@@ -102,6 +239,11 @@ impl VariableManager {
     /// Check if empty
     pub fn is_empty(&self) -> bool {
         self.variables.is_empty()
+    }
+
+    /// Check if a variable exists
+    pub fn contains(&self, name: &str) -> bool {
+        self.variables.contains_key(name)
     }
 
     /// Check if a variable name is valid
@@ -131,6 +273,7 @@ impl Default for VariableManager {
 mod tests {
     use super::*;
 
+    // String variable tests (backward compatibility)
     #[test]
     fn test_set_and_get() {
         let mut vm = VariableManager::new();
@@ -264,5 +407,115 @@ mod tests {
         vm.remove("name");
         assert!(vm.is_empty());
         assert_eq!(vm.len(), 0);
+    }
+
+    // Array variable tests
+    #[test]
+    fn test_set_and_get_array() {
+        let mut vm = VariableManager::new();
+        vm.set_array("arr".to_string(), vec!["a".to_string(), "b".to_string(), "c".to_string()]).unwrap();
+        let arr = vm.get_array("arr").unwrap();
+        assert_eq!(arr.len(), 3);
+        assert_eq!(arr[0], "a");
+        assert_eq!(arr[1], "b");
+        assert_eq!(arr[2], "c");
+    }
+
+    #[test]
+    fn test_array_get_element() {
+        let mut vm = VariableManager::new();
+        vm.set_array("arr".to_string(), vec!["zero".to_string(), "one".to_string(), "two".to_string()]).unwrap();
+        assert_eq!(vm.array_get("arr", 0), Some("zero"));
+        assert_eq!(vm.array_get("arr", 1), Some("one"));
+        assert_eq!(vm.array_get("arr", 2), Some("two"));
+        assert_eq!(vm.array_get("arr", 3), None);
+    }
+
+    #[test]
+    fn test_array_length() {
+        let mut vm = VariableManager::new();
+        vm.set_array("arr".to_string(), vec!["a".to_string(), "b".to_string()]).unwrap();
+        assert_eq!(vm.array_length("arr"), Some(2));
+    }
+
+    #[test]
+    fn test_array_length_nonexistent() {
+        let vm = VariableManager::new();
+        assert_eq!(vm.array_length("nonexistent"), None);
+    }
+
+    #[test]
+    fn test_append_to_array() {
+        let mut vm = VariableManager::new();
+        vm.set_array("arr".to_string(), vec!["a".to_string()]).unwrap();
+        vm.append_to_array("arr".to_string(), "b".to_string()).unwrap();
+        vm.append_to_array("arr".to_string(), "c".to_string()).unwrap();
+
+        let arr = vm.get_array("arr").unwrap();
+        assert_eq!(arr.len(), 3);
+        assert_eq!(arr[0], "a");
+        assert_eq!(arr[1], "b");
+        assert_eq!(arr[2], "c");
+    }
+
+    #[test]
+    fn test_append_to_new_array() {
+        let mut vm = VariableManager::new();
+        vm.append_to_array("new_arr".to_string(), "first".to_string()).unwrap();
+        assert_eq!(vm.array_length("new_arr"), Some(1));
+        assert_eq!(vm.array_get("new_arr", 0), Some("first"));
+    }
+
+    #[test]
+    fn test_append_to_string_converts_to_array() {
+        let mut vm = VariableManager::new();
+        vm.set("var".to_string(), "original".to_string()).unwrap();
+        vm.append_to_array("var".to_string(), "appended".to_string()).unwrap();
+
+        // Should be an array now
+        let arr = vm.get_array("var").unwrap();
+        assert_eq!(arr.len(), 2);
+        assert_eq!(arr[0], "original");
+        assert_eq!(arr[1], "appended");
+        assert_eq!(vm.get("var"), None); // No longer a string
+    }
+
+    #[test]
+    fn test_get_type() {
+        let mut vm = VariableManager::new();
+        vm.set("str_var".to_string(), "value".to_string()).unwrap();
+        vm.set_array("arr_var".to_string(), vec!["a".to_string()]).unwrap();
+
+        assert_eq!(vm.get_type("str_var"), Some("string"));
+        assert_eq!(vm.get_type("arr_var"), Some("array"));
+        assert_eq!(vm.get_type("nonexistent"), None);
+    }
+
+    #[test]
+    fn test_contains() {
+        let mut vm = VariableManager::new();
+        assert!(!vm.contains("var"));
+        vm.set("var".to_string(), "value".to_string()).unwrap();
+        assert!(vm.contains("var"));
+    }
+
+    #[test]
+    fn test_variable_enum_as_string() {
+        let s = Variable::String("hello".to_string());
+        assert_eq!(s.as_string(), "hello");
+
+        let a = Variable::Array(vec!["a".to_string(), "b".to_string(), "c".to_string()]);
+        assert_eq!(a.as_string(), "a b c");
+    }
+
+    #[test]
+    fn test_variable_enum_type_checks() {
+        let s = Variable::String("value".to_string());
+        assert!(s.is_string());
+        assert!(!s.is_array());
+
+        let a = Variable::Array(vec!["val".to_string()]);
+        assert!(!a.is_string());
+        assert!(a.is_array());
     }
 }
