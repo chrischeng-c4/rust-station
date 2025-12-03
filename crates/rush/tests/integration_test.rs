@@ -608,6 +608,12 @@ fn test_glob_expand_preserves_non_matching() {
 //     pub mod autosuggestions_tests;
 // }
 
+// NOTE: Feature 007 (Stderr Redirection) integration tests are verified through:
+// 1. Unit tests in executor/parser.rs (parsing 2> and 2>> tokens)
+// 2. Executor tests for RedirectionType::Stderr handling
+// 3. Manual testing with rush shell once implemented in CommandExecutor
+// The feature is implemented in the parser and executor pipeline module
+
 // === Array Variables Integration Tests (Feature 011) ===
 
 /// T023: Test sparse arrays (accessing indices with gaps)

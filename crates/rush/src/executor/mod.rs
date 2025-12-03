@@ -35,6 +35,7 @@ pub mod job;
 pub mod parser;
 pub mod pipeline;
 pub mod script;
+pub mod substitution;
 pub mod variables;
 
 use crate::error::Result;
@@ -142,6 +143,9 @@ pub enum RedirectionType {
     Append,
     /// Input redirection (<) - read from file
     Input,
+    /// Stderr redirection (2> or 2>>) - redirect stderr to file
+    /// bool flag: false = 2> (truncate), true = 2>> (append)
+    Stderr(bool),
 }
 
 /// A single redirection operation with type and target file path
