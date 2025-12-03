@@ -557,6 +557,52 @@ fn test_exit_code_tracking() {
     assert_eq!(executor.last_exit_code(), 0, "Background job should return 0");
 }
 
+// Globbing tests
+use rush::executor::glob::glob_expand;
+
+#[test]
+fn test_glob_expand_no_patterns() {
+    // No glob patterns should return unchanged
+    let result = glob_expand("echo test").ok();
+    assert!(result.is_some(), "Should handle non-glob commands");
+}
+
+#[test]
+fn test_glob_expand_quoted_patterns() {
+    // Quoted patterns should not be expanded
+    let result = glob_expand("echo '*.txt'").ok();
+    assert!(result.is_some(), "Should handle quoted patterns");
+    let expanded = result.unwrap();
+    assert!(expanded.contains("*.txt"), "Quoted pattern should be preserved");
+}
+
+#[test]
+fn test_glob_expand_double_quoted_patterns() {
+    // Double-quoted patterns should not be expanded
+    let result = glob_expand("echo \"*.log\"").ok();
+    assert!(result.is_some(), "Should handle double-quoted patterns");
+    let expanded = result.unwrap();
+    assert!(expanded.contains("*.log"), "Double-quoted pattern should be preserved");
+}
+
+#[test]
+fn test_glob_expand_escaped_metacharacters() {
+    // Escaped metacharacters should be treated literally
+    let result = glob_expand("echo \\*.txt").ok();
+    assert!(result.is_some(), "Should handle escaped patterns");
+    let expanded = result.unwrap();
+    assert!(expanded.contains("*.txt"), "Escaped pattern should be preserved as literal");
+}
+
+#[test]
+fn test_glob_expand_preserves_non_matching() {
+    // Non-matching patterns should return unchanged
+    let result = glob_expand("cat nonexistent_*.pattern").ok();
+    assert!(result.is_some(), "Should handle non-matching patterns");
+    let expanded = result.unwrap();
+    assert!(expanded.contains("nonexistent_"), "Non-matching pattern should be preserved");
+}
+
 // TODO: Re-enable after fixing TestHistory trait implementation
 // mod integration {
 //     pub mod autosuggestions_tests;
