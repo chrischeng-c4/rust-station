@@ -8,6 +8,7 @@
 //! 4. OutputCapture: Collect and process output
 //! 5. Expander: Replace $(...) with captured output
 
+pub mod executor;
 pub mod lexer;
 
 use crate::error::{Result, RushError};
