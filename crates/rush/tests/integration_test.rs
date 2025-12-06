@@ -4,9 +4,18 @@
 
 use rush::{Config, Repl};
 
-// Module for conditional control flow integration tests (Feature 017)
+// Module for control flow integration tests (Features 017-026)
 mod integration {
     pub mod conditionals_tests;
+    pub mod conditionals_expansions_tests;
+    pub mod for_loops_expansions_tests;
+    pub mod for_loops_command_substitution_tests;
+    pub mod for_loops_globbing_tests;
+    pub mod while_loops_expansions_tests;
+    pub mod while_loops_command_substitution_tests;
+    pub mod case_statements_expansions_tests;
+    pub mod case_statements_command_substitution_tests;
+    pub mod case_statements_globbing_tests;
 }
 
 #[test]

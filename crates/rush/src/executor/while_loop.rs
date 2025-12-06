@@ -1,10 +1,16 @@
 //! While and Until loop parsing and execution
 //!
 //! Implements parsing and execution of while/do/done and until/do/done constructs.
+//!
+//! Phase 2 Features:
+//! - Variable expansion: $VAR, ${VAR}
+//! - Command substitution: $(cmd)
 
 use crate::error::{Result, RushError};
 use super::{WhileLoop, UntilLoop, CompoundList, Command};
 use crate::executor::execute::CommandExecutor;
+use crate::executor::expansion::expand_variables;
+use crate::executor::substitution::expander::expand_substitutions;
 
 /// Check if a statement appears to be syntactically complete for while loops
 pub fn is_while_complete(input: &str) -> bool {
@@ -270,8 +276,8 @@ pub fn execute_while_loop(
 
     // Loop while condition is true (exit code 0)
     loop {
-        // Evaluate condition
-        let condition_exit_code = execute_compound_list(&while_loop.condition, executor)?;
+        // Evaluate condition with variable expansion
+        let condition_exit_code = execute_compound_list_with_expansion(&while_loop.condition, executor)?;
 
         // Check if condition is true (exit code 0)
         if condition_exit_code != 0 {
@@ -295,8 +301,8 @@ pub fn execute_until_loop(
 
     // Loop until condition is true (exit code 0)
     loop {
-        // Evaluate condition
-        let condition_exit_code = execute_compound_list(&until_loop.condition, executor)?;
+        // Evaluate condition with variable expansion
+        let condition_exit_code = execute_compound_list_with_expansion(&until_loop.condition, executor)?;
 
         // Check if condition is true (exit code 0)
         if condition_exit_code == 0 {
@@ -309,6 +315,43 @@ pub fn execute_until_loop(
 
     // Return exit code from last iteration (or 0 if loop never executed)
     Ok(exit_code)
+}
+
+/// Execute a compound list with variable expansion in commands
+/// Phase 2: Applies variable expansion to all parts of the command
+fn execute_compound_list_with_expansion(compound_list: &CompoundList, executor: &mut CommandExecutor) -> Result<i32> {
+    if compound_list.commands.is_empty() {
+        return Ok(0);
+    }
+
+    let mut last_exit_code = 0;
+
+    for cmd in &compound_list.commands {
+        // Phase 2: Expand variables in program name
+        let expanded_program = expand_variables(&cmd.program, executor);
+        let fully_expanded_program = expand_substitutions(&expanded_program)
+            .unwrap_or_else(|_| expanded_program);
+
+        // Phase 2: Expand variables in arguments
+        let expanded_args: Vec<String> = cmd.args
+            .iter()
+            .map(|arg| {
+                let var_expanded = expand_variables(arg, executor);
+                expand_substitutions(&var_expanded)
+                    .unwrap_or_else(|_| var_expanded)
+            })
+            .collect();
+
+        // Build command line from expanded parts
+        let cmd_line = format!("{} {}", fully_expanded_program, expanded_args.join(" "))
+            .trim()
+            .to_string();
+
+        // Execute the command through the executor
+        last_exit_code = executor.execute(&cmd_line)?;
+    }
+
+    Ok(last_exit_code)
 }
 
 /// Execute a compound list (sequence of commands) and return the exit code of the last command

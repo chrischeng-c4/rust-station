@@ -1,9 +1,15 @@
 //! Conditional control flow parsing and execution
 //!
 //! Implements parsing and execution of if/then/elif/else/fi constructs.
+//!
+//! Phase 2 Features:
+//! - Variable expansion: $VAR, ${VAR}
+//! - Command substitution: $(cmd)
 
 use crate::error::{Result, RushError};
 use super::{CompoundList, IfBlock, ElifClause, Keyword};
+use crate::executor::expansion::expand_variables;
+use crate::executor::substitution::expander::expand_substitutions;
 
 /// Check if a statement appears to be syntactically complete
 /// Useful for REPL multiline support to detect when user has finished entering a statement
@@ -412,8 +418,25 @@ pub fn execute_compound_list(compound_list: &CompoundList, executor: &mut super:
             let if_block = parse_if_clause(if_stmt)?;
             last_exit_code = execute_if_block(&if_block, executor)?;
         } else {
-            // Build command line from the command
-            let cmd_line = format!("{} {}", cmd.program, cmd.args.join(" ")).trim().to_string();
+            // Phase 2: Expand variables in program name
+            let expanded_program = expand_variables(&cmd.program, executor);
+            let fully_expanded_program = expand_substitutions(&expanded_program)
+                .unwrap_or_else(|_| expanded_program);
+
+            // Phase 2: Expand variables in arguments
+            let expanded_args: Vec<String> = cmd.args
+                .iter()
+                .map(|arg| {
+                    let var_expanded = expand_variables(arg, executor);
+                    expand_substitutions(&var_expanded)
+                        .unwrap_or_else(|_| var_expanded)
+                })
+                .collect();
+
+            // Build command line from expanded parts
+            let cmd_line = format!("{} {}", fully_expanded_program, expanded_args.join(" "))
+                .trim()
+                .to_string();
 
             // Execute the command through the executor
             last_exit_code = executor.execute(&cmd_line)?;

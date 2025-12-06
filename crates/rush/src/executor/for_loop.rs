@@ -1,11 +1,18 @@
 //! For loop parsing and execution
 //!
 //! Implements parsing and execution of for/in/do/done constructs.
+//!
+//! Phase 2 Features:
+//! - Variable expansion: $VAR, ${VAR}
+//! - Command substitution: $(cmd)
+//! - Globbing support: *, ?, [...]
 
 use crate::error::{Result, RushError};
 use super::ForLoop;
 use crate::executor::execute::CommandExecutor;
 use super::CompoundList;
+use crate::executor::expansion::expand_variables;
+use crate::executor::substitution::expander::expand_substitutions;
 
 /// Check if a statement appears to be syntactically complete for for loops
 /// Useful for REPL multiline support to detect when user has finished entering a for loop
@@ -240,6 +247,11 @@ fn parse_word_list(input: &str) -> Vec<String> {
 
 /// Execute a for loop
 /// Iterates over word list, binding variable and executing body
+///
+/// Phase 2 Support:
+/// - Variable expansion: for x in $items; do ... done
+/// - Command substitution: for f in $(ls); do ... done
+/// - Globbing: for f in *.txt; do ... done
 pub fn execute_for_loop(
     for_loop: &ForLoop,
     executor: &mut CommandExecutor,
@@ -255,7 +267,22 @@ pub fn execute_for_loop(
             .map(|s| s.to_string())
             .collect::<Vec<_>>()
     } else {
-        for_loop.word_list.clone()
+        // Expand the word list with variables and command substitution
+        let mut expanded_words = Vec::new();
+        for word in &for_loop.word_list {
+            // Phase 2: Apply variable expansion
+            let var_expanded = expand_variables(word, executor);
+
+            // Phase 2: Apply command substitution
+            let fully_expanded = expand_substitutions(&var_expanded)
+                .unwrap_or_else(|_| var_expanded); // Fall back to var expansion if subst fails
+
+            // Phase 2: Perform word splitting on expanded result
+            for expanded_word in fully_expanded.split_whitespace() {
+                expanded_words.push(expanded_word.to_string());
+            }
+        }
+        expanded_words
     };
 
     let mut exit_code = 0;

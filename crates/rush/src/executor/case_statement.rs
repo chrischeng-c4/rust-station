@@ -1,10 +1,16 @@
 //! Case/esac statement parsing and execution
 //!
 //! Implements parsing and execution of case/esac pattern matching statements.
+//!
+//! Phase 2 Features:
+//! - Variable expansion: $VAR, ${VAR}
+//! - Command substitution: $(cmd)
 
 use crate::error::{Result, RushError};
 use super::{CaseStatement, CasePattern, CompoundList, Command};
 use crate::executor::execute::CommandExecutor;
+use crate::executor::expansion::expand_variables;
+use crate::executor::substitution::expander::expand_substitutions;
 
 /// Check if a statement appears to be syntactically complete for case statements
 pub fn is_case_complete(input: &str) -> bool {
@@ -325,10 +331,10 @@ pub fn execute_case_statement(
     case_stmt: &CaseStatement,
     executor: &mut CommandExecutor,
 ) -> Result<i32> {
-    // Expand the value (variable substitution, etc.)
-    let expanded_value = executor.variable_manager().get(&case_stmt.value)
-        .unwrap_or(&case_stmt.value)
-        .to_string();
+    // Phase 2: Expand the value (variable expansion and command substitution)
+    let var_expanded = expand_variables(&case_stmt.value, executor);
+    let expanded_value = expand_substitutions(&var_expanded)
+        .unwrap_or_else(|_| var_expanded);
 
     let mut last_exit_code = 0;
     let mut matched = false;
