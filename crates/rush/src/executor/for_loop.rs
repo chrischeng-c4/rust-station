@@ -4,6 +4,8 @@
 
 use crate::error::{Result, RushError};
 use super::ForLoop;
+use crate::executor::execute::CommandExecutor;
+use super::CompoundList;
 
 /// Check if a statement appears to be syntactically complete for for loops
 /// Useful for REPL multiline support to detect when user has finished entering a for loop
@@ -239,8 +241,8 @@ fn parse_word_list(input: &str) -> Vec<String> {
 /// Execute a for loop
 /// Iterates over word list, binding variable and executing body
 pub fn execute_for_loop(
-    for_loop: &super::ForLoop,
-    executor: &mut super::super::execute::CommandExecutor,
+    for_loop: &ForLoop,
+    executor: &mut CommandExecutor,
 ) -> Result<i32> {
     // Get the word list to iterate over
     let words = if for_loop.word_list.is_empty() {
@@ -264,17 +266,33 @@ pub fn execute_for_loop(
         executor.variable_manager_mut().set(
             for_loop.variable.clone(),
             word,
-            false,
         )?;
 
         // Execute the loop body
-        for cmd in &for_loop.body.commands {
-            exit_code = executor.execute_command(cmd)?;
-        }
+        exit_code = execute_compound_list(&for_loop.body, executor)?;
     }
 
     // Return exit code from last iteration (or 0 if no iterations)
     Ok(exit_code)
+}
+
+/// Execute a compound list (sequence of commands) and return the exit code of the last command
+fn execute_compound_list(compound_list: &CompoundList, executor: &mut CommandExecutor) -> Result<i32> {
+    if compound_list.commands.is_empty() {
+        return Ok(0);
+    }
+
+    let mut last_exit_code = 0;
+
+    for cmd in &compound_list.commands {
+        // Build command line from the command
+        let cmd_line = format!("{} {}", cmd.program, cmd.args.join(" ")).trim().to_string();
+
+        // Execute the command through the executor
+        last_exit_code = executor.execute(&cmd_line)?;
+    }
+
+    Ok(last_exit_code)
 }
 
 #[cfg(test)]
