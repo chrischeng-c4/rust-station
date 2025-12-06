@@ -14,6 +14,7 @@ mod integration {
     pub mod for_loops_pipes_tests;
     pub mod while_loops_expansions_tests;
     pub mod while_loops_command_substitution_tests;
+    pub mod while_loops_pipes_tests;
     pub mod case_statements_expansions_tests;
     pub mod case_statements_command_substitution_tests;
     pub mod case_statements_globbing_tests;

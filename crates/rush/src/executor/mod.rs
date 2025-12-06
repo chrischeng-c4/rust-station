@@ -505,6 +505,9 @@ pub struct WhileLoop {
     pub condition: Box<CompoundList>,
     /// Commands to execute while condition is true
     pub body: Box<CompoundList>,
+    /// Raw body string (for proper pipe and redirection support)
+    /// Phase 3: Used to execute body directly, supporting pipes and redirections
+    pub body_raw: String,
 }
 
 impl WhileLoop {
@@ -513,6 +516,16 @@ impl WhileLoop {
         Self {
             condition: Box::new(condition),
             body: Box::new(body),
+            body_raw: String::new(),
+        }
+    }
+
+    /// Create a new while loop with raw body string (Phase 3+: for pipe support)
+    pub fn new_with_raw_body(condition: CompoundList, body: CompoundList, body_raw: String) -> Self {
+        Self {
+            condition: Box::new(condition),
+            body: Box::new(body),
+            body_raw,
         }
     }
 }
@@ -524,6 +537,9 @@ pub struct UntilLoop {
     pub condition: Box<CompoundList>,
     /// Commands to execute until condition becomes true
     pub body: Box<CompoundList>,
+    /// Raw body string (for proper pipe and redirection support)
+    /// Phase 3: Used to execute body directly, supporting pipes and redirections
+    pub body_raw: String,
 }
 
 impl UntilLoop {
@@ -532,6 +548,16 @@ impl UntilLoop {
         Self {
             condition: Box::new(condition),
             body: Box::new(body),
+            body_raw: String::new(),
+        }
+    }
+
+    /// Create a new until loop with raw body string (Phase 3+: for pipe support)
+    pub fn new_with_raw_body(condition: CompoundList, body: CompoundList, body_raw: String) -> Self {
+        Self {
+            condition: Box::new(condition),
+            body: Box::new(body),
+            body_raw,
         }
     }
 }

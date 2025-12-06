@@ -140,12 +140,16 @@ pub fn parse_while_loop(input: &str) -> Result<WhileLoop> {
         .ok_or_else(|| RushError::Syntax("Expected 'done' keyword in while loop".to_string()))?;
 
     let body_str = rest_after_do[..done_pos].trim();
-    let body = parse_command_list(body_str)?;
+    // Remove trailing semicolon if present (parser doesn't need it)
+    let body_str_clean = body_str.trim_end_matches(';');
+    let body = parse_command_list(body_str_clean)?;
 
-    Ok(WhileLoop {
-        condition: Box::new(condition),
-        body: Box::new(body),
-    })
+    // Phase 3: Store raw body string for pipe and redirection support
+    Ok(WhileLoop::new_with_raw_body(
+        condition,
+        body,
+        body_str_clean.to_string(),
+    ))
 }
 
 /// Parse an until loop from input string
@@ -178,12 +182,16 @@ pub fn parse_until_loop(input: &str) -> Result<UntilLoop> {
         .ok_or_else(|| RushError::Syntax("Expected 'done' keyword in until loop".to_string()))?;
 
     let body_str = rest_after_do[..done_pos].trim();
-    let body = parse_command_list(body_str)?;
+    // Remove trailing semicolon if present (parser doesn't need it)
+    let body_str_clean = body_str.trim_end_matches(';');
+    let body = parse_command_list(body_str_clean)?;
 
-    Ok(UntilLoop {
-        condition: Box::new(condition),
-        body: Box::new(body),
-    })
+    // Phase 3: Store raw body string for pipe and redirection support
+    Ok(UntilLoop::new_with_raw_body(
+        condition,
+        body,
+        body_str_clean.to_string(),
+    ))
 }
 
 /// Parse a condition (command or pipeline)
@@ -284,8 +292,16 @@ pub fn execute_while_loop(
             break; // Condition false, exit loop
         }
 
-        // Execute the loop body
-        exit_code = execute_compound_list(&while_loop.body, executor)?;
+        // Phase 3: Execute using raw body string to support pipes and redirections
+        // If raw body is available, use it (supports pipes and redirections)
+        // Otherwise, fall back to parsed compound list
+        if !while_loop.body_raw.is_empty() {
+            // Execute raw body string (which may contain pipes, redirections, etc.)
+            exit_code = executor.execute(&while_loop.body_raw)?;
+        } else {
+            // Fallback for backward compatibility
+            exit_code = execute_compound_list(&while_loop.body, executor)?;
+        }
     }
 
     // Return exit code from last iteration (or 0 if loop never executed)
@@ -309,8 +325,16 @@ pub fn execute_until_loop(
             break; // Condition true, exit loop
         }
 
-        // Execute the loop body
-        exit_code = execute_compound_list(&until_loop.body, executor)?;
+        // Phase 3: Execute using raw body string to support pipes and redirections
+        // If raw body is available, use it (supports pipes and redirections)
+        // Otherwise, fall back to parsed compound list
+        if !until_loop.body_raw.is_empty() {
+            // Execute raw body string (which may contain pipes, redirections, etc.)
+            exit_code = executor.execute(&until_loop.body_raw)?;
+        } else {
+            // Fallback for backward compatibility
+            exit_code = execute_compound_list(&until_loop.body, executor)?;
+        }
     }
 
     // Return exit code from last iteration (or 0 if loop never executed)
