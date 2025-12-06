@@ -66,6 +66,37 @@ impl CommandExecutor {
             return Ok(0);
         }
 
+        // Check if this is an if statement (before alias/variable expansion)
+        let trimmed = line.trim();
+        if trimmed.starts_with("if") && (trimmed.len() == 2 || trimmed.chars().nth(2).map_or(false, |c| c.is_whitespace())) {
+            tracing::debug!("Detected if statement");
+            return self.execute_if_statement(trimmed);
+        }
+
+        // Check if this is a for loop (before alias/variable expansion)
+        if trimmed.starts_with("for") && (trimmed.len() == 3 || trimmed.chars().nth(3).map_or(false, |c| c.is_whitespace())) {
+            tracing::debug!("Detected for loop");
+            return self.execute_for_loop(trimmed);
+        }
+
+        // Check if this is a while loop (before alias/variable expansion)
+        if trimmed.starts_with("while") && (trimmed.len() == 5 || trimmed.chars().nth(5).map_or(false, |c| c.is_whitespace())) {
+            tracing::debug!("Detected while loop");
+            return self.execute_while_loop(trimmed);
+        }
+
+        // Check if this is an until loop (before alias/variable expansion)
+        if trimmed.starts_with("until") && (trimmed.len() == 5 || trimmed.chars().nth(5).map_or(false, |c| c.is_whitespace())) {
+            tracing::debug!("Detected until loop");
+            return self.execute_until_loop(trimmed);
+        }
+
+        // Check if this is a case statement (before alias/variable expansion)
+        if trimmed.starts_with("case") && (trimmed.len() == 4 || trimmed.chars().nth(4).map_or(false, |c| c.is_whitespace())) {
+            tracing::debug!("Detected case statement");
+            return self.execute_case_statement(trimmed);
+        }
+
         // Expand aliases first (before variable expansion)
         let aliased_line = self.alias_manager.expand(line);
 
@@ -194,6 +225,105 @@ impl CommandExecutor {
             }
         };
 
+        self.last_exit_code = exit_code;
+        Ok(exit_code)
+    }
+
+    /// Execute an if statement
+    /// This is called when a line starts with the "if" keyword
+    fn execute_if_statement(&mut self, line: &str) -> Result<i32> {
+        use super::conditional;
+
+        // Parse the if statement
+        let if_block = match conditional::parse_if_clause(line) {
+            Ok(parsed) => parsed,
+            Err(e) => {
+                tracing::warn!(error = %e, "If statement parsing failed");
+                eprintln!("rush: {}", e);
+                return Ok(1);
+            }
+        };
+
+        // Execute the if block
+        let exit_code = conditional::execute_if_block(&if_block, self)?;
+        self.last_exit_code = exit_code;
+        Ok(exit_code)
+    }
+
+    /// Execute a for loop
+    /// This is called when a line starts with the "for" keyword
+    fn execute_for_loop(&mut self, line: &str) -> Result<i32> {
+        use super::for_loop;
+
+        // Parse the for loop
+        let for_loop = match for_loop::parse_for_loop(line) {
+            Ok(parsed) => parsed,
+            Err(e) => {
+                tracing::warn!(error = %e, "For loop parsing failed");
+                eprintln!("rush: {}", e);
+                return Ok(1);
+            }
+        };
+
+        // Execute the for loop
+        let exit_code = for_loop::execute_for_loop(&for_loop, self)?;
+        self.last_exit_code = exit_code;
+        Ok(exit_code)
+    }
+
+    fn execute_while_loop(&mut self, line: &str) -> Result<i32> {
+        use super::while_loop;
+
+        // Parse the while loop
+        let while_loop = match while_loop::parse_while_loop(line) {
+            Ok(parsed) => parsed,
+            Err(e) => {
+                tracing::warn!(error = %e, "While loop parsing failed");
+                eprintln!("rush: {}", e);
+                return Ok(1);
+            }
+        };
+
+        // Execute the while loop
+        let exit_code = while_loop::execute_while_loop(&while_loop, self)?;
+        self.last_exit_code = exit_code;
+        Ok(exit_code)
+    }
+
+    fn execute_until_loop(&mut self, line: &str) -> Result<i32> {
+        use super::while_loop;
+
+        // Parse the until loop
+        let until_loop = match while_loop::parse_until_loop(line) {
+            Ok(parsed) => parsed,
+            Err(e) => {
+                tracing::warn!(error = %e, "Until loop parsing failed");
+                eprintln!("rush: {}", e);
+                return Ok(1);
+            }
+        };
+
+        // Execute the until loop
+        let exit_code = while_loop::execute_until_loop(&until_loop, self)?;
+        self.last_exit_code = exit_code;
+        Ok(exit_code)
+    }
+
+    fn execute_case_statement(&mut self, line: &str) -> Result<i32> {
+        use super::case_statement;
+
+        // Parse the case statement
+        let case_stmt = match case_statement::parse_case_statement(line) {
+            Ok(parsed) => parsed,
+            Err(e) => {
+                tracing::warn!(error = %e, "Case statement parsing failed");
+                eprintln!("rush: {}", e);
+                return Ok(1);
+            }
+        };
+
+        // Execute the case statement
+        let exit_code = case_statement::execute_case_statement(&case_stmt, self)?;
         self.last_exit_code = exit_code;
         Ok(exit_code)
     }
