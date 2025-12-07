@@ -215,7 +215,7 @@
       "id": "030",
       "name": "read-builtin",
       "description": "read builtin for user input",
-      "status": "planned",
+      "status": "complete",
       "phase": 5,
       "dependencies": ["011"],
       "priority": "high"

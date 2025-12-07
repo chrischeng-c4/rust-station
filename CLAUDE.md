@@ -71,6 +71,8 @@ git commit -m "feat(NNN): description"
 ## Active Technologies
 - Rust 1.75+ (edition 2021) + No new dependencies (pure Rust implementation) (029-arithmetic-expansion)
 - N/A (uses existing VariableManager) (029-arithmetic-expansion)
+- Rust 1.75+ (edition 2021) + reedline (already in project), std::io for terminal I/O (030-read-builtin)
+- N/A (variables stored in existing VariableManager) (030-read-builtin)
 
 ## Recent Changes
 - 029-arithmetic-expansion: Added Rust 1.75+ (edition 2021) + No new dependencies (pure Rust implementation)
