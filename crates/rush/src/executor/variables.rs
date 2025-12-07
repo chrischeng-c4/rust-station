@@ -47,12 +47,82 @@ pub struct VariableManager {
     variables: HashMap<String, Variable>,
     /// Which variables are exported (for subshells)
     exported: HashSet<String>,
+    /// Scope stack for local variables (saved values for each function scope)
+    /// Each entry maps variable name -> previous value (None if didn't exist)
+    scope_stack: Vec<HashMap<String, Option<Variable>>>,
 }
 
 impl VariableManager {
     /// Create a new variable manager
     pub fn new() -> Self {
-        Self { variables: HashMap::new(), exported: HashSet::new() }
+        Self {
+            variables: HashMap::new(),
+            exported: HashSet::new(),
+            scope_stack: Vec::new(),
+        }
+    }
+
+    /// Push a new scope (called when entering a function)
+    pub fn push_scope(&mut self) {
+        self.scope_stack.push(HashMap::new());
+    }
+
+    /// Pop a scope and restore saved variables (called when exiting a function)
+    pub fn pop_scope(&mut self) {
+        if let Some(saved) = self.scope_stack.pop() {
+            for (name, old_value) in saved {
+                match old_value {
+                    Some(v) => {
+                        self.variables.insert(name, v);
+                    }
+                    None => {
+                        self.variables.remove(&name);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Get current scope depth (0 = global, >0 = inside function)
+    pub fn scope_depth(&self) -> usize {
+        self.scope_stack.len()
+    }
+
+    /// Set a local variable (only valid inside a function scope)
+    ///
+    /// Saves the current value (if any) so it can be restored when the scope exits.
+    ///
+    /// # Returns
+    /// * `Ok(())` - Variable set locally
+    /// * `Err(_)` - Not in a function scope or invalid name
+    pub fn set_local(&mut self, name: String, value: Option<String>) -> Result<()> {
+        if self.scope_stack.is_empty() {
+            return Err(RushError::Execution("local: can only be used in a function".to_string()));
+        }
+
+        if !Self::is_valid_name(&name) {
+            return Err(RushError::Execution(format!("local: {}: invalid identifier", name)));
+        }
+
+        // Save current value in scope stack (if not already saved in this scope)
+        let current_scope = self.scope_stack.last_mut().unwrap();
+        if !current_scope.contains_key(&name) {
+            let old_value = self.variables.get(&name).cloned();
+            current_scope.insert(name.clone(), old_value);
+        }
+
+        // Set the new value
+        match value {
+            Some(v) => {
+                self.variables.insert(name, Variable::String(v));
+            }
+            None => {
+                // local var without value - set to empty string
+                self.variables.insert(name, Variable::String(String::new()));
+            }
+        }
+
+        Ok(())
     }
 
     /// Set a string variable

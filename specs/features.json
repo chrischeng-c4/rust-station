@@ -224,7 +224,7 @@
       "id": "031",
       "name": "local-variables",
       "description": "local keyword for function-scoped variables",
-      "status": "planned",
+      "status": "complete",
       "phase": 5,
       "dependencies": ["021"],
       "priority": "high"

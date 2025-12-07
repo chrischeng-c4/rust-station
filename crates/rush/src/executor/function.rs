@@ -149,12 +149,20 @@ fn parse_simple_command(input: &str) -> Result<Command> {
 /// Execute a function call
 pub fn call_function(
     name: &str,
-    args: Vec<String>,
+    _args: Vec<String>,
     executor: &mut CommandExecutor,
 ) -> Result<i32> {
     if let Some(func) = get_function(name) {
+        // Push a new scope for local variables
+        executor.variable_manager_mut().push_scope();
+
         // Execute function body
-        execute_compound_list(&func.body, executor)
+        let result = execute_compound_list(&func.body, executor);
+
+        // Pop the scope (restores any shadowed variables)
+        executor.variable_manager_mut().pop_scope();
+
+        result
     } else {
         Err(RushError::Execution(format!("Unknown function: {}", name)))
     }
