@@ -28,6 +28,7 @@ mod integration {
     pub mod edge_cases_tests;
     pub mod heredocs_tests;
     pub mod here_strings_tests;
+    pub mod arithmetic_expansion_tests;
 }
 
 #[test]

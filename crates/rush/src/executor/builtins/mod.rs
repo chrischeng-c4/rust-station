@@ -11,6 +11,7 @@ pub mod exit;
 pub mod false_cmd;
 pub mod fg;
 pub mod jobs;
+pub mod let_cmd;
 pub mod printf;
 pub mod pwd;
 pub mod source;
@@ -50,6 +51,7 @@ pub fn execute_builtin(
         "source" => Some(source::execute(executor, args)),
         "." => Some(source::execute(executor, args)),
         "exit" => Some(exit::execute(executor, args)),
+        "let" => Some(let_cmd::execute(executor, args)),
         _ => None,
     }
 }

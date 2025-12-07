@@ -206,7 +206,7 @@
       "id": "029",
       "name": "arithmetic-expansion",
       "description": "Arithmetic expansion $((expr)), let, (())",
-      "status": "planned",
+      "status": "complete",
       "phase": 5,
       "dependencies": ["010"],
       "priority": "high"

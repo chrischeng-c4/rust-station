@@ -67,3 +67,10 @@ git commit -m "feat(NNN): description"
 
 - 670+ passing tests
 - All tests complete in <1 second
+
+## Active Technologies
+- Rust 1.75+ (edition 2021) + No new dependencies (pure Rust implementation) (029-arithmetic-expansion)
+- N/A (uses existing VariableManager) (029-arithmetic-expansion)
+
+## Recent Changes
+- 029-arithmetic-expansion: Added Rust 1.75+ (edition 2021) + No new dependencies (pure Rust implementation)

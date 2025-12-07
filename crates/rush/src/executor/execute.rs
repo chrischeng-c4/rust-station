@@ -1,6 +1,7 @@
 //! Command execution implementation
 
 use super::aliases::AliasManager;
+use super::arithmetic;
 use super::expansion::expand_variables;
 use super::glob::glob_expand;
 use super::job::JobManager;
@@ -138,6 +139,9 @@ impl CommandExecutor {
         // Expand variables in the command line
         let expanded_line = expand_variables(&aliased_line, self);
 
+        // Expand arithmetic expressions $((expr))
+        let expanded_line = self.expand_arithmetic(&expanded_line);
+
         // Expand glob patterns (*, ?, [abc]) in arguments
         let globbed_line = glob_expand(&expanded_line)?;
 
@@ -170,6 +174,15 @@ impl CommandExecutor {
                 let exit_code = result?;
                 self.last_exit_code = exit_code;
                 return Ok(exit_code);
+            }
+
+            // Check for simple variable assignment (x=value)
+            // Must be single command with no args and program contains '='
+            if segment.args.is_empty() {
+                if let Some(exit_code) = self.try_variable_assignment(&segment.program) {
+                    self.last_exit_code = exit_code;
+                    return Ok(exit_code);
+                }
             }
         }
 
@@ -415,6 +428,100 @@ impl CommandExecutor {
         for job in finished_jobs {
             println!("[{}] {} {}", job.id, job.status, job.command);
         }
+    }
+
+    /// Expand arithmetic expressions $((expr)) in a string
+    fn expand_arithmetic(&mut self, input: &str) -> String {
+        if !arithmetic::contains_arithmetic(input) {
+            return input.to_string();
+        }
+
+        let mut ctx = ExecutorVarContext { executor: self };
+        match arithmetic::expand_arithmetic(input, &mut ctx) {
+            Ok(expanded) => expanded,
+            Err(e) => {
+                eprintln!("rush: arithmetic error: {}", e);
+                input.to_string()
+            }
+        }
+    }
+
+    /// Evaluate an arithmetic expression and return the result
+    /// Used by the `let` builtin and `(())` command
+    pub fn evaluate_arithmetic(&mut self, expr: &str) -> std::result::Result<i64, arithmetic::ArithmeticError> {
+        let mut ctx = ExecutorVarContext { executor: self };
+        arithmetic::expander::evaluate_expression(expr, &mut ctx)
+    }
+
+    /// Try to handle a simple variable assignment (e.g., x=5)
+    /// Returns Some(exit_code) if it was a valid assignment, None otherwise
+    fn try_variable_assignment(&mut self, input: &str) -> Option<i32> {
+        // Check if input contains '=' at a valid position
+        let eq_pos = input.find('=')?;
+
+        // Variable name is before '='
+        let name = &input[..eq_pos];
+        let value = &input[eq_pos + 1..];
+
+        // Validate variable name: must start with letter or underscore,
+        // followed by letters, digits, or underscores
+        if name.is_empty() {
+            return None;
+        }
+
+        let mut chars = name.chars();
+        let first = chars.next()?;
+        if !first.is_alphabetic() && first != '_' {
+            return None;
+        }
+
+        for c in chars {
+            if !c.is_alphanumeric() && c != '_' {
+                return None;
+            }
+        }
+
+        // Check for array assignment pattern: arr=(...)
+        if value.starts_with('(') && value.ends_with(')') {
+            // Handle array assignment
+            if let Ok(arr) = super::arrays::parse_array_assignment(input) {
+                if let Err(e) = self.variable_manager.set_array(arr.name, arr.values) {
+                    eprintln!("rush: {}", e);
+                    return Some(1);
+                }
+                return Some(0);
+            }
+            return None;
+        }
+
+        // Simple variable assignment
+        if let Err(e) = self.variable_manager.set(name.to_string(), value.to_string()) {
+            eprintln!("rush: {}: {}", name, e);
+            return Some(1);
+        }
+
+        Some(0)
+    }
+}
+
+/// Variable context adapter for arithmetic evaluation
+struct ExecutorVarContext<'a> {
+    executor: &'a mut CommandExecutor,
+}
+
+impl<'a> arithmetic::evaluator::VariableContext for ExecutorVarContext<'a> {
+    fn get(&self, name: &str) -> i64 {
+        self.executor
+            .variable_manager()
+            .get(name)
+            .and_then(|s| s.parse::<i64>().ok())
+            .unwrap_or(0)
+    }
+
+    fn set(&mut self, name: &str, value: i64) {
+        let _ = self.executor
+            .variable_manager_mut()
+            .set(name.to_string(), value.to_string());
     }
 }
 
