@@ -4,11 +4,12 @@ use super::aliases::AliasManager;
 use super::expansion::expand_variables;
 use super::glob::glob_expand;
 use super::job::JobManager;
-use super::parser::parse_pipeline;
+use super::parser::{get_pending_heredocs, parse_pipeline, parse_with_heredocs};
 use super::pipeline::PipelineExecutor;
 use super::variables::VariableManager;
 use crate::error::Result;
 use nix::unistd::{setpgid, Pid};
+use std::collections::HashMap;
 
 /// Simple command executor
 ///
@@ -97,8 +98,42 @@ impl CommandExecutor {
             return self.execute_case_statement(trimmed);
         }
 
+        // Check for heredocs in multiline input
+        let (command_line, heredoc_contents) = if line.contains('\n') {
+            // Multiline input - check for heredocs on first line
+            let first_line = line.lines().next().unwrap_or("");
+            if let Ok(pending) = get_pending_heredocs(first_line) {
+                if !pending.is_empty() {
+                    // Parse heredoc content from the multiline input
+                    match parse_with_heredocs(line) {
+                        Ok((cmd, contents)) => {
+                            let content_map: HashMap<String, String> = contents
+                                .into_iter()
+                                .map(|(delim, content, _strip)| (delim, content))
+                                .collect();
+                            tracing::debug!(
+                                heredocs = content_map.len(),
+                                "Parsed heredoc content"
+                            );
+                            (cmd, Some(content_map))
+                        }
+                        Err(e) => {
+                            eprintln!("rush: heredoc error: {}", e);
+                            return Ok(1);
+                        }
+                    }
+                } else {
+                    (line.to_string(), None)
+                }
+            } else {
+                (line.to_string(), None)
+            }
+        } else {
+            (line.to_string(), None)
+        };
+
         // Expand aliases first (before variable expansion)
-        let aliased_line = self.alias_manager.expand(line);
+        let aliased_line = self.alias_manager.expand(&command_line);
 
         // Expand variables in the command line
         let expanded_line = expand_variables(&aliased_line, self);
@@ -107,7 +142,7 @@ impl CommandExecutor {
         let globbed_line = glob_expand(&expanded_line)?;
 
         // Parse command line into pipeline (handles quotes, pipes, and redirections)
-        let pipeline = match parse_pipeline(&globbed_line) {
+        let mut pipeline = match parse_pipeline(&globbed_line) {
             Ok(parsed) => parsed,
             Err(e) => {
                 tracing::warn!(error = %e, "Command parsing failed");
@@ -115,6 +150,15 @@ impl CommandExecutor {
                 return Ok(1); // Parsing error, non-zero exit
             }
         };
+
+        // Populate heredoc contents in pipeline segments
+        if let Some(ref contents) = heredoc_contents {
+            for segment in &mut pipeline.segments {
+                for (delim, content) in contents {
+                    segment.add_heredoc_content(delim.clone(), content.clone());
+                }
+            }
+        }
 
         // Check for built-ins (only if single command and not background)
         if pipeline.len() == 1 && !pipeline.background {

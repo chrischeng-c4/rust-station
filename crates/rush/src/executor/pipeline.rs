@@ -229,6 +229,17 @@ impl PipelineExecutor {
                             );
                         }
                     }
+                    super::RedirectionType::HereString => {
+                        // Here-string: feed content to stdin via a pipe (similar to heredoc)
+                        // Content is in redir.heredoc_content, newline will be added when writing
+                        if let Some(ref content) = redir.heredoc_content {
+                            cmd.stdin(Stdio::piped());
+                            tracing::debug!(
+                                content_len = content.len(),
+                                "Here-string redirection configured"
+                            );
+                        }
+                    }
                 }
             }
             // If we have redirections, set default stderr to inherit unless already redirected
@@ -247,21 +258,27 @@ impl PipelineExecutor {
                 let pid = child.id();
                 tracing::trace!(pid, "Process spawned");
 
-                // Write heredoc content to stdin if present
+                // Write heredoc/here-string content to stdin if present
                 for redir in &redirections {
-                    if matches!(redir.redir_type, super::RedirectionType::Heredoc | super::RedirectionType::HeredocStrip) {
+                    if matches!(redir.redir_type, super::RedirectionType::Heredoc | super::RedirectionType::HeredocStrip | super::RedirectionType::HereString) {
                         if let Some(ref content) = redir.heredoc_content {
                             if let Some(mut stdin) = child.stdin.take() {
-                                if let Err(e) = stdin.write_all(content.as_bytes()) {
-                                    tracing::error!(error = %e, "Failed to write heredoc content to stdin");
+                                // For here-strings, append a trailing newline (bash behavior)
+                                let content_to_write = if matches!(redir.redir_type, super::RedirectionType::HereString) {
+                                    format!("{}\n", content)
+                                } else {
+                                    content.clone()
+                                };
+                                if let Err(e) = stdin.write_all(content_to_write.as_bytes()) {
+                                    tracing::error!(error = %e, "Failed to write stdin content");
                                     // Kill the child since we couldn't provide input
                                     let _ = child.kill();
                                     let _ = child.wait();
-                                    return Err(RushError::Execution(format!("Failed to write heredoc content: {}", e)));
+                                    return Err(RushError::Execution(format!("Failed to write stdin content: {}", e)));
                                 }
                                 // Close stdin to signal EOF (drop the owned value)
                                 drop(stdin);
-                                tracing::debug!(content_len = content.len(), "Heredoc content written to stdin");
+                                tracing::debug!(content_len = content_to_write.len(), redir_type = ?redir.redir_type, "Stdin content written");
                             }
                         }
                     }

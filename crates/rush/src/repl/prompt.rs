@@ -16,6 +16,8 @@ pub struct RushPrompt {
     exit_code: i32,
     /// Whether this is a continuation prompt for multiline input
     is_continuation: bool,
+    /// Whether this is a heredoc input prompt
+    is_heredoc: bool,
 }
 
 impl Clone for RushPrompt {
@@ -23,6 +25,7 @@ impl Clone for RushPrompt {
         Self {
             exit_code: self.exit_code,
             is_continuation: self.is_continuation,
+            is_heredoc: self.is_heredoc,
         }
     }
 }
@@ -33,6 +36,7 @@ impl RushPrompt {
         Self {
             exit_code,
             is_continuation: false,
+            is_heredoc: false,
         }
     }
 
@@ -41,6 +45,16 @@ impl RushPrompt {
         Self {
             exit_code: 0,
             is_continuation: true,
+            is_heredoc: false,
+        }
+    }
+
+    /// Create a heredoc input prompt
+    pub fn new_heredoc() -> Self {
+        Self {
+            exit_code: 0,
+            is_continuation: true,
+            is_heredoc: true,
         }
     }
 
@@ -83,7 +97,10 @@ impl Prompt for RushPrompt {
     }
 
     fn render_prompt_indicator(&self, _prompt_mode: reedline::PromptEditMode) -> Cow<'_, str> {
-        if self.is_continuation {
+        if self.is_heredoc {
+            // Heredoc input prompt
+            Cow::Borrowed("heredoc> ")
+        } else if self.is_continuation {
             // Continuation prompt - just show "> "
             Cow::Borrowed("> ")
         } else {

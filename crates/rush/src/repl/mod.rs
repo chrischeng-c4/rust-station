@@ -201,22 +201,28 @@ impl Repl {
 
     /// Read a complete statement, potentially across multiple lines
     /// Accumulates lines until we have a syntactically complete statement
+    /// Also handles heredoc input collection
     fn read_complete_statement_signal(&mut self, prompt: &RushPrompt) -> std::result::Result<Signal, std::io::Error> {
+        use crate::executor::parser::{get_pending_heredocs, is_heredoc_complete};
+
         let mut accumulated = String::new();
         let mut line_count = 0;
+        let mut in_heredoc = false;
 
         loop {
             line_count += 1;
 
-            // Use different prompt for continuation lines
+            // Use different prompt based on context
             let current_prompt = if line_count == 1 {
                 prompt.clone()
+            } else if in_heredoc {
+                RushPrompt::new_heredoc()
             } else {
                 RushPrompt::new_continuation()
             };
 
             // Read line from user
-            tracing::trace!("Waiting for user input (line {}))", line_count);
+            tracing::trace!("Waiting for user input (line {})", line_count);
             let sig = self.editor.read_line(&current_prompt);
 
             match sig {
@@ -227,11 +233,31 @@ impl Repl {
                     }
                     accumulated.push_str(&buffer);
 
-                    // Check if the statement is syntactically complete
-                    if crate::executor::conditional::is_statement_complete(&accumulated) {
+                    // On first line, check if we're starting a heredoc
+                    if line_count == 1 {
+                        if let Ok(pending) = get_pending_heredocs(&buffer) {
+                            if !pending.is_empty() {
+                                in_heredoc = true;
+                                tracing::debug!(
+                                    heredocs = pending.len(),
+                                    "Detected heredocs, starting collection"
+                                );
+                            }
+                        }
+                    }
+
+                    // Check if both statement and heredocs are complete
+                    let statement_complete = crate::executor::conditional::is_statement_complete(&accumulated);
+                    let heredoc_complete = is_heredoc_complete(&accumulated);
+
+                    if statement_complete && heredoc_complete {
                         return Ok(Signal::Success(accumulated));
                     }
-                    // Otherwise, continue reading more lines
+
+                    // Update heredoc tracking
+                    if in_heredoc && heredoc_complete {
+                        in_heredoc = false;
+                    }
                 }
                 Ok(signal) => {
                     // Ctrl+D, Ctrl+C, or other signals

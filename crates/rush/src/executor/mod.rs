@@ -163,6 +163,8 @@ pub enum RedirectionType {
     Heredoc,
     /// Heredoc with tab stripping (<<-) - inline document with leading tabs stripped
     HeredocStrip,
+    /// Here-string (<<<) - single string as stdin
+    HereString,
 }
 
 /// A single redirection operation with type and target file path
@@ -191,14 +193,25 @@ impl Redirection {
         }
     }
 
+    /// Creates a new here-string redirection with content
+    /// The content is the string to pass as stdin (trailing newline added during execution)
+    pub fn new_herestring(content: String) -> Self {
+        Self {
+            redir_type: RedirectionType::HereString,
+            file_path: String::new(), // Not used for here-strings
+            heredoc_content: Some(content),
+        }
+    }
+
     /// Validates that the redirection is well-formed
     pub fn validate(&self) -> crate::error::Result<()> {
         use crate::error::RushError;
         // Heredocs use file_path as delimiter, which can be empty for some edge cases
         // StderrToStdout and StdoutToStderr don't need file paths
+        // HereString stores content in heredoc_content, not file_path
         if self.file_path.is_empty() && !matches!(
             self.redir_type,
-            RedirectionType::StderrToStdout | RedirectionType::StdoutToStderr
+            RedirectionType::StderrToStdout | RedirectionType::StdoutToStderr | RedirectionType::HereString
         ) {
             return Err(RushError::Execution("Empty file path for redirection".to_string()));
         }

@@ -43,6 +43,8 @@ enum Token {
     Heredoc,
     /// Heredoc with tab stripping (<<-)
     HeredocStrip,
+    /// Here-string (<<<)
+    HereString,
     /// Background execution (&)
     Background,
     /// Control flow keyword (if, then, elif, else, fi)
@@ -170,6 +172,23 @@ pub fn parse_command_with_redirections(
                 } else {
                     return Err(RushError::Execution(
                         "Heredoc operator must be followed by delimiter".to_string(),
+                    ));
+                }
+            }
+            Token::HereString => {
+                // Here-string operator must be followed by a word (the string content)
+                if i + 1 >= tokens.len() {
+                    return Err(RushError::Execution(
+                        "Here-string operator requires content".to_string(),
+                    ));
+                }
+
+                if let Token::Word(content) = &tokens[i + 1] {
+                    redirections.push(Redirection::new_herestring(content.clone()));
+                    i += 2; // Skip operator and content
+                } else {
+                    return Err(RushError::Execution(
+                        "Here-string operator must be followed by content".to_string(),
                     ));
                 }
             }
@@ -307,6 +326,17 @@ pub fn extract_redirections_from_args(
                 redirections.push(Redirection::new_heredoc(delimiter, String::new(), true));
                 i += 2; // Skip operator and delimiter
             }
+            "<<<" => {
+                // Here-string - next arg is the string content
+                if i + 1 >= args.len() {
+                    return Err(RushError::Execution(
+                        "Here-string operator requires content".to_string(),
+                    ));
+                }
+                let content = args[i + 1].clone();
+                redirections.push(Redirection::new_herestring(content));
+                i += 2; // Skip operator and content
+            }
             _ => {
                 // Regular argument
                 clean_args.push(args[i].clone());
@@ -430,7 +460,7 @@ fn tokenize_with_redirections(line: &str) -> Result<Vec<Token>> {
                 }
             }
             '<' if !in_single_quote && !in_double_quote => {
-                // Check for << (heredoc) or < (input redirection)
+                // Check for <<< (here-string), << (heredoc), or < (input redirection)
                 if !current_token.is_empty() || had_quotes {
                     tokens.push(Token::Word(current_token.clone()));
                     current_token.clear();
@@ -438,7 +468,10 @@ fn tokenize_with_redirections(line: &str) -> Result<Vec<Token>> {
                 }
                 if chars.peek() == Some(&'<') {
                     chars.next(); // Consume second <
-                    if chars.peek() == Some(&'-') {
+                    if chars.peek() == Some(&'<') {
+                        chars.next(); // Consume third < for here-string
+                        tokens.push(Token::HereString);
+                    } else if chars.peek() == Some(&'-') {
                         chars.next(); // Consume -
                         tokens.push(Token::HeredocStrip);
                     } else {
@@ -709,7 +742,10 @@ fn tokenize_with_pipes(line: &str) -> Result<Vec<Token>> {
                 }
                 if chars.peek() == Some(&'<') {
                     chars.next(); // Consume second <
-                    if chars.peek() == Some(&'-') {
+                    if chars.peek() == Some(&'<') {
+                        chars.next(); // Consume third < for here-string
+                        tokens.push(Token::HereString);
+                    } else if chars.peek() == Some(&'-') {
                         chars.next(); // Consume -
                         tokens.push(Token::HeredocStrip);
                     } else {
@@ -826,6 +862,9 @@ fn split_into_segments(tokens: Vec<Token>) -> Result<Vec<PipelineSegment>> {
             Token::HeredocStrip => {
                 current_segment.push("<<-".to_string());
             }
+            Token::HereString => {
+                current_segment.push("<<<".to_string());
+            }
             Token::Background => {
                 return Err(RushError::Execution(
                     "Background operator '&' must be at the end of the command".to_string(),
@@ -935,6 +974,47 @@ where
         "Heredoc delimiter '{}' not found",
         delimiter
     )))
+}
+
+/// Check if all heredocs in the input have their closing delimiters
+/// Returns true if no heredocs present, or all heredocs have been closed
+pub fn is_heredoc_complete(input: &str) -> bool {
+    let mut lines = input.lines();
+
+    // Get the first line (command line)
+    let first_line = match lines.next() {
+        Some(line) => line,
+        None => return true, // Empty input is complete
+    };
+
+    // Check for pending heredocs in the command line
+    let pending = match get_pending_heredocs(first_line) {
+        Ok(p) => p,
+        Err(_) => return true, // Parse error - let executor handle it
+    };
+
+    if pending.is_empty() {
+        return true; // No heredocs
+    }
+
+    // Track which heredocs have been closed
+    let mut remaining: Vec<&str> = pending.iter().map(|h| h.delimiter.as_str()).collect();
+
+    // Scan through remaining lines looking for delimiters
+    for line in lines {
+        // For <<-, delimiter can match with leading tabs stripped
+        let trimmed_for_strip = line.trim_start_matches('\t');
+
+        // Check if this line matches any pending delimiter
+        remaining.retain(|delim| line != *delim && trimmed_for_strip != *delim);
+
+        if remaining.is_empty() {
+            return true; // All heredocs closed
+        }
+    }
+
+    // Some delimiters still pending
+    false
 }
 
 /// Parse a multi-line command that may contain heredocs
@@ -1047,6 +1127,17 @@ pub fn extract_redirections_with_heredocs(
                 let delimiter = args[i + 1].clone();
                 let content = heredoc_contents.get(&delimiter).cloned().unwrap_or_default();
                 redirections.push(Redirection::new_heredoc(delimiter, content, true));
+                i += 2;
+            }
+            "<<<" => {
+                // Here-string - next arg is the string content
+                if i + 1 >= args.len() {
+                    return Err(RushError::Execution(
+                        "Here-string operator requires content".to_string(),
+                    ));
+                }
+                let content = args[i + 1].clone();
+                redirections.push(Redirection::new_herestring(content));
                 i += 2;
             }
             _ => {
@@ -1495,5 +1586,45 @@ mod tests {
         let result = extract_redirections_from_args(&args);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("delimiter"));
+    }
+
+    // is_heredoc_complete tests
+    #[test]
+    fn test_is_heredoc_complete_no_heredocs() {
+        assert!(is_heredoc_complete("echo hello"));
+        assert!(is_heredoc_complete("ls -la | grep foo"));
+        assert!(is_heredoc_complete(""));
+    }
+
+    #[test]
+    fn test_is_heredoc_complete_with_delimiter() {
+        assert!(is_heredoc_complete("cat <<EOF\nhello world\nEOF"));
+        assert!(is_heredoc_complete("cat << MARKER\nline1\nline2\nMARKER"));
+    }
+
+    #[test]
+    fn test_is_heredoc_incomplete() {
+        assert!(!is_heredoc_complete("cat <<EOF\nhello"));
+        assert!(!is_heredoc_complete("cat <<EOF"));
+        assert!(!is_heredoc_complete("cat <<EOF\nline1\nline2"));
+    }
+
+    #[test]
+    fn test_is_heredoc_complete_strip_tabs() {
+        // <<- allows delimiter with leading tabs
+        assert!(is_heredoc_complete("cat <<-EOF\n\thello\n\tEOF"));
+        assert!(is_heredoc_complete("cat <<-EOF\nhello\nEOF"));
+    }
+
+    #[test]
+    fn test_is_heredoc_complete_empty_content() {
+        assert!(is_heredoc_complete("cat <<EOF\nEOF"));
+    }
+
+    #[test]
+    fn test_is_heredoc_complete_multiple() {
+        // Multiple heredocs - both must be closed
+        assert!(is_heredoc_complete("cmd <<A <<B\nfirst\nA\nsecond\nB"));
+        assert!(!is_heredoc_complete("cmd <<A <<B\nfirst\nA\nsecond"));
     }
 }

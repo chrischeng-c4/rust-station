@@ -5,6 +5,7 @@
 use rush::{Config, Repl};
 
 // Module for control flow integration tests (Features 017-026)
+// and heredocs (Feature 027) and here-strings (Feature 028)
 mod integration {
     pub mod conditionals_tests;
     pub mod conditionals_expansions_tests;
@@ -25,6 +26,8 @@ mod integration {
     pub mod nested_structures_tests;
     pub mod posix_compliance_tests;
     pub mod edge_cases_tests;
+    pub mod heredocs_tests;
+    pub mod here_strings_tests;
 }
 
 #[test]
