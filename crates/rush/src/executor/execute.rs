@@ -139,8 +139,11 @@ impl CommandExecutor {
         // Expand brace patterns (after alias, before variable expansion)
         let braced_line = crate::executor::brace::expand_brace(&aliased_line);
 
+        // Expand tilde patterns (~, ~+, ~-, ~user) after brace, before variables
+        let tilded_line = crate::executor::tilde::expand_tilde(&braced_line);
+
         // Expand variables in the command line
-        let expanded_line = expand_variables(&braced_line, self);
+        let expanded_line = expand_variables(&tilded_line, self);
 
         // Expand arithmetic expressions $((expr))
         let expanded_line = self.expand_arithmetic(&expanded_line);
