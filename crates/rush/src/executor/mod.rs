@@ -29,6 +29,7 @@
 pub mod aliases;
 pub mod arithmetic;
 pub mod arrays;
+pub mod brace;
 pub mod builtins;
 pub mod case_statement;
 pub mod command_group;

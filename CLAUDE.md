@@ -73,6 +73,7 @@ git commit -m "feat(NNN): description"
 - N/A (uses existing VariableManager) (029-arithmetic-expansion)
 - Rust 1.75+ (edition 2021) + reedline (already in project), std::io for terminal I/O (030-read-builtin)
 - N/A (variables stored in existing VariableManager) (030-read-builtin)
+- Rust 1.75+ (edition 2021) + None (pure Rust implementation) (034-brace-expansion)
 
 ## Recent Changes
 - 029-arithmetic-expansion: Added Rust 1.75+ (edition 2021) + No new dependencies (pure Rust implementation)

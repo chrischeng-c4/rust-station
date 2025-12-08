@@ -233,7 +233,7 @@
       "id": "032",
       "name": "parameter-expansion",
       "description": "Parameter expansion (${var:-default}, ${var:=value}, etc.)",
-      "status": "planned",
+      "status": "complete",
       "phase": 6,
       "dependencies": ["014"],
       "priority": "medium"
@@ -242,7 +242,7 @@
       "id": "033",
       "name": "string-manipulation",
       "description": "String manipulation (${var#pat}, ${var%pat}, ${var/find/replace})",
-      "status": "planned",
+      "status": "complete",
       "phase": 6,
       "dependencies": ["032"],
       "priority": "medium"

@@ -1,8 +1,8 @@
-# Specification Quality Checklist: Conditional Control Flow (if/then/else/elif/fi)
+# Specification Quality Checklist: Brace Expansion
 
 **Purpose**: Validate specification completeness and quality before proceeding to planning
-**Created**: 2025-12-06
-**Feature**: [Conditional Control Flow (if/then/else/elif/fi)](/specs/015-if-then-else/spec.md)
+**Created**: 2025-12-08
+**Feature**: [spec.md](../spec.md)
 
 ## Content Quality
 
@@ -25,20 +25,12 @@
 ## Feature Readiness
 
 - [x] All functional requirements have clear acceptance criteria
-- [x] User scenarios cover primary flows (basic if, else, elif, compound, test integration, nesting)
+- [x] User scenarios cover primary flows
 - [x] Feature meets measurable outcomes defined in Success Criteria
 - [x] No implementation details leak into specification
 
 ## Notes
 
-All items completed. Specification is ready for `/speckit.clarify` and `/speckit.plan`.
-
-**Key strengths**:
-- 6 user stories cover complete feature scope (P1 and P2 priorities)
-- 13 functional requirements are testable and specific
-- 5 success criteria are measurable and technology-agnostic
-- Edge cases well documented
-- Dependencies clearly identified (none)
-- Blocking relationships noted
-
-**Specification status**: ✅ READY FOR PLANNING
+- Specification is complete and ready for planning
+- All edge cases documented including quoting, escaping, and invalid sequences
+- Expansion order explicitly documented to clarify interaction with other features
