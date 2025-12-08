@@ -251,7 +251,7 @@
       "id": "034",
       "name": "brace-expansion",
       "description": "Brace expansion ({a,b,c}, {1..10})",
-      "status": "planned",
+      "status": "complete",
       "phase": 6,
       "dependencies": ["009"],
       "priority": "medium"
