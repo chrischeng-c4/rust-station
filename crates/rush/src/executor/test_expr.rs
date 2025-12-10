@@ -136,10 +136,7 @@ pub fn parse_test_expression(tokens: &[String]) -> Result<TestExpression> {
     let expression = parser.parse_or()?;
 
     if parser.current < tokens.len() {
-        return Err(RushError::Syntax(format!(
-            "unexpected token: {}",
-            tokens[parser.current]
-        )));
+        return Err(RushError::Syntax(format!("unexpected token: {}", tokens[parser.current])));
     }
 
     Ok(TestExpression::new(expression))
@@ -149,11 +146,24 @@ pub fn parse_test_expression(tokens: &[String]) -> Result<TestExpression> {
 struct Parser<'a> {
     tokens: &'a [String],
     current: usize,
+    depth: usize,
 }
 
 impl<'a> Parser<'a> {
+    const MAX_DEPTH: usize = 32;
+
     fn new(tokens: &'a [String]) -> Self {
-        Self { tokens, current: 0 }
+        Self { tokens, current: 0, depth: 0 }
+    }
+
+    fn check_depth(&self) -> Result<()> {
+        if self.depth >= Self::MAX_DEPTH {
+            return Err(RushError::Syntax(format!(
+                "expression nesting too deep (max {} levels)",
+                Self::MAX_DEPTH
+            )));
+        }
+        Ok(())
     }
 
     fn peek(&self) -> Option<&String> {
@@ -221,10 +231,9 @@ impl<'a> Parser<'a> {
             // Check for unary file/string operators
             if let Some(unary_op) = self.parse_unary_operator(&token_str) {
                 self.advance();
-                let operand_token = self.advance()
-                    .ok_or_else(|| RushError::Syntax(
-                        format!("missing operand for {}", token_str)
-                    ))?;
+                let operand_token = self.advance().ok_or_else(|| {
+                    RushError::Syntax(format!("missing operand for {}", token_str))
+                })?;
                 return Ok(Expression::UnaryOp {
                     operator: unary_op,
                     operand: Box::new(Expression::Literal(operand_token.clone())),
@@ -233,8 +242,11 @@ impl<'a> Parser<'a> {
 
             // Check for grouped expression
             if token_str == "(" {
+                self.check_depth()?;
+                self.depth += 1;
                 self.advance();
                 let inner = self.parse_or()?;
+                self.depth -= 1;
 
                 if self.advance().map(|s| s.as_str()) != Some(")") {
                     return Err(RushError::Syntax("missing ')'".to_string()));
@@ -245,7 +257,8 @@ impl<'a> Parser<'a> {
         }
 
         // Parse binary operation: left op right
-        let left = self.advance()
+        let left = self
+            .advance()
             .ok_or_else(|| RushError::Syntax("unexpected end of expression".to_string()))?
             .clone();
 
@@ -253,17 +266,14 @@ impl<'a> Parser<'a> {
         if let Some(token_str) = self.peek().map(|s| s.clone()) {
             if let Some(binary_op) = self.parse_binary_operator(&token_str) {
                 self.advance(); // consume operator
-                let right = self.advance()
-                    .ok_or_else(|| RushError::Syntax(
-                        format!("missing right operand for {}", token_str)
-                    ))?
+                let right = self
+                    .advance()
+                    .ok_or_else(|| {
+                        RushError::Syntax(format!("missing right operand for {}", token_str))
+                    })?
                     .clone();
 
-                return Ok(Expression::BinaryOp {
-                    left,
-                    operator: binary_op,
-                    right,
-                });
+                return Ok(Expression::BinaryOp { left, operator: binary_op, right });
             }
         }
 
