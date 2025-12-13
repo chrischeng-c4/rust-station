@@ -5,6 +5,7 @@
 use clap::Parser;
 use rscli::cli::{Commands, McpCommands, ServiceCommands, SpecCommands, WorktreeCommands};
 use rscli::tui::App;
+use rscli::version;
 use rscli::{commands, Result};
 
 macro_rules! debug {
@@ -17,7 +18,7 @@ macro_rules! debug {
 
 #[derive(Parser, Debug)]
 #[command(name = "rscli")]
-#[command(version)]
+#[command(version = version::FULL_VERSION)]
 #[command(about = "Rust Station development toolkit - TUI mode by default")]
 struct Args {
     /// Run in classic CLI mode instead of TUI

@@ -987,7 +987,7 @@ impl App {
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .title(" rscli - Rust Station Dev Toolkit "),
+                    .title(format!(" rscli {} - Rust Station Dev Toolkit ", crate::version::short_version())),
             )
             .select(selected_tab)
             .style(Style::default().fg(Color::White))

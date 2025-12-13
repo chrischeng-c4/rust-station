@@ -2,10 +2,12 @@
 
 use clap::{Parser, Subcommand};
 
+use crate::version;
+
 /// rscli - Rust Station development toolkit
 #[derive(Parser, Debug)]
 #[command(name = "rscli")]
-#[command(version)]
+#[command(version = version::FULL_VERSION)]
 #[command(about = "Rust Station development toolkit", long_about = None)]
 #[command(author)]
 pub struct Cli {

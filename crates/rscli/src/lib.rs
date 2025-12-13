@@ -5,6 +5,7 @@ pub mod commands;
 pub mod runners;
 pub mod tui;
 pub mod ui;
+pub mod version;
 
 use thiserror::Error;
 
