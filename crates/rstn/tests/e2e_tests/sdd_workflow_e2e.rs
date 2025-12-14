@@ -88,8 +88,8 @@ fn test_multiline_input_with_newlines() {
     // Type first line
     harness.send_text("line one");
 
-    // Insert newline (Enter in multiline mode inserts newline, not submit)
-    harness.send_key(KeyCode::Enter);
+    // Insert newline (Shift+Enter in multiline mode inserts newline)
+    harness.send_key_with_mod(KeyCode::Enter, KeyModifiers::SHIFT);
 
     // Type second line
     harness.send_text("line two");
@@ -101,9 +101,9 @@ fn test_multiline_input_with_newlines() {
     assert!(value.contains('\n'), "Should contain newline");
 }
 
-// Additional: Test Alt+Enter submits multiline input
+// Additional: Test Enter submits multiline input
 #[test]
-fn test_alt_enter_submits_and_clears_dialog() {
+fn test_enter_submits_and_clears_dialog() {
     let mut harness = TuiTestHarness::new(80, 24);
 
     // Request multiline input
@@ -112,8 +112,8 @@ fn test_alt_enter_submits_and_clears_dialog() {
     // Type content
     harness.send_text("my feature");
 
-    // Submit with Alt+Enter
-    harness.send_key_with_mod(KeyCode::Enter, KeyModifiers::ALT);
+    // Submit with Enter
+    harness.send_key(KeyCode::Enter);
 
     // Verify dialog is cleared after submission
     assert!(

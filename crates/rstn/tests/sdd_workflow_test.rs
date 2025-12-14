@@ -92,9 +92,9 @@ fn test_input_dialog_handles_backspace() {
     assert_eq!(dialog.input.lines[0], "te");
 }
 
-// T036: Test that multiline input dialog submits on Alt+Enter
+// T036: Test that multiline input dialog submits on Enter
 #[test]
-fn test_input_dialog_submits_on_alt_enter() {
+fn test_input_dialog_submits_on_enter() {
     use rstn::tui::App;
 
     let mut app = App::new();
@@ -113,13 +113,13 @@ fn test_input_dialog_submits_on_alt_enter() {
         app.handle_key_event(key_event(KeyCode::Char(c)));
     }
 
-    // Submit with Alt+Enter
-    app.handle_key_event(key_event_with_mod(KeyCode::Enter, KeyModifiers::ALT));
+    // Submit with Enter
+    app.handle_key_event(key_event(KeyCode::Enter));
 
     // Dialog should be cleared after submission
     assert!(
         !app.input_mode,
-        "Input mode should be false after Alt+Enter"
+        "Input mode should be false after Enter"
     );
     assert!(
         app.input_dialog.is_none(),

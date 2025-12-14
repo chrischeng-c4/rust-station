@@ -13,25 +13,30 @@ install: build
     cp target/release/rush ~/.local/bin/
     @echo "Installed RELEASE builds to ~/.local/bin"
 
-# Install debug builds to ~/.local/bin (with trace logging)
+# Link debug builds to ~/.local/bin (hot reload: just rebuild to update)
 install-dev: build-debug
     mkdir -p ~/.local/bin
-    cp target/debug/rstn ~/.local/bin/
-    cp target/debug/rush ~/.local/bin/
-    @echo "Installed DEBUG builds to ~/.local/bin"
+    ln -sf {{justfile_directory()}}/target/debug/rstn ~/.local/bin/rstn
+    ln -sf {{justfile_directory()}}/target/debug/rush ~/.local/bin/rush
+    @echo "Linked DEBUG builds to ~/.local/bin (hot reload enabled)"
 
-# Quick install just rstn debug for fast iteration
+# Quick link just rstn debug for fast iteration
 install-rstn-dev:
     cargo build -p rstn
     mkdir -p ~/.local/bin
-    cp target/debug/rstn ~/.local/bin/
-    @echo "Installed DEBUG rstn to ~/.local/bin"
+    ln -sf {{justfile_directory()}}/target/debug/rstn ~/.local/bin/rstn
+    @echo "Linked DEBUG rstn to ~/.local/bin (hot reload enabled)"
 
 # Check which build type is currently installed
 which-build:
-    @echo "Checking installed binaries in ~/.local/bin..."
-    @printf "rstn: " && (~/.local/bin/rstn --version 2>/dev/null | grep -o '\[.*\]' || echo "not installed")
-    @printf "rush: " && (~/.local/bin/rush --version 2>/dev/null | grep -o '\[.*\]' || echo "version info not available")
+    #!/usr/bin/env bash
+    echo "Checking installed binaries in ~/.local/bin..."
+    rstn_type=$([ -L ~/.local/bin/rstn ] && echo "symlink" || echo "binary")
+    rstn_ver=$(~/.local/bin/rstn --version 2>/dev/null | grep -o '\[.*\]' || echo "not installed")
+    echo "rstn: [$rstn_type] $rstn_ver"
+    rush_type=$([ -L ~/.local/bin/rush ] && echo "symlink" || echo "binary")
+    rush_ver=$(~/.local/bin/rush --version 2>/dev/null | grep -o '\[.*\]' || echo "not installed")
+    echo "rush: [$rush_type] $rush_ver"
 
 # Build and install (alias for backward compatibility)
 all: install

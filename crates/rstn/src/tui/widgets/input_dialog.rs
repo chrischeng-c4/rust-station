@@ -225,12 +225,19 @@ impl InputDialog {
         let help = if self.input.multiline {
             Line::from(vec![
                 Span::styled(
-                    "Alt+Enter",
+                    "Enter",
                     Style::default()
                         .fg(Color::Green)
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(" Submit  ", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    "Shift+Enter",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(" New line  ", Style::default().fg(Color::DarkGray)),
                 Span::styled(
                     "Esc",
                     Style::default()

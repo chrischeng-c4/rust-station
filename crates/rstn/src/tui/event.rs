@@ -71,8 +71,6 @@ pub enum Event {
     CommitCompleted { success: bool, output: String },
     /// Commit workflow error
     CommitError { error: String },
-    /// Update completed successfully, ready to restart
-    UpdateCompleted { installed_path: String },
 }
 
 /// Event handler that runs in a separate thread

@@ -8,10 +8,14 @@ use crate::tui::views::{
     WorktreeView,
 };
 use crate::tui::widgets::{InputDialog, OptionPicker, TextInput};
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{
+    KeyCode, KeyEvent, KeyModifiers, KeyboardEnhancementFlags, PopKeyboardEnhancementFlags,
+    PushKeyboardEnhancementFlags,
+};
 use crossterm::execute;
 use crossterm::terminal::{
-    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+    disable_raw_mode, enable_raw_mode, supports_keyboard_enhancement, EnterAlternateScreen,
+    LeaveAlternateScreen,
 };
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
@@ -68,8 +72,6 @@ pub struct App {
     pub picker_mode: bool,
     /// Pending auto-continue: (next_phase, delay_ms)
     pub pending_auto_continue: Option<(String, u64)>,
-    /// Path to restart executable (None = normal quit, Some = exec restart)
-    pub restart_path: Option<String>,
 }
 
 impl Default for App {
@@ -100,7 +102,6 @@ impl App {
             option_picker: None,
             picker_mode: false,
             pending_auto_continue: None,
-            restart_path: None,
         }
     }
 
@@ -176,11 +177,6 @@ impl App {
                         CurrentView::Dashboard => "Dashboard",
                     }
                 ));
-                return;
-            }
-            // Update rstn: build and install to ~/.local/bin
-            KeyCode::Char('U') => {
-                self.run_update();
                 return;
             }
             // Switch panes within current view with Tab
@@ -520,96 +516,6 @@ impl App {
         });
     }
 
-    /// Build rstn and install to ~/.local/bin
-    pub fn run_update(&mut self) {
-        self.status_message = Some("Building rstn (release)...".to_string());
-        self.command_runner.start_command("update", &[]);
-        // Commands now run inline, no view switch needed
-
-        let sender = self.event_sender.clone();
-
-        tokio::spawn(async move {
-            use std::process::Command;
-
-            // Step 1: Build release
-            let build_result = Command::new("cargo")
-                .args(["build", "--release", "--bin", "rstn"])
-                .output();
-
-            match build_result {
-                Ok(output) if output.status.success() => {
-                    // Step 2: Copy to ~/.local/bin
-                    let home = std::env::var("HOME").unwrap_or_default();
-                    let target = format!("{home}/.local/bin/rstn");
-                    let source = "target/release/rstn";
-
-                    // Ensure directory exists
-                    let _ = std::fs::create_dir_all(format!("{home}/.local/bin"));
-
-                    match std::fs::copy(source, &target) {
-                        Ok(_) => {
-                            if let Some(sender) = sender {
-                                let _ = sender.send(Event::UpdateCompleted {
-                                    installed_path: target.clone(),
-                                });
-                            }
-                        }
-                        Err(e) => {
-                            if let Some(sender) = sender {
-                                let _ = sender.send(Event::CommandDone {
-                                    success: false,
-                                    lines: vec![format!("Failed to copy: {e}")],
-                                });
-                            }
-                        }
-                    }
-                }
-                Ok(output) => {
-                    // Build failed
-                    if let Some(sender) = sender {
-                        let stderr = String::from_utf8_lossy(&output.stderr);
-                        let _ = sender.send(Event::CommandDone {
-                            success: false,
-                            lines: stderr.lines().map(String::from).collect(),
-                        });
-                    }
-                }
-                Err(e) => {
-                    if let Some(sender) = sender {
-                        let _ = sender.send(Event::CommandDone {
-                            success: false,
-                            lines: vec![format!("Failed to run cargo: {e}")],
-                        });
-                    }
-                }
-            }
-        });
-    }
-
-    /// Prepare for restart: validate binary and set restart flag
-    /// Returns true if restart should happen, false to continue normally
-    fn prepare_restart(&mut self, installed_path: &str) -> bool {
-        // Verify installed binary exists
-        if !std::path::Path::new(installed_path).exists() {
-            self.status_message = Some(format!(
-                "Warning: {} not found, restart cancelled",
-                installed_path
-            ));
-            return false;
-        }
-
-        // Show brief message before restart
-        self.status_message = Some("Restarting with new version...".to_string());
-
-        // Store restart path for post-cleanup execution
-        self.restart_path = Some(installed_path.to_string());
-
-        // Set running=false to exit main loop cleanly
-        self.running = false;
-
-        true
-    }
-
     /// Handle key events when in input mode
     pub fn handle_key_event_in_input_mode(&mut self, key: KeyEvent) {
         debug!(
@@ -653,14 +559,14 @@ impl App {
                 }
                 KeyCode::Enter => {
                     if dialog.is_multiline() {
-                        // Multiline mode: Alt+Enter submits, Enter creates newline
-                        if key.modifiers.contains(KeyModifiers::ALT) {
+                        // Multiline mode: Shift+Enter creates newline, Enter submits
+                        if key.modifiers.contains(KeyModifiers::SHIFT) {
+                            dialog.insert_newline();
+                        } else {
                             let value = dialog.input.get_multiline_value();
                             self.submit_user_input(value);
                             self.input_dialog = None;
                             self.input_mode = false;
-                        } else {
-                            dialog.insert_newline();
                         }
                     } else {
                         // Single-line mode: Enter submits
@@ -1293,6 +1199,20 @@ impl App {
         execute!(stdout, EnterAlternateScreen)?;
         debug!("EnterAlternateScreen OK");
 
+        // Check if terminal supports keyboard enhancement (Kitty protocol)
+        // This allows terminals like WezTerm to report modifier keys with Enter (e.g., Shift+Enter)
+        let keyboard_enhancement_supported = matches!(supports_keyboard_enhancement(), Ok(true));
+        if keyboard_enhancement_supported {
+            debug!("Terminal supports keyboard enhancement, enabling...");
+            execute!(
+                stdout,
+                PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+            )?;
+            debug!("Keyboard enhancement enabled");
+        } else {
+            debug!("Terminal does not support keyboard enhancement (Shift+Enter may not work)");
+        }
+
         debug!("Creating CrosstermBackend...");
         let backend = CrosstermBackend::new(stdout);
         debug!("CrosstermBackend OK");
@@ -1319,74 +1239,16 @@ impl App {
 
         // Restore terminal
         debug!("Restoring terminal...");
+        // Disable Kitty keyboard protocol if it was enabled (ignore errors if not supported)
+        if keyboard_enhancement_supported {
+            let _ = execute!(terminal.backend_mut(), PopKeyboardEnhancementFlags);
+        }
         disable_raw_mode()?;
         execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
         terminal.show_cursor()?;
         debug!("Terminal restored");
 
-        // Check if we should restart
-        if let Some(restart_path) = &self.restart_path {
-            debug!("Restart requested: {}", restart_path);
-            self.exec_restart(restart_path)?;
-            // If exec_restart returns, it failed - fall through to normal exit
-        }
-
         result
-    }
-
-    /// Execute restart using Unix exec syscall
-    /// This replaces the current process with the new binary
-    fn exec_restart(&self, binary_path: &str) -> AppResult<()> {
-        use std::ffi::CString;
-
-        debug!("exec_restart: binary_path={}", binary_path);
-
-        // Get current command-line arguments
-        let args: Vec<String> = std::env::args().collect();
-        debug!("exec_restart: original args: {:?}", args);
-
-        // Convert binary path to CString for exec
-        let path_cstr =
-            CString::new(binary_path).map_err(|e| anyhow::anyhow!("Invalid path: {}", e))?;
-
-        // Convert arguments to CStrings
-        // First arg should be the program name (convention)
-        let mut exec_args = vec![path_cstr.clone()];
-
-        // Add remaining arguments (skip argv[0])
-        for arg in args.iter().skip(1) {
-            exec_args.push(
-                CString::new(arg.as_str()).map_err(|e| anyhow::anyhow!("Invalid arg: {}", e))?,
-            );
-        }
-
-        debug!("exec_restart: exec_args count={}", exec_args.len());
-
-        // Perform exec - this replaces current process
-        // If it returns, it failed
-        #[cfg(unix)]
-        {
-            // Convert CStrings to raw pointers for execv
-            // execv expects a NULL-terminated array of char pointers
-            let mut argv: Vec<*const libc::c_char> =
-                exec_args.iter().map(|s| s.as_ptr()).collect();
-            argv.push(std::ptr::null()); // NULL-terminate the array
-
-            unsafe {
-                libc::execv(path_cstr.as_ptr(), argv.as_ptr());
-            }
-
-            // If we get here, exec failed
-            let err = std::io::Error::last_os_error();
-            debug!("exec_restart: FAILED: {}", err);
-            Err(anyhow::anyhow!("Failed to exec: {}", err).into())
-        }
-
-        #[cfg(not(unix))]
-        {
-            debug!("exec_restart: Not on Unix, cannot exec");
-            Err(anyhow::anyhow!("Restart only supported on Unix systems").into())
-        }
     }
 
     fn main_loop(
@@ -1538,19 +1400,6 @@ impl App {
                         .add_output(format!("❌ Error: {}", error));
                     self.status_message = Some(format!("Commit error: {}", error));
                 }
-                Event::UpdateCompleted { installed_path } => {
-                    // Show success message
-                    self.worktree_view
-                        .add_output("✓ Build successful!".to_string());
-                    self.worktree_view
-                        .add_output(format!("Installed to: {}", installed_path));
-                    self.worktree_view.add_output("Restarting...".to_string());
-
-                    // Prepare for restart
-                    if self.prepare_restart(&installed_path) {
-                        return Ok(()); // Exit loop to trigger restart
-                    }
-                }
             }
             debug!(
                 "main_loop iteration {}: event handled, running={}",
@@ -1663,14 +1512,6 @@ impl App {
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(" Quit", Style::default().fg(Color::DarkGray)),
-            Span::raw("  "),
-            Span::styled(
-                "U",
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(" Update", Style::default().fg(Color::DarkGray)),
         ]);
         let shortcuts_bar = Paragraph::new(shortcuts);
         frame.render_widget(shortcuts_bar, footer_chunks[0]);
@@ -1864,9 +1705,9 @@ mod tests {
         );
     }
 
-    // T028: Test that Alt+Enter submits multiline input
+    // T028: Test that Enter submits multiline input
     #[test]
-    fn test_alt_enter_submits_multiline_input() {
+    fn test_enter_submits_multiline_input() {
         let mut app = App::new();
 
         // Create multiline dialog (feature description triggers multiline)
@@ -1885,17 +1726,64 @@ mod tests {
         app.handle_key_event(key_event(KeyCode::Char('s')));
         app.handle_key_event(key_event(KeyCode::Char('t')));
 
-        // Submit with Alt+Enter (multiline submit)
-        app.handle_key_event(key_event_with_mod(KeyCode::Enter, KeyModifiers::ALT));
+        // Submit with Enter (multiline submit)
+        app.handle_key_event(key_event(KeyCode::Enter));
 
         // After submit, input_mode should be false and dialog cleared
         assert!(
             !app.input_mode,
-            "input_mode should be false after Alt+Enter submit"
+            "input_mode should be false after Enter submit"
         );
         assert!(
             app.input_dialog.is_none(),
             "input_dialog should be None after submit"
+        );
+    }
+
+    // T028b: Test that Shift+Enter creates newline in multiline input
+    #[test]
+    fn test_shift_enter_creates_newline_in_multiline_input() {
+        let mut app = App::new();
+
+        // Create multiline dialog
+        app.handle_view_action(ViewAction::RequestInput {
+            prompt: "Enter feature description:".to_string(),
+            placeholder: None,
+        });
+
+        // Verify it's multiline
+        assert!(
+            app.input_dialog.as_ref().unwrap().is_multiline(),
+            "Should be multiline dialog"
+        );
+
+        // Type "line1"
+        for c in "line1".chars() {
+            app.handle_key_event(key_event(KeyCode::Char(c)));
+        }
+
+        // Press Shift+Enter to create newline
+        app.handle_key_event(key_event_with_mod(KeyCode::Enter, KeyModifiers::SHIFT));
+
+        // Type "line2"
+        for c in "line2".chars() {
+            app.handle_key_event(key_event(KeyCode::Char(c)));
+        }
+
+        // Verify dialog is still open (newline, not submit)
+        assert!(app.input_mode, "input_mode should still be true after Shift+Enter");
+        assert!(
+            app.input_dialog.is_some(),
+            "input_dialog should still exist after Shift+Enter"
+        );
+
+        // Verify the content has a newline
+        let dialog = app.input_dialog.as_ref().unwrap();
+        let value = dialog.input.get_multiline_value();
+        assert!(
+            value.contains('\n'),
+            "Value should contain newline: {}",
+            value
         );
     }
 
