@@ -46,10 +46,29 @@ Use spec-kit commands for all feature development:
 cargo build && cargo test
 cargo clippy --all-targets --all-features
 
+# Development
+just install-dev              # Link debug builds (hot reload)
+cargo build -p rstn          # Rebuild - changes live immediately
+just which-build             # Check symlink/binary status
+
 # GitHub CLI
 gh issue create --title "Feature: {name}" --body-file spec.md
 gh pr create --title "{description}" --body "Closes #{issue}"
 ```
+
+## Debugging
+
+**Log Location:** `~/.rustation/logs/`
+
+```bash
+# View recent logs
+tail -f ~/.rustation/logs/rstn.log
+
+# Search for specific events
+grep -i "keyword" ~/.rustation/logs/rstn.log
+```
+
+**Debug Builds:** Use `just install-dev` to create symlinks - changes take effect immediately after `cargo build`.
 
 ## Commit Format
 

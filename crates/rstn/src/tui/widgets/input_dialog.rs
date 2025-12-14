@@ -232,7 +232,7 @@ impl InputDialog {
                 ),
                 Span::styled(" Submit  ", Style::default().fg(Color::DarkGray)),
                 Span::styled(
-                    "Shift+Enter",
+                    "Ctrl+Enter",
                     Style::default()
                         .fg(Color::Cyan)
                         .add_modifier(Modifier::BOLD),

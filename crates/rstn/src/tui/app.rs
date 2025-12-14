@@ -559,8 +559,8 @@ impl App {
                 }
                 KeyCode::Enter => {
                     if dialog.is_multiline() {
-                        // Multiline mode: Shift+Enter creates newline, Enter submits
-                        if key.modifiers.contains(KeyModifiers::SHIFT) {
+                        // Multiline mode: Ctrl+Enter creates newline, Enter submits
+                        if key.modifiers.contains(KeyModifiers::CONTROL) {
                             dialog.insert_newline();
                         } else {
                             let value = dialog.input.get_multiline_value();
@@ -1740,9 +1740,9 @@ mod tests {
         );
     }
 
-    // T028b: Test that Shift+Enter creates newline in multiline input
+    // T028b: Test that Ctrl+Enter creates newline in multiline input
     #[test]
-    fn test_shift_enter_creates_newline_in_multiline_input() {
+    fn test_ctrl_enter_creates_newline_in_multiline_input() {
         let mut app = App::new();
 
         // Create multiline dialog
@@ -1762,8 +1762,8 @@ mod tests {
             app.handle_key_event(key_event(KeyCode::Char(c)));
         }
 
-        // Press Shift+Enter to create newline
-        app.handle_key_event(key_event_with_mod(KeyCode::Enter, KeyModifiers::SHIFT));
+        // Press Ctrl+Enter to create newline
+        app.handle_key_event(key_event_with_mod(KeyCode::Enter, KeyModifiers::CONTROL));
 
         // Type "line2"
         for c in "line2".chars() {
@@ -1771,10 +1771,10 @@ mod tests {
         }
 
         // Verify dialog is still open (newline, not submit)
-        assert!(app.input_mode, "input_mode should still be true after Shift+Enter");
+        assert!(app.input_mode, "input_mode should still be true after Ctrl+Enter");
         assert!(
             app.input_dialog.is_some(),
-            "input_dialog should still exist after Shift+Enter"
+            "input_dialog should still exist after Ctrl+Enter"
         );
 
         // Verify the content has a newline

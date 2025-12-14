@@ -88,8 +88,8 @@ fn test_multiline_input_with_newlines() {
     // Type first line
     harness.send_text("line one");
 
-    // Insert newline (Shift+Enter in multiline mode inserts newline)
-    harness.send_key_with_mod(KeyCode::Enter, KeyModifiers::SHIFT);
+    // Insert newline (Ctrl+Enter in multiline mode inserts newline)
+    harness.send_key_with_mod(KeyCode::Enter, KeyModifiers::CONTROL);
 
     // Type second line
     harness.send_text("line two");
