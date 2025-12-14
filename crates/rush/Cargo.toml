@@ -5,7 +5,7 @@ edition = "2021"
 authors = ["rush contributors"]
 description = "A modern, fast, fish-like shell written in Rust"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/chrischeng-c4/rust-station"
+repository = "https://github.com/chrischeng-c4/rustation"
 keywords = ["shell", "cli", "terminal", "repl"]
 categories = ["command-line-utilities"]
 

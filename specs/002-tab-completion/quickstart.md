@@ -18,7 +18,7 @@ This guide covers how to implement, test, and extend the tab completion system i
 
 ```bash
 # From workspace root
-cd /Users/chrischeng/projects/rust-station
+cd /Users/chrischeng/projects/rustation
 
 # Build rush with completion support
 cargo build -p rush --release

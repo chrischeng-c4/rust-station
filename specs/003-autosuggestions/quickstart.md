@@ -10,7 +10,7 @@
 
 ```bash
 # From repository root
-cd /Users/chrischeng/projects/rust-station
+cd /Users/chrischeng/projects/rustation
 
 # Build rush in release mode
 cargo build --release -p rush

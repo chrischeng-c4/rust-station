@@ -255,7 +255,7 @@ These features have complete specifications and will be planned after Features 0
 - **Compatibility**: POSIX shell compatibility verified
 
 ### Code Quality
-- **Style**: Follow existing rust-station conventions
+- **Style**: Follow existing rustation conventions
 - **Documentation**: Inline comments for complex logic
 - **Error Handling**: Clear error messages for syntax errors
 - **Performance**: Loops with 1000+ iterations in <500ms

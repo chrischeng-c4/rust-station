@@ -20,7 +20,7 @@ As a shell user, I want to use `~` as a shortcut to my home directory so that I 
 1. **Given** user is in any directory, **When** user types `cd ~`, **Then** shell changes to user's home directory (value of $HOME)
 2. **Given** user types `echo ~`, **When** command executes, **Then** shell prints the user's home directory path
 3. **Given** user types `ls ~/Documents`, **When** command executes, **Then** shell expands `~` to home directory and lists Documents folder
-4. **Given** `~` appears mid-path like `~/projects/rust-station`, **When** used in any command, **Then** `~` expands to home directory with path appended
+4. **Given** `~` appears mid-path like `~/projects/rustation`, **When** used in any command, **Then** `~` expands to home directory with path appended
 
 ---
 

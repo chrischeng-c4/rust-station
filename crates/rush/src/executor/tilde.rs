@@ -249,9 +249,11 @@ fn get_user_home(username: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
     use std::env;
 
     // Helper to set/unset HOME for testing
+    // NOTE: Tests using this must be marked #[serial] to avoid race conditions
     fn with_home<F>(home: Option<&str>, f: F)
     where
         F: FnOnce(),
@@ -287,6 +289,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_basic_tilde() {
         with_home(Some("/home/user"), || {
             assert_eq!(expand_tilde("~"), "/home/user");
@@ -294,6 +297,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_tilde_with_path() {
         with_home(Some("/home/user"), || {
             assert_eq!(expand_tilde("~/documents"), "/home/user/documents");
@@ -302,6 +306,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_tilde_in_command() {
         with_home(Some("/home/user"), || {
             assert_eq!(expand_tilde("cd ~"), "cd /home/user");
@@ -310,6 +315,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_multiple_tildes() {
         with_home(Some("/home/user"), || {
             assert_eq!(expand_tilde("~ ~"), "/home/user /home/user");
@@ -318,6 +324,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_tilde_with_trailing_slash() {
         with_home(Some("/home/user"), || {
             assert_eq!(expand_tilde("~/"), "/home/user/");
@@ -325,6 +332,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_missing_home() {
         with_home(None, || {
             // When HOME is unset, leave tilde unexpanded
@@ -336,6 +344,7 @@ mod tests {
     // === Quote/Escape Handling Tests ===
 
     #[test]
+    #[serial]
     fn test_single_quotes_no_expand() {
         with_home(Some("/home/user"), || {
             assert_eq!(expand_tilde("'~'"), "'~'");
@@ -345,6 +354,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_double_quotes_expand() {
         with_home(Some("/home/user"), || {
             assert_eq!(expand_tilde("\"~\""), "\"/home/user\"");
@@ -354,6 +364,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_escaped_tilde() {
         with_home(Some("/home/user"), || {
             assert_eq!(expand_tilde("\\~"), "\\~");
@@ -362,6 +373,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_mixed_quotes() {
         with_home(Some("/home/user"), || {
             assert_eq!(expand_tilde("'~' \"~\""), "'~' \"/home/user\"");
@@ -372,6 +384,7 @@ mod tests {
     // === Edge Cases ===
 
     #[test]
+    #[serial]
     fn test_tilde_mid_word() {
         with_home(Some("/home/user"), || {
             // Tilde only expands at word start
@@ -381,6 +394,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_tilde_after_word_boundary() {
         with_home(Some("/home/user"), || {
             // Each word boundary resets, so tilde at start of new word should expand
@@ -390,6 +404,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_empty_home() {
         with_home(Some(""), || {
             // Empty HOME should expand to empty string
@@ -399,6 +414,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_whitespace_preservation() {
         with_home(Some("/home/user"), || {
             assert_eq!(expand_tilde("  ~  "), "  /home/user  ");
@@ -407,6 +423,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_complex_path() {
         with_home(Some("/home/user"), || {
             assert_eq!(
@@ -465,6 +482,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_tilde_plus() {
         with_pwd(Some("/current/directory"), || {
             assert_eq!(expand_tilde("~+"), "/current/directory");
@@ -473,6 +491,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_tilde_plus_with_path() {
         with_pwd(Some("/current/directory"), || {
             assert_eq!(expand_tilde("~+/file.txt"), "/current/directory/file.txt");
@@ -481,6 +500,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_tilde_minus() {
         with_oldpwd(Some("/previous/directory"), || {
             assert_eq!(expand_tilde("~-"), "/previous/directory");
@@ -489,6 +509,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_tilde_minus_with_path() {
         with_oldpwd(Some("/previous/directory"), || {
             assert_eq!(expand_tilde("~-/file.txt"), "/previous/directory/file.txt");
@@ -496,6 +517,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_missing_pwd() {
         with_pwd(None, || {
             assert_eq!(expand_tilde("~+"), "~+");
@@ -503,6 +525,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_missing_oldpwd() {
         with_oldpwd(None, || {
             assert_eq!(expand_tilde("~-"), "~-");

@@ -22,5 +22,5 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Inter-crate dependencies
-rscli-core = { path = "crates/rscli-core" }
-rscli-tui = { path = "crates/rscli-tui" }
+rstn-core = { path = "crates/rstn-core" }
+rstn-tui = { path = "crates/rstn-tui" }

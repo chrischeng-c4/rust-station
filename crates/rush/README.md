@@ -49,7 +49,7 @@ See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for details.
 ```bash
 # Clone the repository
 git clone <repository-url>
-cd rust-station
+cd rustation
 
 # Build release binary
 cargo build --release -p rush
@@ -277,10 +277,10 @@ Found a bug or missing feature? Check [DAILY_TESTING.md](../../DAILY_TESTING.md)
 
 ## Project Structure
 
-This project is part of the `rust-station` monorepo workspace:
+This project is part of the `rustation` monorepo workspace:
 
 ```
-rust-station/
+rustation/
 ├── Cargo.toml           # Workspace configuration
 ├── crates/
 │   └── rush/           # Rush shell implementation

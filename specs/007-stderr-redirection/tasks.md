@@ -44,7 +44,7 @@ Implement stderr redirection operators (2>, 2>>) to allow users to redirect erro
 **Goal**: Extend RedirectionType enum to support Stderr variant
 
 **Files Modified**:
-- `/Users/chrischeng/projects/rust-station/crates/rush/src/main.rs` (lines 40-50)
+- `/Users/chrischeng/projects/rustation/crates/rush/src/main.rs` (lines 40-50)
 
 **Independent Test Criteria**:
 - Code compiles with new enum variant
@@ -65,7 +65,7 @@ Implement stderr redirection operators (2>, 2>>) to allow users to redirect erro
 **Goal**: Enhance parser to recognize and parse 2> and 2>> tokens
 
 **Files Modified**:
-- `/Users/chrischeng/projects/rust-station/crates/rush/src/main.rs` (lines 150-260)
+- `/Users/chrischeng/projects/rustation/crates/rush/src/main.rs` (lines 150-260)
 
 **Independent Test Criteria**:
 - Tokenizer recognizes `2>` and `2>>` as valid tokens
@@ -107,7 +107,7 @@ Implement stderr redirection operators (2>, 2>>) to allow users to redirect erro
 **Goal**: Implement basic stderr redirection to file (truncate mode)
 
 **Files Modified**:
-- `/Users/chrischeng/projects/rust-station/crates/rush/src/main.rs` (lines 480-560)
+- `/Users/chrischeng/projects/rustation/crates/rush/src/main.rs` (lines 480-560)
 
 **Independent Test Criteria**:
 - Command: `echo msg >&2 2>error.txt` produces file with stderr content
@@ -151,7 +151,7 @@ Implement stderr redirection operators (2>, 2>>) to allow users to redirect erro
 **Goal**: Implement stderr append redirection to file
 
 **Files Modified**:
-- `/Users/chrischeng/projects/rust-station/crates/rush/src/main.rs` (lines 520-540)
+- `/Users/chrischeng/projects/rustation/crates/rush/src/main.rs` (lines 520-540)
 
 **Independent Test Criteria**:
 - Command: `echo msg >&2 2>>error.txt` appends to file
@@ -184,7 +184,7 @@ Implement stderr redirection operators (2>, 2>>) to allow users to redirect erro
 **Goal**: Support stderr redirection in pipelines
 
 **Files Modified**:
-- `/Users/chrischeng/projects/rust-station/crates/rush/src/main.rs` (executor pipeline handling)
+- `/Users/chrischeng/projects/rustation/crates/rush/src/main.rs` (executor pipeline handling)
 
 **Independent Test Criteria**:
 - Command: `cmd 2>err.txt | next_cmd` - stdout piped, stderr redirected
@@ -244,7 +244,7 @@ Implement stderr redirection operators (2>, 2>>) to allow users to redirect erro
 **Goal**: Final validation, error handling, documentation
 
 **Files Modified**:
-- `/Users/chrischeng/projects/rust-station/crates/rush/src/main.rs`
+- `/Users/chrischeng/projects/rustation/crates/rush/src/main.rs`
 
 ### Tasks
 

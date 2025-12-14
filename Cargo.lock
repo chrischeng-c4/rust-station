@@ -1942,7 +1942,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rscli"
+name = "rstn"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -1954,9 +1954,10 @@ dependencies = [
  "crossterm 0.28.1",
  "dirs",
  "glob",
+ "libc",
  "ratatui",
- "rscli-core",
- "rscli-tui",
+ "rstn-core",
+ "rstn-tui",
  "serde",
  "serde_json",
  "tempfile",
@@ -1967,7 +1968,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rscli-core"
+name = "rstn-core"
 version = "0.1.0"
 dependencies = [
  "async-trait",
@@ -1987,14 +1988,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "rscli-tui"
+name = "rstn-tui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "arboard",
  "crossterm 0.28.1",
  "ratatui",
- "rscli-core",
+ "rstn-core",
  "serde",
  "tokio",
 ]

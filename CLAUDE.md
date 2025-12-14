@@ -9,7 +9,7 @@ Respond in English (U.S.) by default. Use Traditional Chinese only when user wri
 Rust monorepo workspace containing **rush** - a shell implementation replacing zsh/bash/fish.
 
 ```
-rust-station/
+rustation/
 ├── Cargo.toml          # Workspace root
 ├── crates/rush/        # Shell implementation
 ├── specs/              # Feature specifications

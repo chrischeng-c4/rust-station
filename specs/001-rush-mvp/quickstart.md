@@ -32,8 +32,8 @@ cargo --version
 ###Step 1: Clone Repository
 
 ```bash
-git clone git@github.com:chrischeng-c4/rust-station.git
-cd rust-station
+git clone git@github.com:chrischeng-c4/rustation.git
+cd rustation
 ```
 
 ### Step 2: Checkout Feature Branch
@@ -287,7 +287,7 @@ code --install-extension tamasfe.even-better-toml
 
 ### CLion / RustRover
 
-1. Open `rust-station` directory
+1. Open `rustation` directory
 2. CLion will auto-detect Cargo project
 3. Run configurations auto-generated
 4. Use "rush" run configuration to launch

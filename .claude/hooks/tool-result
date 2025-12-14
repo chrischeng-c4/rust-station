@@ -1,0 +1,26 @@
+#!/bin/bash
+# Claude hook: Auto-build rstn to ~/.local/bin when rstn files are updated
+#
+# This hook runs after each tool execution and rebuilds rstn if any
+# files in the rstn crates have uncommitted changes.
+
+set -euo pipefail
+
+# Check if any rstn-related files have changes (staged or unstaged)
+if git status --porcelain 2>/dev/null | grep -q "crates/rstn"; then
+    echo "🔨 Detected rstn changes, rebuilding to ~/.local/bin..." >&2
+
+    # Build in debug mode (fast, blocks until complete)
+    if cargo build -p rstn 2>&1; then
+        # Copy to ~/.local/bin
+        mkdir -p ~/.local/bin
+        cp target/debug/rstn ~/.local/bin/rstn 2>/dev/null || true
+        chmod +x ~/.local/bin/rstn 2>/dev/null || true
+        echo "✅ rstn rebuilt successfully" >&2
+    else
+        echo "⚠️  rstn build failed" >&2
+        exit 1  # Exit with error to signal build failure
+    fi
+fi
+
+exit 0

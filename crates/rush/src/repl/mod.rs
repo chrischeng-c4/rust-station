@@ -294,6 +294,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "requires TTY - run with --ignored flag in terminal"]
     fn test_repl_new() {
         // Basic test that REPL can be created
         let result = Repl::new();
@@ -301,6 +302,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires TTY - run with --ignored flag in terminal"]
     fn test_repl_with_config() {
         let config = Config::default();
         let result = Repl::with_config(config);
