@@ -4,31 +4,11 @@
 
 use clap::Parser;
 use rstn::cli::{Commands, McpCommands, ServiceCommands, SpecCommands, WorktreeCommands};
+use rstn::settings::Settings;
 use rstn::tui::App;
 use rstn::version;
-use rstn::{commands, Result};
-
-macro_rules! debug {
-    ($($arg:tt)*) => {
-        if std::env::var("RSTN_DEBUG").is_ok() {
-            eprintln!("[DEBUG] {}", format!($($arg)*));
-        }
-    };
-}
-
-macro_rules! log_to_file {
-    ($($arg:tt)*) => {{
-        use std::io::Write;
-        if let Ok(mut file) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open("/tmp/rstn.log")
-        {
-            let _ = writeln!(file, "{}", format!($($arg)*));
-            let _ = file.flush();
-        }
-    }};
-}
+use rstn::{commands, logging, Result};
+use tracing::{debug, info};
 
 #[derive(Parser, Debug)]
 #[command(name = "rstn")]
@@ -54,47 +34,50 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    debug!("rstn starting");
+    // Load settings and initialize logging
+    let settings = Settings::load();
+    logging::init(&settings);
+
+    info!("rstn starting");
     let args = Args::parse();
-    debug!("Args: cli={}, command={:?}", args.cli, args.command.is_some());
+    debug!(cli = args.cli, command = ?args.command, "parsed arguments");
 
     // If --cli flag is provided OR a command is specified, run in CLI mode
     if args.cli || args.command.is_some() {
-        debug!("Running in CLI mode");
+        debug!("running in CLI mode");
         run_cli_mode(args).await
     } else {
         // Default: run TUI mode
-        debug!("Running in TUI mode");
+        debug!("running in TUI mode");
         run_tui_mode()
     }
 }
 
 fn run_tui_mode() -> Result<()> {
-    log_to_file!("=== rstn starting TUI mode ===");
-    debug!("Starting TUI mode");
+    info!("starting TUI mode");
 
     // Check if we have a TTY
-    log_to_file!("TTY check...");
+    debug!("checking TTY availability");
     if !std::io::IsTerminal::is_terminal(&std::io::stdout()) {
-        log_to_file!("TTY check FAILED");
+        tracing::error!("TTY check failed: stdout is not a terminal");
         eprintln!("ERROR: TUI mode requires a terminal. Stdout is not a TTY.");
         eprintln!("Use --cli flag for non-interactive mode: rstn --cli <command>");
-        debug!("TTY check failed: stdout is not a terminal");
         return Err(rstn::RscliError::Other(anyhow::anyhow!("No TTY available")));
     }
-    log_to_file!("TTY check passed");
+    debug!("TTY check passed");
 
-    log_to_file!("Creating App instance...");
-    debug!("Creating App instance");
+    debug!("creating App instance");
     let mut app = App::new();
-    log_to_file!("App created");
+    debug!("App created successfully");
 
-    log_to_file!("Calling app.run()...");
-    debug!("Running app main loop");
+    debug!("running app main loop");
     let result = app.run();
-    log_to_file!("app.run() returned: {:?}", result.as_ref().map(|_| "Ok"));
 
-    debug!("App finished with result: {:?}", result.as_ref().map(|_| "Ok").map_err(|e| e.to_string()));
+    match &result {
+        Ok(_) => info!("TUI exited normally"),
+        Err(e) => tracing::error!(error = %e, "TUI exited with error"),
+    }
+
     result.map_err(|e| rstn::RscliError::Other(anyhow::anyhow!("{}", e)))
 }
 

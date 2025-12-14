@@ -59,6 +59,13 @@ async-trait = "0.1"
 # Unix system calls (for exec restart)
 libc = "0.2"
 
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
+tracing-appender = "0.2"
+flate2 = "1.0"
+chrono = "0.4"
+
 [dev-dependencies]
 # Temporary files for testing
 tempfile = "3.8"

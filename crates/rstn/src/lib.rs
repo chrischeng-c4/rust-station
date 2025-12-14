@@ -2,6 +2,7 @@
 
 pub mod cli;
 pub mod commands;
+pub mod logging;
 pub mod runners;
 pub mod session;
 pub mod settings;

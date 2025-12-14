@@ -14,20 +14,7 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 use std::io::{stdout, Stdout};
 use std::sync::mpsc;
-
-macro_rules! log_to_file {
-    ($($arg:tt)*) => {{
-        use std::io::Write;
-        if let Ok(mut file) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open("/tmp/rstn.log")
-        {
-            let _ = writeln!(file, "{}", format!($($arg)*));
-            let _ = file.flush();
-        }
-    }};
-}
+use tracing::debug;
 
 /// Result type for the app
 pub type AppResult<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -126,14 +113,14 @@ impl App {
         match key.code {
             // Quit on Ctrl+C or q (when not in command view with running command)
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                log_to_file!("Quit triggered: Ctrl+C");
+                debug!("Quit triggered: Ctrl+C");
                 self.running = false;
                 return;
             }
             KeyCode::Char('q')
                 if !self.worktree_view.is_running =>
             {
-                log_to_file!("Quit triggered: 'q' key");
+                debug!("Quit triggered: 'q' key");
                 self.running = false;
                 return;
             }
@@ -420,7 +407,7 @@ impl App {
                 });
             }
             ViewAction::Quit => {
-                log_to_file!("Quit triggered: ViewAction::Quit");
+                debug!("Quit triggered: ViewAction::Quit");
                 self.running = false;
             }
             ViewAction::RequestInput { prompt, placeholder } => {
@@ -1218,52 +1205,52 @@ impl App {
 
     /// Run the TUI application
     pub fn run(&mut self) -> AppResult<()> {
-        log_to_file!("App::run() starting");
+        debug!("App::run() starting");
 
         // Setup terminal
-        log_to_file!("enable_raw_mode()...");
+        debug!("enable_raw_mode()...");
         enable_raw_mode()?;
-        log_to_file!("enable_raw_mode() OK");
+        debug!("enable_raw_mode() OK");
 
         let mut stdout = stdout();
-        log_to_file!("EnterAlternateScreen...");
+        debug!("EnterAlternateScreen...");
         execute!(stdout, EnterAlternateScreen)?;
-        log_to_file!("EnterAlternateScreen OK");
+        debug!("EnterAlternateScreen OK");
 
-        log_to_file!("Creating CrosstermBackend...");
+        debug!("Creating CrosstermBackend...");
         let backend = CrosstermBackend::new(stdout);
-        log_to_file!("CrosstermBackend OK");
+        debug!("CrosstermBackend OK");
 
-        log_to_file!("Creating Terminal...");
+        debug!("Creating Terminal...");
         let mut terminal = Terminal::new(backend)?;
-        log_to_file!("Terminal OK");
+        debug!("Terminal OK");
 
-        log_to_file!("terminal.clear()...");
+        debug!("terminal.clear()...");
         terminal.clear()?;
-        log_to_file!("terminal.clear() OK");
+        debug!("terminal.clear() OK");
 
         // Create event handler
-        log_to_file!("Creating EventHandler...");
+        debug!("Creating EventHandler...");
         let event_handler = EventHandler::new(100); // 100ms tick rate
-        log_to_file!("EventHandler OK");
+        debug!("EventHandler OK");
 
         self.event_sender = Some(event_handler.sender());
 
         // Main loop
-        log_to_file!("Entering main_loop...");
+        debug!("Entering main_loop...");
         let result = self.main_loop(&mut terminal, &event_handler);
-        log_to_file!("main_loop returned: {:?}", result.as_ref().map(|_| "Ok"));
+        debug!("main_loop returned: {:?}", result.as_ref().map(|_| "Ok"));
 
         // Restore terminal
-        log_to_file!("Restoring terminal...");
+        debug!("Restoring terminal...");
         disable_raw_mode()?;
         execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
         terminal.show_cursor()?;
-        log_to_file!("Terminal restored");
+        debug!("Terminal restored");
 
         // Check if we should restart
         if let Some(restart_path) = &self.restart_path {
-            log_to_file!("Restart requested: {}", restart_path);
+            debug!("Restart requested: {}", restart_path);
             self.exec_restart(restart_path)?;
             // If exec_restart returns, it failed - fall through to normal exit
         }
@@ -1276,11 +1263,11 @@ impl App {
     fn exec_restart(&self, binary_path: &str) -> AppResult<()> {
         use std::ffi::CString;
 
-        log_to_file!("exec_restart: binary_path={}", binary_path);
+        debug!("exec_restart: binary_path={}", binary_path);
 
         // Get current command-line arguments
         let args: Vec<String> = std::env::args().collect();
-        log_to_file!("exec_restart: original args: {:?}", args);
+        debug!("exec_restart: original args: {:?}", args);
 
         // Convert binary path to CString for exec
         let path_cstr = CString::new(binary_path)
@@ -1298,7 +1285,7 @@ impl App {
             );
         }
 
-        log_to_file!("exec_restart: exec_args count={}", exec_args.len());
+        debug!("exec_restart: exec_args count={}", exec_args.len());
 
         // Perform exec - this replaces current process
         // If it returns, it failed
@@ -1313,13 +1300,13 @@ impl App {
 
             // If we get here, exec failed
             let err = std::io::Error::last_os_error();
-            log_to_file!("exec_restart: FAILED: {}", err);
+            debug!("exec_restart: FAILED: {}", err);
             Err(anyhow::anyhow!("Failed to exec: {}", err).into())
         }
 
         #[cfg(not(unix))]
         {
-            log_to_file!("exec_restart: Not on Unix, cannot exec");
+            debug!("exec_restart: Not on Unix, cannot exec");
             Err(anyhow::anyhow!("Restart only supported on Unix systems").into())
         }
     }
@@ -1329,20 +1316,20 @@ impl App {
         terminal: &mut Terminal<CrosstermBackend<Stdout>>,
         event_handler: &EventHandler,
     ) -> AppResult<()> {
-        log_to_file!("main_loop: starting, running={}", self.running);
+        debug!("main_loop: starting, running={}", self.running);
         let mut iteration = 0;
         while self.running {
             iteration += 1;
-            log_to_file!("main_loop iteration {}: drawing UI", iteration);
+            debug!("main_loop iteration {}: drawing UI", iteration);
             // Draw UI
             terminal.draw(|frame| {
                 self.render(frame);
             })?;
-            log_to_file!("main_loop iteration {}: UI drawn", iteration);
+            debug!("main_loop iteration {}: UI drawn", iteration);
 
             // Check if visual copy was requested
             if self.copy_visual_view {
-                log_to_file!("main_loop iteration {}: processing visual copy", iteration);
+                debug!("main_loop iteration {}: processing visual copy", iteration);
                 self.copy_visual_view = false; // Reset flag
 
                 // Capture the visual buffer
@@ -1379,18 +1366,18 @@ impl App {
             }
 
             // Handle events
-            log_to_file!("main_loop iteration {}: waiting for event", iteration);
+            debug!("main_loop iteration {}: waiting for event", iteration);
             match event_handler.next()? {
                 Event::Tick => {
-                    log_to_file!("main_loop iteration {}: Event::Tick", iteration);
+                    debug!("main_loop iteration {}: Event::Tick", iteration);
                     self.tick();
                 }
                 Event::Key(key) => {
-                    log_to_file!("main_loop iteration {}: Event::Key({:?})", iteration, key);
+                    debug!("main_loop iteration {}: Event::Key({:?})", iteration, key);
                     self.handle_key_event(key);
                 }
                 Event::Mouse(_) => {
-                    log_to_file!("main_loop iteration {}: Event::Mouse", iteration);
+                    debug!("main_loop iteration {}: Event::Mouse", iteration);
                 } // Could add mouse support later
                 Event::Resize(_, _) => {} // Terminal handles resize automatically
                 Event::CommandOutput(line) => self.handle_command_output(line),
@@ -1428,7 +1415,7 @@ impl App {
                     session_id,
                     status,
                 } => {
-                    log_to_file!("main_loop iteration {}: Event::ClaudeCompleted", iteration);
+                    debug!("main_loop iteration {}: Event::ClaudeCompleted", iteration);
                     self.handle_claude_completed(phase, success, session_id, status);
                 }
                 Event::CommitStarted => {
@@ -1479,9 +1466,9 @@ impl App {
                     }
                 }
             }
-            log_to_file!("main_loop iteration {}: event handled, running={}", iteration, self.running);
+            debug!("main_loop iteration {}: event handled, running={}", iteration, self.running);
         }
-        log_to_file!("main_loop: exited (running={})", self.running);
+        debug!("main_loop: exited (running={})", self.running);
         Ok(())
     }
 

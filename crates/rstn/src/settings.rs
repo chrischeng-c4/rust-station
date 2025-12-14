@@ -20,6 +20,18 @@ pub struct Settings {
     /// Skip permission prompts in Claude CLI
     #[serde(default = "default_skip_permissions")]
     pub skip_permissions: bool,
+
+    /// Enable logging to file
+    #[serde(default = "default_logging_enabled")]
+    pub logging_enabled: bool,
+
+    /// Log level: "error", "warn", "info", "debug", "trace"
+    #[serde(default = "default_log_level")]
+    pub log_level: String,
+
+    /// Also output logs to console (stderr)
+    #[serde(default = "default_log_to_console")]
+    pub log_to_console: bool,
 }
 
 fn default_auto_run() -> bool {
@@ -34,12 +46,27 @@ fn default_skip_permissions() -> bool {
     true
 }
 
+fn default_logging_enabled() -> bool {
+    true // Enabled by default for development
+}
+
+fn default_log_level() -> String {
+    "debug".to_string() // Debug level for development
+}
+
+fn default_log_to_console() -> bool {
+    false
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
             auto_run: default_auto_run(),
             max_turns: default_max_turns(),
             skip_permissions: default_skip_permissions(),
+            logging_enabled: default_logging_enabled(),
+            log_level: default_log_level(),
+            log_to_console: default_log_to_console(),
         }
     }
 }

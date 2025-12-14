@@ -63,6 +63,23 @@ pub fn mcp_logs_dir() -> Result<PathBuf> {
     Ok(data_dir()?.join("logs/mcp"))
 }
 
+/// Get rustation home directory (~/.rustation)
+pub fn rustation_home() -> Result<PathBuf> {
+    dirs::home_dir()
+        .map(|p| p.join(".rustation"))
+        .ok_or_else(|| CoreError::Config("Could not determine home directory".into()))
+}
+
+/// Get rstn logs directory (~/.rustation/logs)
+pub fn rstn_logs_dir() -> Result<PathBuf> {
+    Ok(rustation_home()?.join("logs"))
+}
+
+/// Get rstn log file path (~/.rustation/logs/rstn.log)
+pub fn rstn_log_file() -> Result<PathBuf> {
+    Ok(rstn_logs_dir()?.join("rstn.log"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
