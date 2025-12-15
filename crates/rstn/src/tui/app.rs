@@ -76,6 +76,8 @@ pub struct App {
     pub pending_commit_groups: Option<Vec<rstn_core::CommitGroup>>,
     /// Current group being edited (index)
     pub current_group_index: usize,
+    /// Session ID for this rstn execution (for log correlation)
+    pub session_id: Option<String>,
 }
 
 impl Default for App {
@@ -87,6 +89,11 @@ impl Default for App {
 impl App {
     /// Create a new application instance
     pub fn new() -> Self {
+        Self::new_with_session(None)
+    }
+
+    /// Create a new application instance with a session ID
+    pub fn new_with_session(session_id: Option<String>) -> Self {
         Self {
             running: true,
             current_view: CurrentView::Worktree,
@@ -108,6 +115,7 @@ impl App {
             pending_auto_continue: None,
             pending_commit_groups: None,
             current_group_index: 0,
+            session_id,
         }
     }
 
@@ -187,17 +195,37 @@ impl App {
             }
             // Switch panes within current view with Tab
             KeyCode::Tab => {
-                match self.current_view {
-                    CurrentView::Worktree => {
-                        self.worktree_view.next_pane();
-                        self.status_message = Some("Switched to next pane".to_string());
+                use crossterm::event::KeyModifiers;
+
+                if key.modifiers.contains(KeyModifiers::SHIFT) {
+                    // Shift+Tab - previous pane
+                    match self.current_view {
+                        CurrentView::Worktree => {
+                            self.worktree_view.prev_pane();
+                            self.status_message = Some("Switched to previous pane".to_string());
+                        }
+                        CurrentView::Dashboard => {
+                            self.dashboard.next_pane(); // Dashboard doesn't have prev_pane yet
+                            self.status_message = Some("Switched to next pane".to_string());
+                        }
+                        CurrentView::Settings => {
+                            // Settings view doesn't have panes
+                        }
                     }
-                    CurrentView::Dashboard => {
-                        self.dashboard.next_pane();
-                        self.status_message = Some("Switched to next pane".to_string());
-                    }
-                    CurrentView::Settings => {
-                        // Settings view doesn't have panes
+                } else {
+                    // Tab - next pane
+                    match self.current_view {
+                        CurrentView::Worktree => {
+                            self.worktree_view.next_pane();
+                            self.status_message = Some("Switched to next pane".to_string());
+                        }
+                        CurrentView::Dashboard => {
+                            self.dashboard.next_pane();
+                            self.status_message = Some("Switched to next pane".to_string());
+                        }
+                        CurrentView::Settings => {
+                            // Settings view doesn't have panes
+                        }
                     }
                 }
                 return;
@@ -374,16 +402,22 @@ impl App {
             }
             ViewAction::RunIntelligentCommit => {
                 // Run intelligent commit workflow with AI-powered grouping
+                tracing::info!("Starting intelligent commit workflow");
                 self.status_message =
                     Some("Analyzing staged changes...".to_string());
+                self.worktree_view
+                    .add_output("🤖 Analyzing staged changes...".to_string());
 
                 let sender = self.event_sender.clone();
                 tokio::spawn(async move {
+                    tracing::debug!("Calling intelligent_commit()");
                     let result = rstn_core::git::intelligent_commit().await;
 
                     if let Some(sender) = sender {
                         match result {
                             Ok(rstn_core::CommitResult::Blocked(scan)) => {
+                                tracing::warn!("Commit blocked by security scan: {} warnings, {} sensitive files",
+                                    scan.warnings.len(), scan.sensitive_files.len());
                                 let _ = sender.send(Event::CommitBlocked { scan });
                             }
                             Ok(rstn_core::CommitResult::GroupedCommits {
@@ -391,6 +425,8 @@ impl App {
                                 warnings,
                                 sensitive_files,
                             }) => {
+                                tracing::info!("Commit groups ready: {} groups, {} warnings, {} sensitive files",
+                                    groups.len(), warnings.len(), sensitive_files.len());
                                 let _ = sender.send(Event::CommitGroupsReady {
                                     groups,
                                     warnings,
@@ -399,11 +435,13 @@ impl App {
                             }
                             Ok(rstn_core::CommitResult::ReadyToCommit { .. }) => {
                                 // Legacy path - shouldn't happen with intelligent_commit()
+                                tracing::error!("Unexpected legacy commit result from intelligent_commit()");
                                 let _ = sender.send(Event::CommitError {
                                     error: "Unexpected legacy commit result".to_string(),
                                 });
                             }
                             Err(e) => {
+                                tracing::error!("Intelligent commit failed: {}", e);
                                 let _ = sender.send(Event::CommitError {
                                     error: e.to_string(),
                                 });
@@ -1494,7 +1532,7 @@ impl App {
                 Event::CommitError { error } => {
                     self.worktree_view
                         .add_output(format!("❌ Error: {}", error));
-                    self.status_message = Some(format!("Commit error: {}", error));
+                    // Error is already displayed in output area, no need for status_message duplication
                 }
             }
             debug!(
@@ -1533,8 +1571,11 @@ impl App {
         };
         let tabs = Tabs::new(tab_titles)
             .block(Block::default().borders(Borders::ALL).title(format!(
-                " rstn {} - Rustation Dev Toolkit ",
-                crate::version::short_version()
+                " rstn {}{} - Rustation Dev Toolkit ",
+                crate::version::short_version(),
+                self.session_id.as_ref()
+                    .map(|id| format!(" [session: {}]", id))
+                    .unwrap_or_default()
             )))
             .select(selected_tab)
             .style(Style::default().fg(Color::White))

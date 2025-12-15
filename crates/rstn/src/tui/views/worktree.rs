@@ -75,6 +75,7 @@ pub enum ContentType {
     Spec,
     Plan,
     Tasks,
+    CommitReview,
 }
 
 impl ContentType {
@@ -83,6 +84,7 @@ impl ContentType {
             ContentType::Spec => "Spec",
             ContentType::Plan => "Plan",
             ContentType::Tasks => "Tasks",
+            ContentType::CommitReview => "Commit Review",
         }
     }
 }
@@ -91,7 +93,8 @@ impl ContentType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorktreeFocus {
     Commands, // Unified panel for SDD phases and Git actions
-    Content,
+    Content,  // Content display (spec, plan, tasks)
+    Output,   // Output/log panel
 }
 
 /// Worktree-focused development workspace view
@@ -412,7 +415,17 @@ impl WorktreeView {
     fn focus_left(&mut self) {
         self.focus = match self.focus {
             WorktreeFocus::Content => WorktreeFocus::Commands,
-            WorktreeFocus::Commands => WorktreeFocus::Content,
+            WorktreeFocus::Commands => WorktreeFocus::Output,
+            WorktreeFocus::Output => WorktreeFocus::Content,
+        };
+    }
+
+    /// Move to previous pane (Shift+Tab: Commands → Output → Content → Commands)
+    pub fn prev_pane(&mut self) {
+        self.focus = match self.focus {
+            WorktreeFocus::Commands => WorktreeFocus::Output,
+            WorktreeFocus::Content => WorktreeFocus::Commands,
+            WorktreeFocus::Output => WorktreeFocus::Content,
         };
     }
 
@@ -420,13 +433,18 @@ impl WorktreeView {
     fn focus_right(&mut self) {
         self.focus = match self.focus {
             WorktreeFocus::Commands => WorktreeFocus::Content,
-            WorktreeFocus::Content => WorktreeFocus::Commands,
+            WorktreeFocus::Content => WorktreeFocus::Output,
+            WorktreeFocus::Output => WorktreeFocus::Commands,
         };
     }
 
-    /// Move to next pane (same as focus_right, for Tab key compatibility)
+    /// Move to next pane (Tab key: Commands → Content → Output → Commands)
     pub fn next_pane(&mut self) {
-        self.focus_right();
+        self.focus = match self.focus {
+            WorktreeFocus::Commands => WorktreeFocus::Content,
+            WorktreeFocus::Content => WorktreeFocus::Output,
+            WorktreeFocus::Output => WorktreeFocus::Commands,
+        };
     }
 
     /// Scroll content down
@@ -457,6 +475,9 @@ impl WorktreeView {
                     }
                 }
             }
+            WorktreeFocus::Output => {
+                // Output scrolling is handled separately in scroll_output_down()
+            }
         }
     }
 
@@ -485,6 +506,9 @@ impl WorktreeView {
             WorktreeFocus::Content => {
                 self.content_scroll = self.content_scroll.saturating_sub(1);
             }
+            WorktreeFocus::Output => {
+                // Output scrolling is handled separately in scroll_output_up()
+            }
         }
     }
 
@@ -496,6 +520,33 @@ impl WorktreeView {
             ContentType::Tasks => ContentType::Spec,
         };
         self.content_scroll = 0;
+    }
+
+    /// Scroll output panel down by one line
+    fn scroll_output_down(&mut self) {
+        let max_scroll = self.log_buffer.len().saturating_sub(1);
+        self.output_scroll = (self.output_scroll + 1).min(max_scroll);
+    }
+
+    /// Scroll output panel up by one line
+    fn scroll_output_up(&mut self) {
+        self.output_scroll = self.output_scroll.saturating_sub(1);
+    }
+
+    /// Scroll output panel down by one page (10 lines)
+    fn scroll_output_page_down(&mut self) {
+        let max_scroll = self.log_buffer.len().saturating_sub(1);
+        self.output_scroll = (self.output_scroll + 10).min(max_scroll);
+    }
+
+    /// Scroll output panel up by one page (10 lines)
+    fn scroll_output_page_up(&mut self) {
+        self.output_scroll = self.output_scroll.saturating_sub(10);
+    }
+
+    /// Scroll output panel to the bottom
+    fn scroll_output_to_bottom(&mut self) {
+        self.output_scroll = self.log_buffer.len().saturating_sub(1);
     }
 
     /// Run the selected phase and switch to Commands view
@@ -696,6 +747,21 @@ impl WorktreeView {
             WorktreeFocus::Content => {
                 // Return current content
                 self.get_current_content().unwrap_or("").to_string()
+            }
+            WorktreeFocus::Output => {
+                // Return output log entries with timestamps
+                if self.log_buffer.is_empty() {
+                    return String::new();
+                }
+
+                self.log_buffer.entries()
+                    .map(|entry| format!("[{}] {} {}",
+                        entry.format_timestamp(),
+                        entry.category_icon(),
+                        entry.content
+                    ))
+                    .collect::<Vec<_>>()
+                    .join("\n")
             }
         }
     }
@@ -919,10 +985,18 @@ impl WorktreeView {
             format!(" Output (1000 line history) ")
         };
 
+        // Change border color when focused
+        let is_focused = self.focus == WorktreeFocus::Output;
+        let border_style = if is_focused {
+            Style::default().fg(Color::Cyan)
+        } else {
+            Style::default()
+        };
+
         let block = Block::default()
             .borders(Borders::ALL)
             .title(title)
-            .border_style(Style::default());
+            .border_style(border_style);
 
         // Build output lines with timestamps, icons, and category-based styling
         let lines: Vec<Line> = if self.log_buffer.is_empty() && !self.is_running {
@@ -1057,11 +1131,19 @@ impl View for WorktreeView {
                 ViewAction::None
             }
             KeyCode::Char('j') | KeyCode::Down => {
-                self.scroll_down();
+                if self.focus == WorktreeFocus::Output {
+                    self.scroll_output_down();
+                } else {
+                    self.scroll_down();
+                }
                 ViewAction::None
             }
             KeyCode::Char('k') | KeyCode::Up => {
-                self.scroll_up();
+                if self.focus == WorktreeFocus::Output {
+                    self.scroll_output_up();
+                } else {
+                    self.scroll_up();
+                }
                 ViewAction::None
             }
             KeyCode::Char('s') => {
@@ -1069,7 +1151,9 @@ impl View for WorktreeView {
                 ViewAction::None
             }
             KeyCode::PageDown => {
-                if self.focus == WorktreeFocus::Content {
+                if self.focus == WorktreeFocus::Output {
+                    self.scroll_output_page_down();
+                } else if self.focus == WorktreeFocus::Content {
                     if let Some(content) = self.get_current_content() {
                         let line_count = content.lines().count();
                         self.content_scroll =
@@ -1079,19 +1163,25 @@ impl View for WorktreeView {
                 ViewAction::None
             }
             KeyCode::PageUp => {
-                if self.focus == WorktreeFocus::Content {
+                if self.focus == WorktreeFocus::Output {
+                    self.scroll_output_page_up();
+                } else if self.focus == WorktreeFocus::Content {
                     self.content_scroll = self.content_scroll.saturating_sub(10);
                 }
                 ViewAction::None
             }
             KeyCode::Home | KeyCode::Char('g') => {
-                if self.focus == WorktreeFocus::Content {
+                if self.focus == WorktreeFocus::Output {
+                    self.output_scroll = 0;
+                } else if self.focus == WorktreeFocus::Content {
                     self.content_scroll = 0;
                 }
                 ViewAction::None
             }
             KeyCode::End | KeyCode::Char('G') => {
-                if self.focus == WorktreeFocus::Content {
+                if self.focus == WorktreeFocus::Output {
+                    self.scroll_output_to_bottom();
+                } else if self.focus == WorktreeFocus::Content {
                     if let Some(content) = self.get_current_content() {
                         let line_count = content.lines().count();
                         self.content_scroll = line_count.saturating_sub(1);
