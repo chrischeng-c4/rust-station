@@ -32,6 +32,22 @@ Use spec-kit commands for all feature development:
 /speckit.review   → PR review    # Verify against spec
 ```
 
+### Interactive Specify Workflow (Feature 051)
+
+The `/speckit.specify` command now uses an **interactive TUI workflow**:
+
+1. **Input Mode**: Enter feature description in a dialog
+2. **Review Mode**: Preview generated spec with actions:
+   - `[Enter]` Save spec to file
+   - `[e]` Edit spec inline
+   - `[Esc]` Cancel and discard
+3. **Edit Mode** (optional): Multi-line text editing
+   - `[Ctrl+S]` Save edited spec
+   - `[Enter]` Insert newline
+   - `[Esc]` Cancel edits
+
+This replaces the old shell-out approach with a seamless, no-context-switch experience.
+
 ### Quick Status
 
 ```bash
@@ -104,6 +120,7 @@ git commit -m "feat(NNN): description"
 - In-memory only (049-enhanced-worktree-view)
 - Rust 1.75+ (edition 2021) + ratatui 0.29+ (TUI framework), crossterm 0.28 (terminal I/O), arboard 3.4 (clipboard), rstn-core (git operations), tokio (async runtime) (050-commit-review-content-area)
 - In-memory state only (commit review session data lives in WorktreeView struct) (050-commit-review-content-area)
+- In-memory state during specify workflow; final spec written to `specs/{NNN}-{name}/spec.md` (051-interactive-specify-flow)
 
 ## Recent Changes
 - 029-arithmetic-expansion: Added Rust 1.75+ (edition 2021) + No new dependencies (pure Rust implementation)

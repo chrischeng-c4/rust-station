@@ -10,7 +10,8 @@
 use crate::tui::event::WorktreeType;
 use crate::tui::logging::{FileChangeTracker, LogBuffer, LogCategory, LogEntry};
 use crate::tui::views::{AutoFlowState, ClaudeOptions, PhaseStatus, SpecPhase, View, ViewAction};
-use crossterm::event::{KeyCode, KeyEvent};
+use crate::tui::widgets::TextInput; // Feature 051: Multi-line edit mode (User Story 3)
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -76,6 +77,8 @@ pub enum ContentType {
     Plan,
     Tasks,
     CommitReview,
+    SpecifyInput,   // Feature 051: Input feature description
+    SpecifyReview,  // Feature 051: Review/edit generated spec
 }
 
 impl ContentType {
@@ -85,6 +88,8 @@ impl ContentType {
             ContentType::Plan => "Plan",
             ContentType::Tasks => "Tasks",
             ContentType::CommitReview => "Commit Review",
+            ContentType::SpecifyInput => "Specify Input",
+            ContentType::SpecifyReview => "Specify Review",
         }
     }
 }
@@ -95,6 +100,97 @@ pub enum WorktreeFocus {
     Commands, // Unified panel for SDD phases and Git actions
     Content,  // Content display (spec, plan, tasks)
     Output,   // Output/log panel
+}
+
+/// State machine for the interactive specify workflow (Feature 051)
+///
+/// Manages a multi-phase user journey for creating feature specifications:
+///
+/// ## State Machine
+///
+/// ```text
+/// Idle (not active)
+///     ↓ (user triggers /speckit.specify)
+/// Input Phase (collecting feature description)
+///     ↓ (user submits with Enter)
+/// Generating Phase (AI generating spec)
+///     ↓ (spec generation completes)
+/// Review Phase (user previews spec)
+///     ├─→ (user presses Enter) → Save to file
+///     ├─→ (user presses 'e') → Edit Phase
+///     └─→ (user presses Esc) → Cancel, return to Idle
+/// Edit Phase (inline editing)
+///     ├─→ (user presses Ctrl+S) → Save edited spec
+///     └─→ (user presses Esc) → Back to Review Phase
+/// ```
+///
+/// ## Fields
+///
+/// - `input_buffer`: User's feature description during Input Phase
+/// - `input_cursor`: Cursor position in input buffer
+/// - `is_generating`: True during async spec generation
+/// - `generation_error`: Error message if generation fails
+/// - `generated_spec`: AI-generated spec content (markdown)
+/// - `feature_number`: Parsed feature number (e.g., "051")
+/// - `feature_name`: Parsed feature name (e.g., "interactive-specify-flow")
+/// - `edit_mode`: True when in Edit Phase
+/// - `edit_text_input`: TextInput widget instance for multi-line editing
+/// - `validation_error`: Error message for invalid input (e.g., too short)
+///
+/// ## Lifecycle
+///
+/// 1. Created with `Default::default()` in idle state
+/// 2. Activated by `start_specify_input()` → Input Phase
+/// 3. Submitted by `submit_specify_description()` → Generating Phase
+/// 4. Transitions to Review Phase when `Event::SpecifyGenerationCompleted` received
+/// 5. User can edit, save, or cancel from Review Phase
+/// 6. Reset by `cancel_specify()` → returns to idle state
+#[derive(Debug, Clone, Default)]
+pub struct SpecifyState {
+    // Input phase
+    pub input_buffer: String,
+    pub input_cursor: usize,
+
+    // Generation phase
+    pub is_generating: bool,
+    pub generation_error: Option<String>,
+
+    // Review/Edit phase
+    pub generated_spec: Option<String>,
+    pub feature_number: Option<String>,
+    pub feature_name: Option<String>,
+    pub edit_mode: bool,
+    pub edit_text_input: Option<TextInput>, // Feature 051: Multi-line editing widget (User Story 3)
+
+    // Validation
+    pub validation_error: Option<String>,
+}
+
+impl SpecifyState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn clear(&mut self) {
+        *self = Self::default();
+    }
+
+    pub fn is_active(&self) -> bool {
+        !self.input_buffer.is_empty()
+            || self.is_generating
+            || self.generated_spec.is_some()
+    }
+
+    pub fn validate_input(&self) -> Result<(), String> {
+        let trimmed = self.input_buffer.trim();
+        if trimmed.is_empty() {
+            return Err("Description cannot be empty".to_string());
+        }
+        if trimmed.len() < 3 {
+            return Err("Description must be at least 3 characters".to_string());
+        }
+        Ok(())
+    }
 }
 
 /// Worktree-focused development workspace view
@@ -160,6 +256,9 @@ pub struct WorktreeView {
     pub commit_message_cursor: usize,
     pub commit_sensitive_files: Vec<String>,
     pub commit_validation_error: Option<String>,
+
+    // Specify workflow state (Feature 051)
+    pub specify_state: SpecifyState,
 }
 
 impl WorktreeView {
@@ -226,6 +325,8 @@ impl WorktreeView {
             commit_message_cursor: 0,
             commit_sensitive_files: Vec::new(),
             commit_validation_error: None,
+            // Specify workflow state initialization (Feature 051)
+            specify_state: SpecifyState::new(),
         }
     }
 
@@ -395,6 +496,7 @@ impl WorktreeView {
             ContentType::Plan => self.plan_content.as_deref(),
             ContentType::Tasks => self.tasks_content.as_deref(),
             ContentType::CommitReview => None, // Rendered separately via render_commit_review()
+            ContentType::SpecifyInput | ContentType::SpecifyReview => None, // Feature 051: Rendered separately via render_specify_input()
         }
     }
 
@@ -535,6 +637,7 @@ impl WorktreeView {
             ContentType::Plan => ContentType::Tasks,
             ContentType::Tasks => ContentType::Spec,
             ContentType::CommitReview => ContentType::CommitReview, // Don't allow switching during review
+            ContentType::SpecifyInput | ContentType::SpecifyReview => self.content_type, // Feature 051: Don't allow switching during specify workflow
         };
         self.content_scroll = 0;
     }
@@ -907,6 +1010,7 @@ impl WorktreeView {
             ContentType::Plan => 1,
             ContentType::Tasks => 2,
             ContentType::CommitReview => 3,
+            ContentType::SpecifyInput | ContentType::SpecifyReview => 0, // Feature 051: Highlight Spec tab during specify workflow
         };
 
         // Render tab bar
@@ -941,6 +1045,24 @@ impl WorktreeView {
         // Render content area - dispatch to commit review if in that mode (Feature 050)
         if self.content_type == ContentType::CommitReview {
             self.render_commit_review(frame, sections[1]);
+            return;
+        }
+
+        // Render content area - dispatch to specify input if in that mode (Feature 051 - T021)
+        if self.content_type == ContentType::SpecifyInput {
+            self.render_specify_input(frame, sections[1]);
+            return;
+        }
+
+        // Render content area - dispatch to specify review/edit if in that mode (Feature 051)
+        if self.content_type == ContentType::SpecifyReview {
+            // T067: Route to edit mode if active (User Story 3)
+            if self.specify_state.edit_mode {
+                self.render_specify_edit(frame, sections[1]);
+                return;
+            }
+            // T035: Otherwise show review mode
+            self.render_specify_review(frame, sections[1]);
             return;
         }
 
@@ -1202,6 +1324,362 @@ impl WorktreeView {
     /// Get current commit message (with user edits)
     pub fn get_current_commit_message(&self) -> String {
         self.commit_message_input.clone()
+    }
+
+    // ========================================================================
+    // Specify workflow methods (Feature 051)
+    // ========================================================================
+
+    /// Enter specify Input Phase and display input dialog (T015)
+    ///
+    /// Initiates the interactive specify workflow by:
+    /// - Setting content type to `SpecifyInput`
+    /// - Switching focus to content area
+    /// - Clearing any previous specify state
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use rstn::tui::views::worktree::{WorktreeView, ContentType};
+    /// # let mut view = WorktreeView::new();
+    /// view.start_specify_input();
+    /// assert_eq!(view.content_type, ContentType::SpecifyInput);
+    /// assert!(view.specify_state.input_buffer.is_empty());
+    /// ```
+    pub fn start_specify_input(&mut self) {
+        self.specify_state = SpecifyState::new();
+        self.content_type = ContentType::SpecifyInput;
+        self.focus = WorktreeFocus::Content; // Auto-focus Content area
+    }
+
+    /// Cancel specify workflow and return to normal Spec view (T016)
+    ///
+    /// Resets all specify state to defaults and returns to regular content view.
+    /// Safe to call from any specify phase (Input, Review, Edit).
+    pub fn cancel_specify(&mut self) {
+        let entry = LogEntry::new(
+            LogCategory::System,
+            "Specify workflow cancelled".to_string(),
+        );
+        self.log_buffer.push(entry);
+
+        self.specify_state.clear();
+        self.content_type = ContentType::Spec; // Return to Spec view
+        self.focus = WorktreeFocus::Commands; // Return focus to commands
+    }
+
+    /// Handle keyboard input during Input Phase (T017)
+    ///
+    /// # Parameters
+    /// - `key`: The key event to process
+    ///
+    /// # Returns
+    /// - `ViewAction::None` for navigation keys (handled by parent)
+    /// - `ViewAction::GenerateSpec` when user submits valid input
+    pub fn handle_specify_input(&mut self, key: KeyEvent) -> ViewAction {
+        use crossterm::event::{KeyCode, KeyModifiers};
+
+        match key.code {
+            KeyCode::Char(c) => {
+                // Insert character at cursor position
+                self.specify_state.input_buffer.insert(self.specify_state.input_cursor, c);
+                self.specify_state.input_cursor += 1;
+                self.specify_state.validation_error = None; // Clear error on input
+                ViewAction::None
+            }
+            KeyCode::Backspace => {
+                if self.specify_state.input_cursor > 0 {
+                    self.specify_state.input_cursor -= 1;
+                    self.specify_state.input_buffer.remove(self.specify_state.input_cursor);
+                    self.specify_state.validation_error = None;
+                }
+                ViewAction::None
+            }
+            KeyCode::Delete => {
+                if self.specify_state.input_cursor < self.specify_state.input_buffer.len() {
+                    self.specify_state.input_buffer.remove(self.specify_state.input_cursor);
+                }
+                ViewAction::None
+            }
+            KeyCode::Left => {
+                if self.specify_state.input_cursor > 0 {
+                    self.specify_state.input_cursor -= 1;
+                }
+                ViewAction::None
+            }
+            KeyCode::Right => {
+                if self.specify_state.input_cursor < self.specify_state.input_buffer.len() {
+                    self.specify_state.input_cursor += 1;
+                }
+                ViewAction::None
+            }
+            KeyCode::Home => {
+                self.specify_state.input_cursor = 0;
+                ViewAction::None
+            }
+            KeyCode::End => {
+                self.specify_state.input_cursor = self.specify_state.input_buffer.len();
+                ViewAction::None
+            }
+            KeyCode::Enter if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                // Ctrl+Enter: Insert newline
+                self.specify_state.input_buffer.insert(self.specify_state.input_cursor, '\n');
+                self.specify_state.input_cursor += 1;
+                self.specify_state.validation_error = None;
+                ViewAction::None
+            }
+            KeyCode::Enter => {
+                // Submit description
+                self.submit_specify_description()
+            }
+            KeyCode::Esc => {
+                // Cancel specify workflow
+                self.cancel_specify();
+                ViewAction::None
+            }
+            _ => ViewAction::None,
+        }
+    }
+
+    /// Validate input and trigger spec generation (T019)
+    ///
+    /// Validates that the description is at least 10 characters, then:
+    /// - Sets `is_generating = true`
+    /// - Returns `GenerateSpec` action with description
+    ///
+    /// # Returns
+    /// - `ViewAction::GenerateSpec` if valid
+    /// - `ViewAction::None` if invalid (sets `validation_error`)
+    pub fn submit_specify_description(&mut self) -> ViewAction {
+        // Validate input (T018)
+        if let Err(error) = self.specify_state.validate_input() {
+            self.specify_state.validation_error = Some(error);
+            return ViewAction::None;
+        }
+
+        // Clear validation error
+        self.specify_state.validation_error = None;
+
+        // Mark as generating
+        self.specify_state.is_generating = true;
+
+        // Return action to trigger async generation
+        ViewAction::GenerateSpec {
+            description: self.specify_state.input_buffer.clone(),
+        }
+    }
+
+    /// Trigger save workflow for generated or edited spec (T036)
+    ///
+    /// Returns a `SaveSpec` action that will be handled by app.rs to write the
+    /// spec to `specs/{number}-{name}/spec.md`.
+    ///
+    /// # Returns
+    /// - `ViewAction::SaveSpec` with content, number, and name
+    /// - `ViewAction::None` if spec/metadata is missing (sets `validation_error`)
+    pub fn save_specify_spec(&mut self) -> ViewAction {
+        // Defensive checks
+        if let (Some(content), Some(number), Some(name)) = (
+            &self.specify_state.generated_spec,
+            &self.specify_state.feature_number,
+            &self.specify_state.feature_name,
+        ) {
+            ViewAction::SaveSpec {
+                content: content.clone(),
+                number: number.clone(),
+                name: name.clone(),
+            }
+        } else {
+            // Should never happen, but handle gracefully
+            self.specify_state.validation_error =
+                Some("Invalid state: missing spec content or feature info".to_string());
+            ViewAction::None
+        }
+    }
+
+    /// Enter Edit Phase from Review Phase (T052, User Story 3)
+    ///
+    /// Creates a multi-line TextInput widget pre-populated with the generated spec.
+    /// The user can then edit the spec before saving.
+    ///
+    /// # Behavior
+    /// - Only activates if `generated_spec` exists
+    /// - Initializes TextInput with spec content split into lines
+    /// - Sets cursor to (0, 0) at start of spec
+    /// - Sets `edit_mode = true`
+    pub fn toggle_specify_edit_mode(&mut self) {
+        // Only allow entering edit mode if we have a generated spec
+        if let Some(spec_content) = &self.specify_state.generated_spec {
+            // Create multi-line text input with reasonable height
+            let mut input = TextInput::new_multiline(String::new(), 25);
+
+            // Load spec content into input lines
+            input.lines = spec_content.lines().map(|s| s.to_string()).collect();
+
+            // Position cursor at the start
+            input.cursor_line = 0;
+            input.cursor_column = 0;
+
+            // Store the input widget and enable edit mode
+            self.specify_state.edit_text_input = Some(input);
+            self.specify_state.edit_mode = true;
+        }
+    }
+
+    /// Handle keyboard input during Edit Phase (T054-T067, User Story 3)
+    ///
+    /// Routes all keypresses to the TextInput widget or Edit Phase controls:
+    /// - `Ctrl+S`: Save edited spec
+    /// - `Esc`: Cancel editing, return to Review
+    /// - `Enter`: Insert newline (NOT save)
+    /// - Arrow keys, Home, End: Navigate cursor
+    /// - Backspace, Delete: Delete characters
+    /// - Regular chars: Insert at cursor
+    ///
+    /// # Parameters
+    /// - `key`: The key event to process
+    ///
+    /// # Returns
+    /// - `ViewAction::SaveSpec` if user pressed Ctrl+S
+    /// - `ViewAction::None` otherwise
+    pub fn handle_specify_edit_input(&mut self, key: KeyEvent) -> ViewAction {
+        // Get mutable reference to the text input
+        if let Some(input) = &mut self.specify_state.edit_text_input {
+            match key.code {
+                // Ctrl+S - Save edited spec
+                KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    return self.save_from_edit();
+                }
+
+                // Enter - Insert newline (NOT save - prevents accidental saves)
+                KeyCode::Enter => {
+                    input.insert_newline();
+                }
+
+                // Backspace - Delete character before cursor
+                KeyCode::Backspace => {
+                    input.delete_char();
+                }
+
+                // Delete - Delete character after cursor
+                KeyCode::Delete => {
+                    input.delete_char_forward();
+                }
+
+                // Arrow keys - Navigate cursor
+                KeyCode::Up => {
+                    input.move_cursor_up();
+                }
+                KeyCode::Down => {
+                    input.move_cursor_down();
+                }
+                KeyCode::Left => {
+                    input.move_cursor_left();
+                }
+                KeyCode::Right => {
+                    input.move_cursor_right();
+                }
+
+                // Home - Move to line start
+                KeyCode::Home => {
+                    input.move_cursor_home();
+                }
+
+                // End - Move to line end
+                KeyCode::End => {
+                    input.move_cursor_end();
+                }
+
+                // Esc - Cancel editing and return to review mode
+                KeyCode::Esc => {
+                    self.cancel_edit();
+                }
+
+                // Regular character input
+                KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    input.insert_char(c);
+                }
+
+                // Ignore other keys
+                _ => {}
+            }
+        }
+        ViewAction::None
+    }
+
+    /// Extract edited content and trigger save workflow (T065, User Story 3)
+    ///
+    /// Called when user presses Ctrl+S in Edit Phase. Extracts the multi-line
+    /// content from TextInput, updates `generated_spec`, exits Edit Phase, and
+    /// triggers the save workflow.
+    ///
+    /// # Returns
+    /// - `ViewAction::SaveSpec` with edited content
+    /// - `ViewAction::None` if no TextInput exists (shouldn't happen)
+    pub fn save_from_edit(&mut self) -> ViewAction {
+        // Extract edited content from TextInput
+        if let Some(input) = &self.specify_state.edit_text_input {
+            let edited_content = input.get_multiline_value();
+
+            // Update the generated spec with edited content
+            self.specify_state.generated_spec = Some(edited_content);
+
+            // Clear edit mode and return to review
+            self.specify_state.edit_mode = false;
+            self.specify_state.edit_text_input = None;
+
+            // Trigger save workflow (will write to file)
+            return self.save_specify_spec();
+        }
+
+        ViewAction::None
+    }
+
+    /// Discard edits and return to Review Phase (T066, User Story 3)
+    ///
+    /// Called when user presses Esc in Edit Phase. Discards any changes made in
+    /// the editor and returns to Review Phase with the original spec unchanged.
+    pub fn cancel_edit(&mut self) {
+        // Clear edit mode state and return to review
+        self.specify_state.edit_mode = false;
+        self.specify_state.edit_text_input = None;
+        // Original spec content remains in generated_spec, unchanged
+    }
+
+    /// Handle keyboard input during Review Phase (T037)
+    ///
+    /// # Keybindings
+    /// - `Enter`: Save spec to file
+    /// - `e`: Enter Edit Phase for inline editing
+    /// - `Esc`: Cancel workflow and discard spec
+    /// - Other keys: No action (scrolling handled by parent)
+    ///
+    /// # Parameters
+    /// - `key`: The key event to process
+    ///
+    /// # Returns
+    /// - `ViewAction::SaveSpec` if user pressed Enter
+    /// - `ViewAction::None` otherwise
+    pub fn handle_specify_review_input(&mut self, key: KeyEvent) -> ViewAction {
+        match key.code {
+            // Enter - Save spec
+            KeyCode::Enter => self.save_specify_spec(),
+
+            // 'e' - Edit mode (User Story 3, T052)
+            KeyCode::Char('e') => {
+                self.toggle_specify_edit_mode();
+                ViewAction::None
+            }
+
+            // Esc - Cancel review and return to normal view
+            KeyCode::Esc => {
+                self.cancel_specify();
+                ViewAction::None
+            }
+
+            // Other keys - no action (scrolling handled by main handler)
+            _ => ViewAction::None,
+        }
     }
 
     /// Validate commit message before submission
@@ -1507,6 +1985,209 @@ impl WorktreeView {
             frame.render_widget(paragraph, area);
         }
     }
+
+    /// Render specify Input Phase dialog (T020)
+    fn render_specify_input(&self, frame: &mut Frame, area: Rect) {
+        let mut lines = vec![];
+
+        // Title
+        lines.push(Line::from(Span::styled(
+            "Specify Feature",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::from(""));
+
+        // Instructions
+        lines.push(Line::from(Span::styled(
+            "Enter feature description:",
+            Style::default().fg(Color::Yellow),
+        )));
+        lines.push(Line::from(""));
+
+        // Input buffer with cursor
+        let input_display = if self.specify_state.input_buffer.is_empty() {
+            Span::styled(
+                "Type your description here...",
+                Style::default().fg(Color::DarkGray),
+            )
+        } else {
+            Span::raw(&self.specify_state.input_buffer)
+        };
+        lines.push(Line::from(input_display));
+
+        // Validation error (T030)
+        if let Some(ref error) = self.specify_state.validation_error {
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                format!("  ⚠ {}", error),
+                Style::default().fg(Color::Red),
+            )));
+        }
+
+        lines.push(Line::from(""));
+
+        // Action hints
+        lines.push(Line::from(vec![
+            Span::styled("[Ctrl+Enter]", Style::default().fg(Color::Green)),
+            Span::raw(" New line  "),
+            Span::styled("[Enter]", Style::default().fg(Color::Green)),
+            Span::raw(" Submit  "),
+            Span::styled("[Esc]", Style::default().fg(Color::Red)),
+            Span::raw(" Cancel"),
+        ]));
+
+        // Render as paragraph
+        let paragraph = Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Specify Input")
+                    .border_style(Style::default().fg(Color::Cyan)),
+            )
+            .wrap(Wrap { trim: false });
+
+        frame.render_widget(paragraph, area);
+    }
+
+    /// Render specify Review Phase with spec preview (T034, T038, T039)
+    fn render_specify_review(&self, frame: &mut Frame, area: Rect) {
+        // Build ALL lines with styling
+        let mut all_lines: Vec<Line> = vec![];
+
+        // Header: Feature number and name (T038)
+        if let (Some(number), Some(name)) = (
+            &self.specify_state.feature_number,
+            &self.specify_state.feature_name,
+        ) {
+            all_lines.push(Line::from(Span::styled(
+                format!("Feature {} - {}", number, name),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )));
+            all_lines.push(Line::from(""));
+        }
+
+        // Spec content section
+        all_lines.push(Line::from(Span::styled(
+            "Generated Specification:",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )));
+        all_lines.push(Line::from(""));
+
+        // Spec markdown content
+        if let Some(spec) = &self.specify_state.generated_spec {
+            for line in spec.lines() {
+                all_lines.push(Line::from(line.to_string()));
+            }
+        }
+
+        // Action hints (T039)
+        all_lines.push(Line::from(""));
+        all_lines.push(Line::from(vec![
+            Span::styled("[Enter]", Style::default().fg(Color::Green)),
+            Span::raw(" Save  "),
+            Span::styled("[e]", Style::default().fg(Color::Cyan)),
+            Span::raw(" Edit  "),
+            Span::styled("[Esc]", Style::default().fg(Color::Red)),
+            Span::raw(" Cancel"),
+        ]));
+
+        // Apply scrolling based on content_scroll
+        let visible_height = area.height.saturating_sub(2) as usize;
+        let visible_lines: Vec<Line> = all_lines
+            .into_iter()
+            .skip(self.content_scroll)
+            .take(visible_height)
+            .collect();
+
+        // Render paragraph
+        let paragraph = Paragraph::new(visible_lines)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Review Generated Spec")
+                    .border_style(Style::default().fg(Color::Cyan)),
+            )
+            .wrap(Wrap { trim: false });
+
+        frame.render_widget(paragraph, area);
+    }
+
+    /// Render specify Edit Phase with multi-line editor (T067, User Story 3)
+    fn render_specify_edit(&self, frame: &mut Frame, area: Rect) {
+        // Create 3-section layout: Header | Content | Footer
+        let sections = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3), // Header: Title
+                Constraint::Min(10),   // Content: Text editor
+                Constraint::Length(3), // Footer: Action hints
+            ])
+            .split(area);
+
+        // === Header: Feature number and name with [EDIT MODE] indicator ===
+        let mut header_lines: Vec<Line> = vec![];
+        if let (Some(number), Some(name)) = (
+            &self.specify_state.feature_number,
+            &self.specify_state.feature_name,
+        ) {
+            header_lines.push(Line::from(Span::styled(
+                format!("Feature {} - {} [EDIT MODE]", number, name),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )));
+        } else {
+            header_lines.push(Line::from(Span::styled(
+                "Edit Mode",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )));
+        }
+
+        let header = Paragraph::new(header_lines)
+            .block(
+                Block::default()
+                    .borders(Borders::TOP | Borders::LEFT | Borders::RIGHT)
+                    .border_style(Style::default().fg(Color::Yellow)),
+            )
+            .wrap(Wrap { trim: false });
+
+        frame.render_widget(header, sections[0]);
+
+        // === Content: Render TextInput widget ===
+        if let Some(input) = &self.specify_state.edit_text_input {
+            frame.render_widget(input, sections[1]);
+        }
+
+        // === Footer: Action hints ===
+        let footer_lines = vec![Line::from(vec![
+            Span::styled("[Ctrl+S]", Style::default().fg(Color::Green)),
+            Span::raw(" Save  "),
+            Span::styled("[Enter]", Style::default().fg(Color::Cyan)),
+            Span::raw(" New line  "),
+            Span::styled("[Esc]", Style::default().fg(Color::Red)),
+            Span::raw(" Cancel  "),
+            Span::styled("[Arrow keys]", Style::default().fg(Color::DarkGray)),
+            Span::raw(" Navigate"),
+        ])];
+
+        let footer = Paragraph::new(footer_lines)
+            .block(
+                Block::default()
+                    .borders(Borders::BOTTOM | Borders::LEFT | Borders::RIGHT)
+                    .border_style(Style::default().fg(Color::Yellow)),
+            )
+            .wrap(Wrap { trim: false });
+
+        frame.render_widget(footer, sections[2]);
+    }
 }
 
 impl Default for WorktreeView {
@@ -1542,9 +2223,25 @@ impl View for WorktreeView {
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> ViewAction {
-        // Route to commit review input handler when in CommitReview mode (T027)
+        // Route to commit review input handler when in CommitReview mode (Feature 050)
         if self.content_type == ContentType::CommitReview && self.focus == WorktreeFocus::Content {
             return self.handle_commit_review_input(key);
+        }
+
+        // Route to specify input handler when in SpecifyInput mode (Feature 051 - T022, T023)
+        if self.content_type == ContentType::SpecifyInput && self.focus == WorktreeFocus::Content {
+            return self.handle_specify_input(key);
+        }
+
+        // Route to specify review/edit input handler when in SpecifyReview mode (Feature 051)
+        if self.content_type == ContentType::SpecifyReview && self.focus == WorktreeFocus::Content
+        {
+            // T054-T067: Route to edit handler if in edit mode (User Story 3)
+            if self.specify_state.edit_mode {
+                return self.handle_specify_edit_input(key);
+            }
+            // T037: Otherwise route to review handler
+            return self.handle_specify_review_input(key);
         }
 
         match key.code {
@@ -1556,6 +2253,8 @@ impl View for WorktreeView {
                         ContentType::Plan => ContentType::Spec,
                         ContentType::Tasks => ContentType::Plan,
                         ContentType::CommitReview => ContentType::CommitReview, // No tab cycling during review
+                        ContentType::SpecifyInput => ContentType::SpecifyInput, // No tab cycling during specify
+                        ContentType::SpecifyReview => ContentType::SpecifyReview, // No tab cycling during specify
                     };
                     self.content_scroll = 0;
                 } else {
@@ -1640,16 +2339,10 @@ impl View for WorktreeView {
                             if let Some(command) = self.commands.get(cmd_idx) {
                                 return match command {
                                     Command::SddPhase(phase, _) => {
-                                        // Specify phase needs user input first
+                                        // Specify phase uses new interactive flow (Feature 051)
                                         if *phase == SpecPhase::Specify {
-                                            self.pending_input_phase = Some(*phase);
-                                            ViewAction::RequestInput {
-                                                prompt: "Enter feature description:".to_string(),
-                                                placeholder: Some(
-                                                    "e.g., Add user authentication with OAuth2"
-                                                        .to_string(),
-                                                ),
-                                            }
+                                            self.start_specify_input();
+                                            ViewAction::None
                                         } else {
                                             self.run_phase(*phase)
                                         }
@@ -1862,7 +2555,7 @@ mod tests {
     }
 
     #[test]
-    fn test_enter_on_specify_requests_input() {
+    fn test_enter_on_specify_starts_input_mode() {
         let mut view = create_test_view();
 
         // Set focus to Commands panel
@@ -1874,20 +2567,13 @@ mod tests {
         // Press Enter
         let action = view.handle_key(key_event(KeyCode::Enter));
 
-        // Should request input
-        match action {
-            ViewAction::RequestInput {
-                prompt,
-                placeholder,
-            } => {
-                assert!(prompt.contains("feature description"));
-                assert!(placeholder.is_some());
-            }
-            _ => panic!("Expected RequestInput action for Specify phase"),
-        }
+        // Feature 051: Should start specify input mode directly, not request input dialog
+        assert_eq!(action, ViewAction::None);
 
-        // Verify pending_input_phase is set
-        assert_eq!(view.pending_input_phase, Some(SpecPhase::Specify));
+        // Verify specify input mode is active
+        assert_eq!(view.content_type, ContentType::SpecifyInput);
+        assert_eq!(view.specify_state.input_buffer, "");
+        assert!(!view.specify_state.is_generating);
     }
 
     #[test]
@@ -2110,6 +2796,490 @@ mod tests {
                 Command::GitAction(_) => {} // Expected
                 _ => panic!("Command {} should be a git command", i),
             }
+        }
+    }
+
+    // Feature 051: Tests for specify workflow (T031-T032)
+
+    #[test]
+    fn test_specify_state_default() {
+        let state = SpecifyState::default();
+        assert_eq!(state.input_buffer, "");
+        assert_eq!(state.input_cursor, 0);
+        assert!(!state.is_generating);
+        assert!(state.generation_error.is_none());
+        assert!(state.generated_spec.is_none());
+        assert!(state.feature_number.is_none());
+        assert!(state.feature_name.is_none());
+        assert!(!state.edit_mode);
+        assert!(state.edit_text_input.is_none());
+        assert!(state.validation_error.is_none());
+    }
+
+    #[test]
+    fn test_start_specify_input() {
+        let mut view = create_test_view();
+        view.start_specify_input();
+
+        assert_eq!(view.content_type, ContentType::SpecifyInput);
+        assert_eq!(view.specify_state.input_buffer, "");
+        assert_eq!(view.specify_state.input_cursor, 0);
+        assert!(!view.specify_state.is_generating);
+        assert!(view.specify_state.generation_error.is_none());
+    }
+
+    #[test]
+    fn test_cancel_specify() {
+        let mut view = create_test_view();
+
+        // Set up specify state
+        view.content_type = ContentType::SpecifyInput;
+        view.specify_state.input_buffer = "test input".to_string();
+        view.specify_state.input_cursor = 5;
+        view.specify_state.is_generating = true;
+
+        // Cancel should reset everything
+        view.cancel_specify();
+
+        assert_eq!(view.content_type, ContentType::Spec);
+        assert_eq!(view.specify_state.input_buffer, "");
+        assert_eq!(view.specify_state.input_cursor, 0);
+        assert!(!view.specify_state.is_generating);
+    }
+
+    #[test]
+    fn test_specify_state_transition_input_to_generating() {
+        let mut view = create_test_view();
+
+        // Start in input mode
+        view.start_specify_input();
+        assert_eq!(view.content_type, ContentType::SpecifyInput);
+        assert!(!view.specify_state.is_generating);
+
+        // Simulate generation started
+        view.specify_state.is_generating = true;
+        assert!(view.specify_state.is_generating);
+        assert_eq!(view.content_type, ContentType::SpecifyInput);
+    }
+
+    #[test]
+    fn test_specify_state_transition_generating_to_review() {
+        let mut view = create_test_view();
+
+        // Start with generating state
+        view.content_type = ContentType::SpecifyInput;
+        view.specify_state.is_generating = true;
+
+        // Simulate generation completed
+        view.specify_state.is_generating = false;
+        view.specify_state.generated_spec = Some("# Test Spec".to_string());
+        view.specify_state.feature_number = Some("052".to_string());
+        view.specify_state.feature_name = Some("test-feature".to_string());
+        view.content_type = ContentType::SpecifyReview;
+
+        // Verify state
+        assert!(!view.specify_state.is_generating);
+        assert_eq!(view.content_type, ContentType::SpecifyReview);
+        assert!(view.specify_state.generated_spec.is_some());
+        assert_eq!(
+            view.specify_state.feature_number.as_deref(),
+            Some("052")
+        );
+        assert_eq!(
+            view.specify_state.feature_name.as_deref(),
+            Some("test-feature")
+        );
+    }
+
+    #[test]
+    fn test_specify_state_transition_generating_to_error() {
+        let mut view = create_test_view();
+
+        // Start with generating state
+        view.content_type = ContentType::SpecifyInput;
+        view.specify_state.is_generating = true;
+
+        // Simulate generation failed
+        view.specify_state.is_generating = false;
+        view.specify_state.generation_error = Some("Test error".to_string());
+
+        // Verify state
+        assert!(!view.specify_state.is_generating);
+        assert_eq!(view.content_type, ContentType::SpecifyInput);
+        assert_eq!(
+            view.specify_state.generation_error.as_deref(),
+            Some("Test error")
+        );
+    }
+
+    #[test]
+    fn test_specify_input_handling_character() {
+        let mut view = create_test_view();
+        view.start_specify_input();
+
+        // Simulate typing 'a'
+        let key = KeyEvent::new(KeyCode::Char('a'), KeyModifiers::empty());
+        let action = view.handle_specify_input(key);
+
+        assert_eq!(action, ViewAction::None);
+        assert_eq!(view.specify_state.input_buffer, "a");
+        assert_eq!(view.specify_state.input_cursor, 1);
+    }
+
+    #[test]
+    fn test_specify_input_handling_backspace() {
+        let mut view = create_test_view();
+        view.start_specify_input();
+        view.specify_state.input_buffer = "test".to_string();
+        view.specify_state.input_cursor = 4;
+
+        // Simulate backspace
+        let key = KeyEvent::new(KeyCode::Backspace, KeyModifiers::empty());
+        let action = view.handle_specify_input(key);
+
+        assert_eq!(action, ViewAction::None);
+        assert_eq!(view.specify_state.input_buffer, "tes");
+        assert_eq!(view.specify_state.input_cursor, 3);
+    }
+
+    #[test]
+    fn test_specify_input_validation_empty() {
+        let mut view = create_test_view();
+        view.start_specify_input();
+
+        // Try to submit empty input
+        let action = view.submit_specify_description();
+
+        assert_eq!(action, ViewAction::None);
+        assert!(view.specify_state.validation_error.is_some());
+        assert!(view
+            .specify_state
+            .validation_error
+            .as_ref()
+            .unwrap()
+            .contains("cannot be empty"));
+    }
+
+    #[test]
+    fn test_specify_input_validation_too_short() {
+        let mut view = create_test_view();
+        view.start_specify_input();
+        view.specify_state.input_buffer = "ab".to_string();
+
+        // Try to submit too-short input
+        let action = view.submit_specify_description();
+
+        assert_eq!(action, ViewAction::None);
+        assert!(view.specify_state.validation_error.is_some());
+        assert!(view
+            .specify_state
+            .validation_error
+            .as_ref()
+            .unwrap()
+            .contains("at least 3 characters"));
+    }
+
+    #[test]
+    fn test_specify_input_validation_success() {
+        let mut view = create_test_view();
+        view.start_specify_input();
+        view.specify_state.input_buffer = "Valid feature description".to_string();
+
+        // Submit valid input
+        let action = view.submit_specify_description();
+
+        // Should return GenerateSpec action
+        match action {
+            ViewAction::GenerateSpec { description } => {
+                assert_eq!(description, "Valid feature description");
+            }
+            _ => panic!("Expected GenerateSpec action"),
+        }
+        assert!(view.specify_state.validation_error.is_none());
+    }
+
+    // Feature 051: Tests for specify review mode (T050-T051)
+
+    #[test]
+    fn test_specify_review_state_transition() {
+        let mut view = create_test_view();
+
+        // Simulate generation completed
+        view.specify_state.generated_spec = Some("# Test Spec\n\nContent here".to_string());
+        view.specify_state.feature_number = Some("052".to_string());
+        view.specify_state.feature_name = Some("test-feature".to_string());
+        view.content_type = ContentType::SpecifyReview;
+        view.focus = WorktreeFocus::Content;
+
+        // Verify state
+        assert_eq!(view.content_type, ContentType::SpecifyReview);
+        assert!(view.specify_state.generated_spec.is_some());
+        assert_eq!(
+            view.specify_state.feature_number.as_deref(),
+            Some("052")
+        );
+        assert_eq!(
+            view.specify_state.feature_name.as_deref(),
+            Some("test-feature")
+        );
+    }
+
+    #[test]
+    fn test_save_specify_spec_action() {
+        let mut view = create_test_view();
+
+        // Set up review state
+        view.specify_state.generated_spec = Some("# Test".to_string());
+        view.specify_state.feature_number = Some("052".to_string());
+        view.specify_state.feature_name = Some("test".to_string());
+
+        // Trigger save
+        let action = view.save_specify_spec();
+
+        // Verify action
+        match action {
+            ViewAction::SaveSpec {
+                content,
+                number,
+                name,
+            } => {
+                assert_eq!(content, "# Test");
+                assert_eq!(number, "052");
+                assert_eq!(name, "test");
+            }
+            _ => panic!("Expected SaveSpec action"),
+        }
+    }
+
+    #[test]
+    fn test_specify_review_enter_key_saves() {
+        let mut view = create_test_view();
+
+        // Set up review state
+        view.specify_state.generated_spec = Some("# Spec".to_string());
+        view.specify_state.feature_number = Some("052".to_string());
+        view.specify_state.feature_name = Some("test".to_string());
+        view.content_type = ContentType::SpecifyReview;
+        view.focus = WorktreeFocus::Content;
+
+        // Press Enter
+        let action = view.handle_specify_review_input(key_event(KeyCode::Enter));
+
+        // Should trigger save
+        match action {
+            ViewAction::SaveSpec { .. } => {} // Expected
+            _ => panic!("Expected SaveSpec action on Enter"),
+        }
+    }
+
+    #[test]
+    fn test_specify_review_esc_cancels() {
+        let mut view = create_test_view();
+
+        // Set up review state
+        view.content_type = ContentType::SpecifyReview;
+        view.specify_state.generated_spec = Some("# Test".to_string());
+
+        // Press Esc
+        let action = view.handle_specify_review_input(key_event(KeyCode::Esc));
+
+        // Should cancel and return None
+        assert_eq!(action, ViewAction::None);
+        assert_eq!(view.content_type, ContentType::Spec);
+        assert!(view.specify_state.generated_spec.is_none());
+    }
+
+    // === User Story 3: Edit Mode Tests ===
+
+    #[test]
+    fn test_toggle_specify_edit_mode() {
+        let mut view = create_test_view();
+
+        // Set up review state with generated spec
+        view.content_type = ContentType::SpecifyReview;
+        view.specify_state.generated_spec = Some("# Test Spec\n\nContent here".to_string());
+        view.specify_state.feature_number = Some("051".to_string());
+        view.specify_state.feature_name = Some("edit-mode".to_string());
+
+        // Initially not in edit mode
+        assert!(!view.specify_state.edit_mode);
+        assert!(view.specify_state.edit_text_input.is_none());
+
+        // Toggle edit mode
+        view.toggle_specify_edit_mode();
+
+        // Should now be in edit mode with TextInput initialized
+        assert!(view.specify_state.edit_mode);
+        assert!(view.specify_state.edit_text_input.is_some());
+
+        // Verify TextInput contains the spec content
+        if let Some(input) = &view.specify_state.edit_text_input {
+            assert_eq!(input.lines.len(), 3); // "# Test Spec", "", "Content here"
+            assert_eq!(input.lines[0], "# Test Spec");
+            assert_eq!(input.lines[1], "");
+            assert_eq!(input.lines[2], "Content here");
+            assert_eq!(input.cursor_line, 0);
+            assert_eq!(input.cursor_column, 0);
+        }
+    }
+
+    #[test]
+    fn test_save_from_edit() {
+        let mut view = create_test_view();
+
+        // Set up edit mode with modified content
+        view.content_type = ContentType::SpecifyReview;
+        view.specify_state.edit_mode = true;
+        view.specify_state.feature_number = Some("051".to_string());
+        view.specify_state.feature_name = Some("edit-mode".to_string());
+
+        // Create TextInput with edited content
+        let mut input = TextInput::new_multiline(String::new(), 25);
+        input.lines = vec![
+            "# Edited Spec".to_string(),
+            "".to_string(),
+            "Modified content".to_string(),
+        ];
+        view.specify_state.edit_text_input = Some(input);
+
+        // Save from edit
+        let action = view.save_from_edit();
+
+        // Should exit edit mode
+        assert!(!view.specify_state.edit_mode);
+        assert!(view.specify_state.edit_text_input.is_none());
+
+        // Should update generated_spec with edited content
+        assert!(view.specify_state.generated_spec.is_some());
+        let spec = view.specify_state.generated_spec.as_ref().unwrap();
+        assert!(spec.contains("# Edited Spec"));
+        assert!(spec.contains("Modified content"));
+
+        // Should return SaveSpec action
+        match action {
+            ViewAction::SaveSpec { content, number, name } => {
+                assert!(content.contains("# Edited Spec"));
+                assert_eq!(number, "051");
+                assert_eq!(name, "edit-mode");
+            }
+            _ => panic!("Expected SaveSpec action"),
+        }
+    }
+
+    #[test]
+    fn test_cancel_edit() {
+        let mut view = create_test_view();
+
+        // Set up edit mode
+        view.content_type = ContentType::SpecifyReview;
+        view.specify_state.edit_mode = true;
+        view.specify_state.generated_spec = Some("# Original Spec".to_string());
+
+        // Create TextInput with modified content
+        let mut input = TextInput::new_multiline(String::new(), 25);
+        input.lines = vec!["# Modified Spec".to_string()];
+        view.specify_state.edit_text_input = Some(input);
+
+        // Cancel edit
+        view.cancel_edit();
+
+        // Should exit edit mode and discard changes
+        assert!(!view.specify_state.edit_mode);
+        assert!(view.specify_state.edit_text_input.is_none());
+
+        // Original spec should remain unchanged
+        assert_eq!(
+            view.specify_state.generated_spec.as_deref(),
+            Some("# Original Spec")
+        );
+    }
+
+    #[test]
+    fn test_edit_mode_key_handling() {
+        let mut view = create_test_view();
+
+        // Set up edit mode
+        view.content_type = ContentType::SpecifyReview;
+        view.specify_state.edit_mode = true;
+        view.specify_state.feature_number = Some("051".to_string());
+        view.specify_state.feature_name = Some("edit-mode".to_string());
+
+        // Create TextInput
+        let mut input = TextInput::new_multiline(String::new(), 25);
+        input.lines = vec!["Test".to_string()];
+        view.specify_state.edit_text_input = Some(input);
+
+        // Test Ctrl+S (save)
+        let action = view.handle_specify_edit_input(key_event_with_modifiers(
+            KeyCode::Char('s'),
+            KeyModifiers::CONTROL,
+        ));
+        assert!(matches!(action, ViewAction::SaveSpec { .. }));
+        assert!(!view.specify_state.edit_mode); // Should exit edit mode
+
+        // Reset for next test
+        view.specify_state.edit_mode = true;
+        let mut input = TextInput::new_multiline(String::new(), 25);
+        input.lines = vec!["Test".to_string()];
+        view.specify_state.edit_text_input = Some(input);
+
+        // Test Esc (cancel)
+        let action = view.handle_specify_edit_input(key_event(KeyCode::Esc));
+        assert_eq!(action, ViewAction::None);
+        assert!(!view.specify_state.edit_mode); // Should exit edit mode
+        assert!(view.specify_state.edit_text_input.is_none());
+    }
+
+    #[test]
+    fn test_edit_multiline_content() {
+        let mut view = create_test_view();
+
+        // Set up edit mode with multi-line content
+        view.content_type = ContentType::SpecifyReview;
+        view.specify_state.edit_mode = true;
+
+        // Create TextInput with multiple lines
+        let mut input = TextInput::new_multiline(String::new(), 25);
+        input.lines = vec![
+            "Line 1".to_string(),
+            "Line 2".to_string(),
+            "Line 3".to_string(),
+        ];
+        input.cursor_line = 1;
+        input.cursor_column = 0;
+        view.specify_state.edit_text_input = Some(input);
+
+        // Test Enter (insert newline)
+        view.handle_specify_edit_input(key_event(KeyCode::Enter));
+        if let Some(input) = &view.specify_state.edit_text_input {
+            assert_eq!(input.lines.len(), 4); // Should have 4 lines now
+        }
+
+        // Test character insertion
+        view.handle_specify_edit_input(key_event(KeyCode::Char('X')));
+        if let Some(input) = &view.specify_state.edit_text_input {
+            assert!(input.lines[2].contains('X')); // Character added
+        }
+
+        // Test arrow key navigation
+        view.handle_specify_edit_input(key_event(KeyCode::Down));
+        if let Some(input) = &view.specify_state.edit_text_input {
+            assert_eq!(input.cursor_line, 3); // Moved down
+        }
+
+        view.handle_specify_edit_input(key_event(KeyCode::Up));
+        if let Some(input) = &view.specify_state.edit_text_input {
+            assert_eq!(input.cursor_line, 2); // Moved up
+        }
+    }
+
+    // Helper function for creating key events with modifiers
+    fn key_event_with_modifiers(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
+        KeyEvent {
+            code,
+            modifiers,
+            kind: crossterm::event::KeyEventKind::Press,
+            state: crossterm::event::KeyEventState::NONE,
         }
     }
 }
