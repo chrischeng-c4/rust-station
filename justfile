@@ -1,3 +1,11 @@
+# Link debug builds to ~/.local/bin (hot reload: just rebuild to update)
+install-dev: build-debug
+    mkdir -p ~/.local/bin
+    ln -sf {{justfile_directory()}}/target/debug/rstn ~/.local/bin/rstn
+    ln -sf {{justfile_directory()}}/target/debug/rush ~/.local/bin/rush
+    @echo "Linked DEBUG builds to ~/.local/bin (hot reload enabled)"
+    rstn
+
 # Build release binary
 build:
     cargo build --release
@@ -12,13 +20,6 @@ install: build
     cp target/release/rstn ~/.local/bin/
     cp target/release/rush ~/.local/bin/
     @echo "Installed RELEASE builds to ~/.local/bin"
-
-# Link debug builds to ~/.local/bin (hot reload: just rebuild to update)
-install-dev: build-debug
-    mkdir -p ~/.local/bin
-    ln -sf {{justfile_directory()}}/target/debug/rstn ~/.local/bin/rstn
-    ln -sf {{justfile_directory()}}/target/debug/rush ~/.local/bin/rush
-    @echo "Linked DEBUG builds to ~/.local/bin (hot reload enabled)"
 
 # Quick link just rstn debug for fast iteration
 install-rstn-dev:

@@ -49,11 +49,11 @@ async fn main() -> Result<()> {
     } else {
         // Default: run TUI mode
         debug!("running in TUI mode");
-        run_tui_mode()
+        run_tui_mode(session_id)
     }
 }
 
-fn run_tui_mode() -> Result<()> {
+fn run_tui_mode(session_id: String) -> Result<()> {
     info!("starting TUI mode");
 
     // Check if we have a TTY
@@ -66,8 +66,8 @@ fn run_tui_mode() -> Result<()> {
     }
     debug!("TTY check passed");
 
-    debug!("creating App instance");
-    let mut app = App::new();
+    debug!("creating App instance with session_id: {}", session_id);
+    let mut app = App::new_with_session(Some(session_id));
     debug!("App created successfully");
 
     debug!("running app main loop");

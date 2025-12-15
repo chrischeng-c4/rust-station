@@ -48,8 +48,7 @@ pub async fn load_registry<P: AsRef<Path>>(path: P) -> Result<McpRegistry> {
         .await
         .map_err(|e| CoreError::Config(format!("Failed to read MCP registry: {}", e)))?;
 
-    serde_json::from_str(&content)
-        .map_err(|e| CoreError::Json(e))
+    serde_json::from_str(&content).map_err(|e| CoreError::Json(e))
 }
 
 /// Generate .mcp.json config from registry
@@ -121,7 +120,9 @@ pub async fn find_registry_path() -> Result<PathBuf> {
         }
     }
 
-    Err(CoreError::Config("MCP registry not found. Expected at .claude/mcp-registry.json".into()))
+    Err(CoreError::Config(
+        "MCP registry not found. Expected at .claude/mcp-registry.json".into(),
+    ))
 }
 
 /// Validate MCP configuration
@@ -153,14 +154,20 @@ mod tests {
                 McpServer {
                     name: "filesystem".to_string(),
                     command: "npx".to_string(),
-                    args: vec!["-y".to_string(), "@modelcontextprotocol/server-filesystem".to_string()],
+                    args: vec![
+                        "-y".to_string(),
+                        "@modelcontextprotocol/server-filesystem".to_string(),
+                    ],
                     description: Some("File system access".to_string()),
                     env: None,
                 },
                 McpServer {
                     name: "git".to_string(),
                     command: "npx".to_string(),
-                    args: vec!["-y".to_string(), "@modelcontextprotocol/server-git".to_string()],
+                    args: vec![
+                        "-y".to_string(),
+                        "@modelcontextprotocol/server-git".to_string(),
+                    ],
                     description: Some("Git operations".to_string()),
                     env: None,
                 },

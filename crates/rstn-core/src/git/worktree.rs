@@ -20,8 +20,8 @@ pub struct WorktreeInfo {
 /// Parsed feature information from branch name
 #[derive(Debug, Clone)]
 pub struct FeatureInfo {
-    pub number: String,      // e.g., "042"
-    pub name: String,        // e.g., "worktree-management"
+    pub number: String,            // e.g., "042"
+    pub name: String,              // e.g., "worktree-management"
     pub component: Option<String>, // e.g., "rscli"
 }
 
@@ -37,7 +37,10 @@ pub async fn list_worktrees() -> Result<Vec<WorktreeInfo>> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(CoreError::Git(format!("git worktree list failed: {}", stderr)));
+        return Err(CoreError::Git(format!(
+            "git worktree list failed: {}",
+            stderr
+        )));
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -220,7 +223,8 @@ pub async fn create_worktree(feature: &str, base_path: Option<PathBuf>) -> Resul
     } else {
         // Use parent of current repo + feature name
         let current = get_current_worktree().await?;
-        current.parent()
+        current
+            .parent()
             .ok_or_else(|| CoreError::Git("Cannot determine parent directory".into()))?
             .join(feature)
     };
@@ -237,7 +241,10 @@ pub async fn create_worktree(feature: &str, base_path: Option<PathBuf>) -> Resul
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(CoreError::Git(format!("Failed to create worktree: {}", stderr)));
+        return Err(CoreError::Git(format!(
+            "Failed to create worktree: {}",
+            stderr
+        )));
     }
 
     Ok(worktree_path)
@@ -263,7 +270,10 @@ pub async fn remove_worktree(path: &str, force: bool) -> Result<()> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(CoreError::Git(format!("Failed to remove worktree: {}", stderr)));
+        return Err(CoreError::Git(format!(
+            "Failed to remove worktree: {}",
+            stderr
+        )));
     }
 
     Ok(())
@@ -325,7 +335,10 @@ branch refs/heads/feature/042-worktree-management
         assert!(!worktrees[0].is_bare);
 
         assert_eq!(worktrees[1].path, PathBuf::from("/path/to/feature-042"));
-        assert_eq!(worktrees[1].branch, Some("feature/042-worktree-management".to_string()));
+        assert_eq!(
+            worktrees[1].branch,
+            Some("feature/042-worktree-management".to_string())
+        );
         assert_eq!(worktrees[1].commit, "abcdefg1234567");
     }
 }

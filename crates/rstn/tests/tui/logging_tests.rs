@@ -1,6 +1,6 @@
 //! Unit tests for TUI logging infrastructure
 
-use rstn::tui::logging::{LogBuffer, LogCategory, LogEntry, FileChangeTracker};
+use rstn::tui::logging::{FileChangeTracker, LogBuffer, LogCategory, LogEntry};
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
@@ -26,9 +26,18 @@ fn test_log_buffer_push_and_len() {
 fn test_log_buffer_entries_iterator() {
     let mut buffer = LogBuffer::new();
 
-    buffer.push(LogEntry::new(LogCategory::SlashCommand, "Command 1".to_string()));
-    buffer.push(LogEntry::new(LogCategory::ClaudeStream, "Output 1".to_string()));
-    buffer.push(LogEntry::new(LogCategory::FileChange, "spec.md".to_string()));
+    buffer.push(LogEntry::new(
+        LogCategory::SlashCommand,
+        "Command 1".to_string(),
+    ));
+    buffer.push(LogEntry::new(
+        LogCategory::ClaudeStream,
+        "Output 1".to_string(),
+    ));
+    buffer.push(LogEntry::new(
+        LogCategory::FileChange,
+        "spec.md".to_string(),
+    ));
 
     let entries: Vec<_> = buffer.entries().collect();
     assert_eq!(entries.len(), 3);
@@ -43,10 +52,7 @@ fn test_log_buffer_circular_eviction() {
 
     // Push 1050 entries (exceeds 1000 capacity)
     for i in 0..1050 {
-        buffer.push(LogEntry::new(
-            LogCategory::System,
-            format!("Entry {}", i),
-        ));
+        buffer.push(LogEntry::new(LogCategory::System, format!("Entry {}", i)));
     }
 
     // Buffer should maintain exactly 1000 entries
@@ -65,7 +71,10 @@ fn test_log_buffer_categories() {
     let mut buffer = LogBuffer::new();
 
     buffer.push(LogEntry::new(LogCategory::SlashCommand, "cmd".to_string()));
-    buffer.push(LogEntry::new(LogCategory::ClaudeStream, "stream".to_string()));
+    buffer.push(LogEntry::new(
+        LogCategory::ClaudeStream,
+        "stream".to_string(),
+    ));
     buffer.push(LogEntry::new(LogCategory::FileChange, "file".to_string()));
     buffer.push(LogEntry::new(LogCategory::ShellOutput, "shell".to_string()));
     buffer.push(LogEntry::new(LogCategory::System, "system".to_string()));

@@ -11,13 +11,13 @@
 //!
 //! Version: 0.1.0
 
-pub mod errors;
-pub mod test;
 pub mod build;
-pub mod paths;
+pub mod errors;
 pub mod git;
 pub mod mcp;
+pub mod paths;
 pub mod service;
+pub mod test;
 
 // Modules to be added during migration
 // pub mod config;
@@ -27,9 +27,12 @@ pub mod service;
 // pub mod process;
 
 // Re-export main types
-pub use errors::{CoreError, Result};
-pub use test::TestResults;
 pub use build::CommandOutput;
-pub use git::{CommitGroup, CommitResult, FeatureInfo, SecurityScanResult, SecurityWarning, SensitiveFile, Severity, WorktreeInfo};
+pub use errors::{CoreError, Result};
+pub use git::{
+    CommitGroup, CommitResult, FeatureInfo, SecurityScanResult, SecurityWarning, SensitiveFile,
+    Severity, WorktreeInfo,
+};
 pub use mcp::{McpConfig, McpRegistry, McpServer};
 pub use service::{ServiceInfo, ServiceState};
+pub use test::TestResults;

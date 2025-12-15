@@ -102,6 +102,8 @@ git commit -m "feat(NNN): description"
 - Rust 1.75+ (edition 2021) + ratatui 0.29+ (TUI framework), crossterm (terminal I/O), tokio (async runtime) (046-fix-tui-input)
 - N/A (in-memory state only) (046-fix-tui-input)
 - In-memory only (049-enhanced-worktree-view)
+- Rust 1.75+ (edition 2021) + ratatui 0.29+ (TUI framework), crossterm 0.28 (terminal I/O), arboard 3.4 (clipboard), rstn-core (git operations), tokio (async runtime) (050-commit-review-content-area)
+- In-memory state only (commit review session data lives in WorktreeView struct) (050-commit-review-content-area)
 
 ## Recent Changes
 - 029-arithmetic-expansion: Added Rust 1.75+ (edition 2021) + No new dependencies (pure Rust implementation)

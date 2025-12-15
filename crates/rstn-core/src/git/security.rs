@@ -86,21 +86,13 @@ const SECRET_PATTERNS: &[(&str, &str, Severity)] = &[
         "Auth token pattern",
         Severity::High,
     ),
-    (
-        r"gh[ps]_[a-zA-Z0-9]{36,}",
-        "GitHub token",
-        Severity::High,
-    ),
+    (r"gh[ps]_[a-zA-Z0-9]{36,}", "GitHub token", Severity::High),
     (
         r"sk-[a-zA-Z0-9]{20,}",
         "OpenAI/Anthropic API key",
         Severity::High,
     ),
-    (
-        r"AIza[0-9A-Za-z\\-_]{35}",
-        "Google API key",
-        Severity::High,
-    ),
+    (r"AIza[0-9A-Za-z\\-_]{35}", "Google API key", Severity::High),
     (
         r#"(?i)aws[_-]?access[_-]?key[_-]?id["\']?\s*[:=]\s*["\'][^"\']{16,}["\']"#,
         "AWS Access Key",
@@ -197,10 +189,7 @@ pub async fn scan_all_changes() -> Result<SecurityScanResult> {
     all_sensitive_files.extend(staged_scan.sensitive_files);
 
     // 2. Scan unstaged changes (git diff)
-    let unstaged_diff = Command::new("git")
-        .args(&["diff"])
-        .output()
-        .await?;
+    let unstaged_diff = Command::new("git").args(&["diff"]).output().await?;
 
     if unstaged_diff.status.success() {
         let unstaged_content = String::from_utf8_lossy(&unstaged_diff.stdout);
@@ -236,7 +225,8 @@ pub async fn scan_all_changes() -> Result<SecurityScanResult> {
     }
 
     // Check if any critical warnings block the commit
-    let blocked = all_warnings.iter()
+    let blocked = all_warnings
+        .iter()
         .any(|w| matches!(w.severity, Severity::Critical));
 
     Ok(SecurityScanResult {
@@ -400,9 +390,7 @@ fn get_regex(pattern: &str) -> std::result::Result<&'static Regex, regex::Error>
         SECRET_PATTERNS
             .iter()
             .filter_map(|(pattern, _, _)| {
-                Regex::new(pattern)
-                    .ok()
-                    .map(|re| (pattern.to_string(), re))
+                Regex::new(pattern).ok().map(|re| (pattern.to_string(), re))
             })
             .collect()
     });

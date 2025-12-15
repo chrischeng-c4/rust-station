@@ -73,6 +73,12 @@ pub enum Event {
         warnings: Vec<rstn_core::SecurityWarning>,
         sensitive_files: Vec<rstn_core::SensitiveFile>,
     },
+    /// Single commit group completed successfully (Feature 050)
+    CommitGroupCompleted,
+    /// Single commit group failed (Feature 050)
+    CommitGroupFailed { error: String },
+    /// Intelligent commit failed before entering review mode (Feature 050)
+    IntelligentCommitFailed { error: String },
     /// Commit execution completed
     CommitCompleted { success: bool, output: String },
     /// Commit workflow error

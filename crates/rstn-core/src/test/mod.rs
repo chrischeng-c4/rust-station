@@ -53,9 +53,10 @@ pub async fn run_tests(
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
 
-    let output = cmd.output().await.map_err(|e| {
-        CoreError::CommandFailed(format!("Failed to execute cargo test: {}", e))
-    })?;
+    let output = cmd
+        .output()
+        .await
+        .map_err(|e| CoreError::CommandFailed(format!("Failed to execute cargo test: {}", e)))?;
 
     // Parse test output
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -127,7 +128,8 @@ mod tests {
 
     #[test]
     fn test_parse_output_with_failures() {
-        let output = "test result: FAILED. 668 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out";
+        let output =
+            "test result: FAILED. 668 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out";
         let results = parse_test_output(output, "").unwrap();
         assert_eq!(results.passed, 668);
         assert_eq!(results.failed, 2);

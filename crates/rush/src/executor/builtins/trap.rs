@@ -75,7 +75,9 @@ impl SignalSpec {
         match self {
             SignalSpec::Pseudo(_) => {
                 // EXIT pseudo-signal doesn't convert to a real signal
-                Err(RushError::InvalidSignal("EXIT is a pseudo-signal, not a real signal".to_string()))
+                Err(RushError::InvalidSignal(
+                    "EXIT is a pseudo-signal, not a real signal".to_string(),
+                ))
             }
             SignalSpec::Number(num) => {
                 // Try to convert number to signal
@@ -148,10 +150,7 @@ pub struct TrapRegistry {
 impl TrapRegistry {
     /// Create a new empty trap registry
     pub fn new() -> Self {
-        Self {
-            handlers: HashMap::new(),
-            exit_handler: None,
-        }
+        Self { handlers: HashMap::new(), exit_handler: None }
     }
 
     /// Register a trap handler for a signal
@@ -196,9 +195,8 @@ impl TrapRegistry {
 
     /// List all registered handlers (sorted by signal number)
     pub fn list(&self) -> Vec<(Signal, &String)> {
-        let mut handlers: Vec<(Signal, &String)> = self.handlers.iter()
-            .map(|(sig, cmd)| (*sig, cmd))
-            .collect();
+        let mut handlers: Vec<(Signal, &String)> =
+            self.handlers.iter().map(|(sig, cmd)| (*sig, cmd)).collect();
         handlers.sort_by_key(|(sig, _)| *sig as i32);
         handlers
     }
@@ -267,7 +265,11 @@ fn list_traps(executor: &CommandExecutor) -> Result<i32> {
 }
 
 /// T023, T025-T033: Register trap handlers for multiple signals
-fn register_traps(executor: &mut CommandExecutor, command: &str, signal_specs: &[String]) -> Result<i32> {
+fn register_traps(
+    executor: &mut CommandExecutor,
+    command: &str,
+    signal_specs: &[String],
+) -> Result<i32> {
     // T025: Validate signal specifications first (fail fast)
     let mut parsed_signals = Vec::new();
 
@@ -478,7 +480,9 @@ mod tests {
         let mut registry = TrapRegistry::new();
 
         // Register first trap
-        registry.register(Signal::SIGINT, "first handler".to_string()).unwrap();
+        registry
+            .register(Signal::SIGINT, "first handler".to_string())
+            .unwrap();
 
         // Try to register duplicate - should error (FR-006)
         let result = registry.register(Signal::SIGINT, "second handler".to_string());
@@ -526,7 +530,9 @@ mod tests {
         let mut registry = TrapRegistry::new();
 
         // Register and clear normal signal
-        registry.register(Signal::SIGINT, "handler".to_string()).unwrap();
+        registry
+            .register(Signal::SIGINT, "handler".to_string())
+            .unwrap();
         assert!(registry.has_handler(Signal::SIGINT));
 
         registry.clear(Signal::SIGINT);
@@ -551,9 +557,15 @@ mod tests {
         let mut registry = TrapRegistry::new();
 
         // Register multiple handlers
-        registry.register(Signal::SIGTERM, "term handler".to_string()).unwrap();
-        registry.register(Signal::SIGINT, "int handler".to_string()).unwrap();
-        registry.register(Signal::SIGHUP, "hup handler".to_string()).unwrap();
+        registry
+            .register(Signal::SIGTERM, "term handler".to_string())
+            .unwrap();
+        registry
+            .register(Signal::SIGINT, "int handler".to_string())
+            .unwrap();
+        registry
+            .register(Signal::SIGHUP, "hup handler".to_string())
+            .unwrap();
 
         // List should return all handlers sorted by signal number
         let list = registry.list();
@@ -571,10 +583,7 @@ mod tests {
         let mut executor = CommandExecutor::new();
 
         // trap 'echo Interrupted' INT
-        let result = execute(
-            &mut executor,
-            &["echo Interrupted".to_string(), "INT".to_string()],
-        );
+        let result = execute(&mut executor, &["echo Interrupted".to_string(), "INT".to_string()]);
 
         // Should succeed
         assert!(result.is_ok());
@@ -617,10 +626,7 @@ mod tests {
         let mut executor = CommandExecutor::new();
 
         // trap 'echo Exiting' EXIT
-        let result = execute(
-            &mut executor,
-            &["echo Exiting".to_string(), "EXIT".to_string()],
-        );
+        let result = execute(&mut executor, &["echo Exiting".to_string(), "EXIT".to_string()]);
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 0);
@@ -652,21 +658,12 @@ mod tests {
         let mut executor = CommandExecutor::new();
 
         // Register multiple traps
-        execute(
-            &mut executor,
-            &[
-                "handler".to_string(),
-                "INT".to_string(),
-                "TERM".to_string(),
-            ],
-        )
-        .unwrap();
+        execute(&mut executor, &["handler".to_string(), "INT".to_string(), "TERM".to_string()])
+            .unwrap();
 
         // Clear them all
-        let result = execute(
-            &mut executor,
-            &["".to_string(), "INT".to_string(), "TERM".to_string()],
-        );
+        let result =
+            execute(&mut executor, &["".to_string(), "INT".to_string(), "TERM".to_string()]);
         assert!(result.is_ok());
 
         // Verify all cleared

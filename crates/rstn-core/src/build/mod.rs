@@ -137,14 +137,19 @@ pub async fn run_cargo_command(name: &str, args: &[String]) -> Result<CommandOut
                 .arg("warnings");
         }
         _ => {
-            return Err(CoreError::CommandNotFound(format!("Unknown command: {}", name)));
+            return Err(CoreError::CommandNotFound(format!(
+                "Unknown command: {}",
+                name
+            )));
         }
     }
 
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
 
-    let mut child = cmd.spawn().map_err(|e| CoreError::CommandFailed(e.to_string()))?;
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| CoreError::CommandFailed(e.to_string()))?;
 
     let mut output = CommandOutput::default();
 

@@ -27,7 +27,7 @@ pub struct ServiceInfo {
 pub async fn check_service_running(command_name: &str) -> Result<bool> {
     // Use `pgrep` to check if process is running
     let output = Command::new("pgrep")
-        .arg("-x")  // Exact match
+        .arg("-x") // Exact match
         .arg(command_name)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

@@ -75,6 +75,7 @@ pub enum ContentType {
     Spec,
     Plan,
     Tasks,
+    CommitReview,
 }
 
 impl ContentType {
@@ -83,6 +84,7 @@ impl ContentType {
             ContentType::Spec => "Spec",
             ContentType::Plan => "Plan",
             ContentType::Tasks => "Tasks",
+            ContentType::CommitReview => "Commit Review",
         }
     }
 }
@@ -91,7 +93,8 @@ impl ContentType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorktreeFocus {
     Commands, // Unified panel for SDD phases and Git actions
-    Content,
+    Content,  // Content display (spec, plan, tasks)
+    Output,   // Output/log panel
 }
 
 /// Worktree-focused development workspace view
@@ -149,6 +152,14 @@ pub struct WorktreeView {
     // Commit workflow state
     pub pending_commit_message: Option<String>,
     pub commit_warnings: Vec<rstn_core::SecurityWarning>,
+
+    // Commit review state (Feature 050)
+    pub commit_groups: Option<Vec<rstn_core::CommitGroup>>,
+    pub current_commit_index: usize,
+    pub commit_message_input: String,
+    pub commit_message_cursor: usize,
+    pub commit_sensitive_files: Vec<String>,
+    pub commit_validation_error: Option<String>,
 }
 
 impl WorktreeView {
@@ -208,6 +219,13 @@ impl WorktreeView {
             progress_message: None,
             pending_commit_message: None,
             commit_warnings: Vec::new(),
+            // Commit review state initialization (Feature 050)
+            commit_groups: None,
+            current_commit_index: 0,
+            commit_message_input: String::new(),
+            commit_message_cursor: 0,
+            commit_sensitive_files: Vec::new(),
+            commit_validation_error: None,
         }
     }
 
@@ -376,6 +394,7 @@ impl WorktreeView {
             ContentType::Spec => self.spec_content.as_deref(),
             ContentType::Plan => self.plan_content.as_deref(),
             ContentType::Tasks => self.tasks_content.as_deref(),
+            ContentType::CommitReview => None, // Rendered separately via render_commit_review()
         }
     }
 
@@ -412,7 +431,17 @@ impl WorktreeView {
     fn focus_left(&mut self) {
         self.focus = match self.focus {
             WorktreeFocus::Content => WorktreeFocus::Commands,
-            WorktreeFocus::Commands => WorktreeFocus::Content,
+            WorktreeFocus::Commands => WorktreeFocus::Output,
+            WorktreeFocus::Output => WorktreeFocus::Content,
+        };
+    }
+
+    /// Move to previous pane (Shift+Tab: Commands → Output → Content → Commands)
+    pub fn prev_pane(&mut self) {
+        self.focus = match self.focus {
+            WorktreeFocus::Commands => WorktreeFocus::Output,
+            WorktreeFocus::Content => WorktreeFocus::Commands,
+            WorktreeFocus::Output => WorktreeFocus::Content,
         };
     }
 
@@ -420,13 +449,18 @@ impl WorktreeView {
     fn focus_right(&mut self) {
         self.focus = match self.focus {
             WorktreeFocus::Commands => WorktreeFocus::Content,
-            WorktreeFocus::Content => WorktreeFocus::Commands,
+            WorktreeFocus::Content => WorktreeFocus::Output,
+            WorktreeFocus::Output => WorktreeFocus::Commands,
         };
     }
 
-    /// Move to next pane (same as focus_right, for Tab key compatibility)
+    /// Move to next pane (Tab key: Commands → Content → Output → Commands)
     pub fn next_pane(&mut self) {
-        self.focus_right();
+        self.focus = match self.focus {
+            WorktreeFocus::Commands => WorktreeFocus::Content,
+            WorktreeFocus::Content => WorktreeFocus::Output,
+            WorktreeFocus::Output => WorktreeFocus::Commands,
+        };
     }
 
     /// Scroll content down
@@ -457,6 +491,9 @@ impl WorktreeView {
                     }
                 }
             }
+            WorktreeFocus::Output => {
+                // Output scrolling is handled separately in scroll_output_down()
+            }
         }
     }
 
@@ -485,6 +522,9 @@ impl WorktreeView {
             WorktreeFocus::Content => {
                 self.content_scroll = self.content_scroll.saturating_sub(1);
             }
+            WorktreeFocus::Output => {
+                // Output scrolling is handled separately in scroll_output_up()
+            }
         }
     }
 
@@ -494,8 +534,36 @@ impl WorktreeView {
             ContentType::Spec => ContentType::Plan,
             ContentType::Plan => ContentType::Tasks,
             ContentType::Tasks => ContentType::Spec,
+            ContentType::CommitReview => ContentType::CommitReview, // Don't allow switching during review
         };
         self.content_scroll = 0;
+    }
+
+    /// Scroll output panel down by one line
+    fn scroll_output_down(&mut self) {
+        let max_scroll = self.log_buffer.len().saturating_sub(1);
+        self.output_scroll = (self.output_scroll + 1).min(max_scroll);
+    }
+
+    /// Scroll output panel up by one line
+    fn scroll_output_up(&mut self) {
+        self.output_scroll = self.output_scroll.saturating_sub(1);
+    }
+
+    /// Scroll output panel down by one page (10 lines)
+    fn scroll_output_page_down(&mut self) {
+        let max_scroll = self.log_buffer.len().saturating_sub(1);
+        self.output_scroll = (self.output_scroll + 10).min(max_scroll);
+    }
+
+    /// Scroll output panel up by one page (10 lines)
+    fn scroll_output_page_up(&mut self) {
+        self.output_scroll = self.output_scroll.saturating_sub(10);
+    }
+
+    /// Scroll output panel to the bottom
+    fn scroll_output_to_bottom(&mut self) {
+        self.output_scroll = self.log_buffer.len().saturating_sub(1);
     }
 
     /// Run the selected phase and switch to Commands view
@@ -613,12 +681,13 @@ impl WorktreeView {
 
     /// Log file change
     pub fn log_file_change(&mut self, path: &Path) {
-        let filename = path.file_name()
+        let filename = path
+            .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("unknown");
         self.log(
             LogCategory::FileChange,
-            format!("File updated: {}", filename)
+            format!("File updated: {}", filename),
         );
     }
 
@@ -626,7 +695,7 @@ impl WorktreeView {
     pub fn log_shell_command(&mut self, script: &str, exit_code: i32) {
         self.log(
             LogCategory::ShellOutput,
-            format!("{} completed (exit: {})", script, exit_code)
+            format!("{} completed (exit: {})", script, exit_code),
         );
     }
 
@@ -696,6 +765,25 @@ impl WorktreeView {
             WorktreeFocus::Content => {
                 // Return current content
                 self.get_current_content().unwrap_or("").to_string()
+            }
+            WorktreeFocus::Output => {
+                // Return output log entries with timestamps
+                if self.log_buffer.is_empty() {
+                    return String::new();
+                }
+
+                self.log_buffer
+                    .entries()
+                    .map(|entry| {
+                        format!(
+                            "[{}] {} {}",
+                            entry.format_timestamp(),
+                            entry.category_icon(),
+                            entry.content
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
             }
         }
     }
@@ -808,8 +896,8 @@ impl WorktreeView {
         let sections = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(3),  // Tab bar with border
-                Constraint::Min(0),     // Content area
+                Constraint::Length(3), // Tab bar with border
+                Constraint::Min(0),    // Content area
             ])
             .split(area);
 
@@ -818,10 +906,11 @@ impl WorktreeView {
             ContentType::Spec => 0,
             ContentType::Plan => 1,
             ContentType::Tasks => 2,
+            ContentType::CommitReview => 3,
         };
 
         // Render tab bar
-        let tab_titles = vec!["Spec", "Plan", "Tasks"];
+        let tab_titles = vec!["Spec", "Plan", "Tasks", "Commit Review"];
         let tab_title = if let Some(ref info) = self.feature_info {
             format!(" Content - Feature #{} ", info.number)
         } else {
@@ -829,23 +918,33 @@ impl WorktreeView {
         };
 
         let tabs = Tabs::new(tab_titles)
-            .block(Block::default()
-                .borders(Borders::ALL)
-                .title(tab_title)
-                .border_style(if is_focused {
-                    Style::default().fg(Color::Yellow)
-                } else {
-                    Style::default()
-                }))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(tab_title)
+                    .border_style(if is_focused {
+                        Style::default().fg(Color::Yellow)
+                    } else {
+                        Style::default()
+                    }),
+            )
             .select(selected_idx)
             .style(Style::default().fg(Color::White))
-            .highlight_style(Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD));
+            .highlight_style(
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            );
 
         frame.render_widget(tabs, sections[0]);
 
-        // Render content area
+        // Render content area - dispatch to commit review if in that mode (Feature 050)
+        if self.content_type == ContentType::CommitReview {
+            self.render_commit_review(frame, sections[1]);
+            return;
+        }
+
+        // Standard content rendering for Spec/Plan/Tasks
         let content_block = Block::default()
             .borders(Borders::ALL)
             .border_style(if is_focused {
@@ -919,10 +1018,18 @@ impl WorktreeView {
             format!(" Output (1000 line history) ")
         };
 
+        // Change border color when focused
+        let is_focused = self.focus == WorktreeFocus::Output;
+        let border_style = if is_focused {
+            Style::default().fg(Color::Cyan)
+        } else {
+            Style::default()
+        };
+
         let block = Block::default()
             .borders(Borders::ALL)
             .title(title)
-            .border_style(Style::default());
+            .border_style(border_style);
 
         // Build output lines with timestamps, icons, and category-based styling
         let lines: Vec<Line> = if self.log_buffer.is_empty() && !self.is_running {
@@ -953,7 +1060,7 @@ impl WorktreeView {
                     Line::from(vec![
                         Span::styled(
                             format!("[{}] ", timestamp),
-                            Style::default().fg(Color::DarkGray)
+                            Style::default().fg(Color::DarkGray),
                         ),
                         Span::raw(format!("{} ", icon)),
                         Span::styled(&entry.content, Style::default().fg(color)),
@@ -997,6 +1104,409 @@ impl WorktreeView {
             }
         }
     }
+
+    // ========== Commit Review Methods (Feature 050) ==========
+
+    /// Start commit review workflow with analyzed commit groups
+    pub fn start_commit_review(
+        &mut self,
+        groups: Vec<rstn_core::CommitGroup>,
+        warnings: Vec<String>,
+        sensitive_files: Vec<String>,
+    ) {
+        #[cfg(debug_assertions)]
+        assert!(!groups.is_empty(), "Commit groups cannot be empty");
+
+        // Check file count warnings
+        for (i, group) in groups.iter().enumerate() {
+            if group.files.len() > 50 {
+                let entry = LogEntry::new(
+                    LogCategory::System,
+                    format!(
+                        "Group {} has {} files (>50). Consider splitting this commit.",
+                        i + 1,
+                        group.files.len()
+                    ),
+                );
+                self.log_buffer.push(entry);
+            }
+        }
+
+        // Initialize first group
+        let first_message = groups[0].message.clone();
+
+        self.commit_groups = Some(groups);
+        self.current_commit_index = 0;
+        self.commit_message_input = first_message.clone();
+        self.commit_message_cursor = first_message.len(); // Cursor at end
+        self.commit_sensitive_files = sensitive_files;
+        self.commit_validation_error = None;
+        self.content_type = ContentType::CommitReview;
+        self.focus = WorktreeFocus::Content; // Auto-focus Content
+
+        // Log warnings
+        for warning in warnings {
+            let entry = LogEntry::new(LogCategory::System, warning);
+            self.log_buffer.push(entry);
+        }
+
+        let entry = LogEntry::new(
+            LogCategory::System,
+            format!(
+                "Starting commit review workflow with {} groups",
+                self.commit_groups.as_ref().unwrap().len()
+            ),
+        );
+        self.log_buffer.push(entry);
+    }
+
+    /// Move to next commit group
+    pub fn next_commit_group(&mut self) -> bool {
+        if let Some(groups) = &self.commit_groups {
+            if self.current_commit_index + 1 < groups.len() {
+                self.current_commit_index += 1;
+                self.load_current_group_message();
+                return true;
+            }
+        }
+        false // No more groups
+    }
+
+    /// Move to previous commit group
+    pub fn previous_commit_group(&mut self) -> bool {
+        if self.current_commit_index > 0 {
+            self.current_commit_index -= 1;
+            self.load_current_group_message();
+            return true;
+        }
+        false // Already at first group
+    }
+
+    /// Cancel commit review workflow and return to normal view
+    pub fn cancel_commit_review(&mut self) {
+        let entry = LogEntry::new(
+            LogCategory::System,
+            "Commit review workflow cancelled".to_string(),
+        );
+        self.log_buffer.push(entry);
+
+        self.commit_groups = None;
+        self.current_commit_index = 0;
+        self.commit_message_input.clear();
+        self.commit_message_cursor = 0;
+        self.commit_sensitive_files.clear();
+        self.commit_validation_error = None;
+        self.content_type = ContentType::Spec; // Return to Spec view
+    }
+
+    /// Get current commit message (with user edits)
+    pub fn get_current_commit_message(&self) -> String {
+        self.commit_message_input.clone()
+    }
+
+    /// Validate commit message before submission
+    pub fn validate_commit_message(&mut self) -> bool {
+        let trimmed = self.commit_message_input.trim();
+        if trimmed.is_empty() {
+            self.commit_validation_error = Some("Commit message cannot be empty".to_string());
+            return false;
+        }
+        self.commit_validation_error = None;
+        true
+    }
+
+    /// Load message from current group into input (private helper)
+    fn load_current_group_message(&mut self) {
+        if let Some(groups) = &self.commit_groups {
+            let message = groups[self.current_commit_index].message.clone();
+            self.commit_message_input = message.clone();
+            self.commit_message_cursor = message.len();
+            self.commit_validation_error = None;
+        }
+    }
+
+    /// Copy current commit review content to clipboard (Feature 050, T046)
+    fn copy_commit_review(&mut self) {
+        if let Some(groups) = &self.commit_groups {
+            if let Some(group) = groups.get(self.current_commit_index) {
+                let total_groups = groups.len();
+                let current_group = self.current_commit_index + 1;
+
+                // Format content for clipboard (T046)
+                let mut content = format!(
+                    "Commit Group {}/{}\n\nMessage:\n{}\n\nFiles:\n",
+                    current_group, total_groups, self.commit_message_input
+                );
+
+                for file in &group.files {
+                    content.push_str(&format!("  - {}\n", file));
+                }
+
+                // Add warnings if present
+                if !self.commit_sensitive_files.is_empty() {
+                    content.push_str("\nWarnings:\n");
+                    for sensitive_file in &self.commit_sensitive_files {
+                        content.push_str(&format!("  ⚠ Sensitive file: {}\n", sensitive_file));
+                    }
+                }
+
+                // Copy to clipboard using arboard (T046, T048)
+                match arboard::Clipboard::new() {
+                    Ok(mut clipboard) => match clipboard.set_text(content) {
+                        Ok(_) => {
+                            let entry = LogEntry::new(
+                                LogCategory::System,
+                                format!(
+                                    "Copied commit group {}/{} to clipboard",
+                                    current_group, total_groups
+                                ),
+                            );
+                            self.log_buffer.push(entry);
+                        }
+                        Err(e) => {
+                            // T048: Handle clipboard errors gracefully
+                            let entry = LogEntry::new(
+                                LogCategory::System,
+                                format!("Failed to copy to clipboard: {}", e),
+                            );
+                            self.log_buffer.push(entry);
+                        }
+                    },
+                    Err(e) => {
+                        // T048: Handle clipboard initialization errors
+                        let entry = LogEntry::new(
+                            LogCategory::System,
+                            format!("Failed to initialize clipboard: {}", e),
+                        );
+                        self.log_buffer.push(entry);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Handle keyboard input during commit review mode
+    /// Returns ViewAction if action needed, None if handled internally
+    pub fn handle_commit_review_input(&mut self, key: KeyEvent) -> ViewAction {
+        match key.code {
+            // Character input - insert at cursor (T018) or navigation (T023, T024)
+            KeyCode::Char(c) => {
+                // Special keys for navigation and clipboard
+                match c {
+                    // 'n' - next group (T023)
+                    'n' => {
+                        self.next_commit_group();
+                        return ViewAction::None;
+                    }
+                    // 'p' - previous group (T024)
+                    'p' => {
+                        self.previous_commit_group();
+                        return ViewAction::None;
+                    }
+                    // 'y' - copy to clipboard (T047)
+                    'y' => {
+                        self.copy_commit_review();
+                        return ViewAction::None;
+                    }
+                    // All other characters - insert at cursor
+                    _ => {
+                        // Clear validation error when user edits message
+                        self.commit_validation_error = None;
+
+                        // Insert character at cursor position
+                        if self.commit_message_cursor <= self.commit_message_input.len()
+                            && self
+                                .commit_message_input
+                                .is_char_boundary(self.commit_message_cursor)
+                        {
+                            self.commit_message_input
+                                .insert(self.commit_message_cursor, c);
+                            self.commit_message_cursor += c.len_utf8();
+                        }
+                        ViewAction::None
+                    }
+                }
+            }
+
+            // Backspace - delete character before cursor (T019)
+            KeyCode::Backspace => {
+                if self.commit_message_cursor > 0 {
+                    // Find the previous character boundary
+                    let mut new_cursor = self.commit_message_cursor - 1;
+                    while !self.commit_message_input.is_char_boundary(new_cursor) && new_cursor > 0
+                    {
+                        new_cursor -= 1;
+                    }
+
+                    self.commit_message_input.remove(new_cursor);
+                    self.commit_message_cursor = new_cursor;
+                    self.commit_validation_error = None;
+                }
+                ViewAction::None
+            }
+
+            // Delete - delete character after cursor (T020)
+            KeyCode::Delete => {
+                if self.commit_message_cursor < self.commit_message_input.len() {
+                    // Remove character at cursor position
+                    if self
+                        .commit_message_input
+                        .is_char_boundary(self.commit_message_cursor)
+                    {
+                        self.commit_message_input.remove(self.commit_message_cursor);
+                        self.commit_validation_error = None;
+                    }
+                }
+                ViewAction::None
+            }
+
+            // Arrow keys - cursor movement (T021)
+            KeyCode::Left => {
+                if self.commit_message_cursor > 0 {
+                    // Move cursor left one character
+                    let mut new_cursor = self.commit_message_cursor - 1;
+                    while !self.commit_message_input.is_char_boundary(new_cursor) && new_cursor > 0
+                    {
+                        new_cursor -= 1;
+                    }
+                    self.commit_message_cursor = new_cursor;
+                }
+                ViewAction::None
+            }
+            KeyCode::Right => {
+                if self.commit_message_cursor < self.commit_message_input.len() {
+                    // Move cursor right one character
+                    let mut new_cursor = self.commit_message_cursor + 1;
+                    while !self.commit_message_input.is_char_boundary(new_cursor)
+                        && new_cursor < self.commit_message_input.len()
+                    {
+                        new_cursor += 1;
+                    }
+                    self.commit_message_cursor = new_cursor;
+                }
+                ViewAction::None
+            }
+
+            // Home/End - cursor to start/end (T022)
+            KeyCode::Home => {
+                self.commit_message_cursor = 0;
+                ViewAction::None
+            }
+            KeyCode::End => {
+                self.commit_message_cursor = self.commit_message_input.len();
+                ViewAction::None
+            }
+
+            // Enter - validate and submit (T025)
+            KeyCode::Enter => {
+                if self.validate_commit_message() {
+                    ViewAction::SubmitCommitGroup
+                } else {
+                    // Validation error is already set, will be displayed
+                    ViewAction::None
+                }
+            }
+
+            // Esc - cancel workflow (T026)
+            KeyCode::Esc => {
+                self.cancel_commit_review();
+                ViewAction::None
+            }
+
+            // Other keys - no action
+            _ => ViewAction::None,
+        }
+    }
+
+    /// Render commit review UI in Content pane
+    fn render_commit_review(&self, frame: &mut Frame, area: Rect) {
+        if let Some(groups) = &self.commit_groups {
+            let group = &groups[self.current_commit_index];
+            let total_groups = groups.len();
+            let current_group = self.current_commit_index + 1;
+
+            // Build content lines
+            let mut lines = vec![];
+
+            // Group number header
+            lines.push(Line::from(Span::styled(
+                format!("Commit Group {}/{}", current_group, total_groups),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )));
+            lines.push(Line::from(""));
+
+            // Message section
+            lines.push(Line::from(Span::styled(
+                "Message:",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )));
+            lines.push(Line::from(format!("  {}", self.commit_message_input)));
+
+            // Validation error if present
+            if let Some(ref error) = self.commit_validation_error {
+                lines.push(Line::from(Span::styled(
+                    format!("  ⚠ {}", error),
+                    Style::default().fg(Color::Red),
+                )));
+            }
+            lines.push(Line::from(""));
+
+            // Files section
+            lines.push(Line::from(Span::styled(
+                "Files:",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )));
+            for file in &group.files {
+                lines.push(Line::from(format!("  - {}", file)));
+            }
+            lines.push(Line::from(""));
+
+            // Warnings section
+            if !self.commit_sensitive_files.is_empty() {
+                lines.push(Line::from(Span::styled(
+                    "Warnings:",
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                )));
+                for sensitive_file in &self.commit_sensitive_files {
+                    lines.push(Line::from(Span::styled(
+                        format!("  ⚠ Sensitive file: {}", sensitive_file),
+                        Style::default().fg(Color::Red),
+                    )));
+                }
+                lines.push(Line::from(""));
+            }
+
+            // Navigation controls
+            lines.push(Line::from(vec![
+                Span::styled("[Enter]", Style::default().fg(Color::Green)),
+                Span::raw(" Submit  "),
+                Span::styled("[n]", Style::default().fg(Color::Cyan)),
+                Span::raw(" Next  "),
+                Span::styled("[p]", Style::default().fg(Color::Cyan)),
+                Span::raw(" Previous  "),
+                Span::styled("[Esc]", Style::default().fg(Color::Red)),
+                Span::raw(" Cancel"),
+            ]));
+
+            // Render as paragraph
+            let paragraph = Paragraph::new(lines)
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title("Commit Review")
+                        .border_style(Style::default().fg(Color::Green)),
+                )
+                .wrap(Wrap { trim: false });
+
+            frame.render_widget(paragraph, area);
+        }
+    }
 }
 
 impl Default for WorktreeView {
@@ -1032,6 +1542,11 @@ impl View for WorktreeView {
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> ViewAction {
+        // Route to commit review input handler when in CommitReview mode (T027)
+        if self.content_type == ContentType::CommitReview && self.focus == WorktreeFocus::Content {
+            return self.handle_commit_review_input(key);
+        }
+
         match key.code {
             KeyCode::Char('h') | KeyCode::Left => {
                 if self.focus == WorktreeFocus::Content {
@@ -1040,6 +1555,7 @@ impl View for WorktreeView {
                         ContentType::Spec => ContentType::Tasks,
                         ContentType::Plan => ContentType::Spec,
                         ContentType::Tasks => ContentType::Plan,
+                        ContentType::CommitReview => ContentType::CommitReview, // No tab cycling during review
                     };
                     self.content_scroll = 0;
                 } else {
@@ -1057,11 +1573,19 @@ impl View for WorktreeView {
                 ViewAction::None
             }
             KeyCode::Char('j') | KeyCode::Down => {
-                self.scroll_down();
+                if self.focus == WorktreeFocus::Output {
+                    self.scroll_output_down();
+                } else {
+                    self.scroll_down();
+                }
                 ViewAction::None
             }
             KeyCode::Char('k') | KeyCode::Up => {
-                self.scroll_up();
+                if self.focus == WorktreeFocus::Output {
+                    self.scroll_output_up();
+                } else {
+                    self.scroll_up();
+                }
                 ViewAction::None
             }
             KeyCode::Char('s') => {
@@ -1069,7 +1593,9 @@ impl View for WorktreeView {
                 ViewAction::None
             }
             KeyCode::PageDown => {
-                if self.focus == WorktreeFocus::Content {
+                if self.focus == WorktreeFocus::Output {
+                    self.scroll_output_page_down();
+                } else if self.focus == WorktreeFocus::Content {
                     if let Some(content) = self.get_current_content() {
                         let line_count = content.lines().count();
                         self.content_scroll =
@@ -1079,19 +1605,25 @@ impl View for WorktreeView {
                 ViewAction::None
             }
             KeyCode::PageUp => {
-                if self.focus == WorktreeFocus::Content {
+                if self.focus == WorktreeFocus::Output {
+                    self.scroll_output_page_up();
+                } else if self.focus == WorktreeFocus::Content {
                     self.content_scroll = self.content_scroll.saturating_sub(10);
                 }
                 ViewAction::None
             }
             KeyCode::Home | KeyCode::Char('g') => {
-                if self.focus == WorktreeFocus::Content {
+                if self.focus == WorktreeFocus::Output {
+                    self.output_scroll = 0;
+                } else if self.focus == WorktreeFocus::Content {
                     self.content_scroll = 0;
                 }
                 ViewAction::None
             }
             KeyCode::End | KeyCode::Char('G') => {
-                if self.focus == WorktreeFocus::Content {
+                if self.focus == WorktreeFocus::Output {
+                    self.scroll_output_to_bottom();
+                } else if self.focus == WorktreeFocus::Content {
                     if let Some(content) = self.get_current_content() {
                         let line_count = content.lines().count();
                         self.content_scroll = line_count.saturating_sub(1);
@@ -1531,12 +2063,12 @@ mod tests {
         view.focus_left();
         assert_eq!(view.focus, WorktreeFocus::Commands);
 
-        // Test toggle behavior (left and right both toggle)
+        // Test cycle behavior (left goes reverse: Commands → Output → Content)
         view.focus_left();
-        assert_eq!(view.focus, WorktreeFocus::Content);
+        assert_eq!(view.focus, WorktreeFocus::Output);
 
         view.focus_left();
-        assert_eq!(view.focus, WorktreeFocus::Commands);
+        assert_eq!(view.focus, WorktreeFocus::Content);
     }
 
     #[test]

@@ -76,6 +76,8 @@ pub struct App {
     pub pending_commit_groups: Option<Vec<rstn_core::CommitGroup>>,
     /// Current group being edited (index)
     pub current_group_index: usize,
+    /// Session ID for this rstn execution (for log correlation)
+    pub session_id: Option<String>,
 }
 
 impl Default for App {
@@ -87,6 +89,11 @@ impl Default for App {
 impl App {
     /// Create a new application instance
     pub fn new() -> Self {
+        Self::new_with_session(None)
+    }
+
+    /// Create a new application instance with a session ID
+    pub fn new_with_session(session_id: Option<String>) -> Self {
         Self {
             running: true,
             current_view: CurrentView::Worktree,
@@ -108,6 +115,7 @@ impl App {
             pending_auto_continue: None,
             pending_commit_groups: None,
             current_group_index: 0,
+            session_id,
         }
     }
 
@@ -187,17 +195,37 @@ impl App {
             }
             // Switch panes within current view with Tab
             KeyCode::Tab => {
-                match self.current_view {
-                    CurrentView::Worktree => {
-                        self.worktree_view.next_pane();
-                        self.status_message = Some("Switched to next pane".to_string());
+                use crossterm::event::KeyModifiers;
+
+                if key.modifiers.contains(KeyModifiers::SHIFT) {
+                    // Shift+Tab - previous pane
+                    match self.current_view {
+                        CurrentView::Worktree => {
+                            self.worktree_view.prev_pane();
+                            self.status_message = Some("Switched to previous pane".to_string());
+                        }
+                        CurrentView::Dashboard => {
+                            self.dashboard.next_pane(); // Dashboard doesn't have prev_pane yet
+                            self.status_message = Some("Switched to next pane".to_string());
+                        }
+                        CurrentView::Settings => {
+                            // Settings view doesn't have panes
+                        }
                     }
-                    CurrentView::Dashboard => {
-                        self.dashboard.next_pane();
-                        self.status_message = Some("Switched to next pane".to_string());
-                    }
-                    CurrentView::Settings => {
-                        // Settings view doesn't have panes
+                } else {
+                    // Tab - next pane
+                    match self.current_view {
+                        CurrentView::Worktree => {
+                            self.worktree_view.next_pane();
+                            self.status_message = Some("Switched to next pane".to_string());
+                        }
+                        CurrentView::Dashboard => {
+                            self.dashboard.next_pane();
+                            self.status_message = Some("Switched to next pane".to_string());
+                        }
+                        CurrentView::Settings => {
+                            // Settings view doesn't have panes
+                        }
                     }
                 }
                 return;
@@ -374,16 +402,21 @@ impl App {
             }
             ViewAction::RunIntelligentCommit => {
                 // Run intelligent commit workflow with AI-powered grouping
-                self.status_message =
-                    Some("Analyzing staged changes...".to_string());
+                tracing::info!("Starting intelligent commit workflow");
+                self.status_message = Some("Analyzing staged changes...".to_string());
+                self.worktree_view
+                    .add_output("🤖 Analyzing staged changes...".to_string());
 
                 let sender = self.event_sender.clone();
                 tokio::spawn(async move {
+                    tracing::debug!("Calling intelligent_commit()");
                     let result = rstn_core::git::intelligent_commit().await;
 
                     if let Some(sender) = sender {
                         match result {
                             Ok(rstn_core::CommitResult::Blocked(scan)) => {
+                                tracing::warn!("Commit blocked by security scan: {} warnings, {} sensitive files",
+                                    scan.warnings.len(), scan.sensitive_files.len());
                                 let _ = sender.send(Event::CommitBlocked { scan });
                             }
                             Ok(rstn_core::CommitResult::GroupedCommits {
@@ -391,6 +424,8 @@ impl App {
                                 warnings,
                                 sensitive_files,
                             }) => {
+                                tracing::info!("Commit groups ready: {} groups, {} warnings, {} sensitive files",
+                                    groups.len(), warnings.len(), sensitive_files.len());
                                 let _ = sender.send(Event::CommitGroupsReady {
                                     groups,
                                     warnings,
@@ -399,11 +434,15 @@ impl App {
                             }
                             Ok(rstn_core::CommitResult::ReadyToCommit { .. }) => {
                                 // Legacy path - shouldn't happen with intelligent_commit()
+                                tracing::error!(
+                                    "Unexpected legacy commit result from intelligent_commit()"
+                                );
                                 let _ = sender.send(Event::CommitError {
                                     error: "Unexpected legacy commit result".to_string(),
                                 });
                             }
                             Err(e) => {
+                                tracing::error!("Intelligent commit failed: {}", e);
                                 let _ = sender.send(Event::CommitError {
                                     error: e.to_string(),
                                 });
@@ -500,6 +539,53 @@ impl App {
                 // Git commands are handled via handle_git_command() which returns
                 // ViewAction::RunCommand, so this case should never be reached
                 // but we handle it for exhaustiveness
+            }
+            ViewAction::SubmitCommitGroup => {
+                // Submit current commit group in review workflow (Feature 050, T036)
+                if let Some(groups) = &self.worktree_view.commit_groups {
+                    let current_index = self.worktree_view.current_commit_index;
+                    if let Some(group) = groups.get(current_index) {
+                        let message = self.worktree_view.get_current_commit_message();
+                        let group = group.clone();
+
+                        tracing::info!(
+                            "Submitting commit group {}/{}: {} files",
+                            current_index + 1,
+                            groups.len(),
+                            group.files.len()
+                        );
+
+                        self.status_message = Some(format!(
+                            "Committing group {}/{}...",
+                            current_index + 1,
+                            groups.len()
+                        ));
+
+                        let sender = self.event_sender.clone();
+                        tokio::spawn(async move {
+                            match rstn_core::git::commit_group(group, message).await {
+                                Ok(_) => {
+                                    tracing::info!("Commit group {} succeeded", current_index + 1);
+                                    if let Some(sender) = sender {
+                                        let _ = sender.send(Event::CommitGroupCompleted);
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::error!(
+                                        "Commit group {} failed: {}",
+                                        current_index + 1,
+                                        e
+                                    );
+                                    if let Some(sender) = sender {
+                                        let _ = sender.send(Event::CommitGroupFailed {
+                                            error: e.to_string(),
+                                        });
+                                    }
+                                }
+                            }
+                        });
+                    }
+                }
             }
         }
     }
@@ -1451,34 +1537,88 @@ impl App {
                     warnings,
                     sensitive_files,
                 } => {
-                    // Store groups for sequential processing
-                    self.pending_commit_groups = Some(groups.clone());
-                    self.current_group_index = 0;
+                    // Feature 050: Start commit review in Content area (T031)
+                    tracing::info!(
+                        "Starting commit review workflow with {} groups",
+                        groups.len()
+                    );
 
-                    // Show first group for editing
-                    if let Some(group) = groups.first() {
-                        let mut desc = format!(
-                            "Group 1/{}: {}\n\nFiles:\n",
-                            groups.len(),
-                            group.description
-                        );
-                        for file in &group.files {
-                            desc.push_str(&format!("  - {}\n", file));
-                        }
-                        if !warnings.is_empty() {
-                            desc.push_str(&format!("\n⚠️  {} warnings\n", warnings.len()));
-                        }
+                    // Convert SecurityWarning and SensitiveFile to String for display
+                    let warning_messages: Vec<String> = warnings
+                        .iter()
+                        .map(|w| format!("{:?} in {}: {}", w.severity, w.file_path, w.message))
+                        .collect();
 
-                        self.input_dialog = Some(
-                            InputDialog::with_description(
-                                format!("Commit 1/{}", groups.len()),
-                                desc,
-                                "Message:",
-                            )
-                            .placeholder(group.message.clone()),
-                        );
-                        self.input_mode = true;
+                    let sensitive_file_paths: Vec<String> =
+                        sensitive_files.iter().map(|sf| sf.path.clone()).collect();
+
+                    // Start commit review workflow in worktree view
+                    self.worktree_view.start_commit_review(
+                        groups,
+                        warning_messages,
+                        sensitive_file_paths,
+                    );
+
+                    self.status_message = Some("Review commit groups in Content area".to_string());
+                    self.worktree_view.add_output(format!(
+                        "🤖 {} commit groups ready for review",
+                        self.worktree_view
+                            .commit_groups
+                            .as_ref()
+                            .map(|g| g.len())
+                            .unwrap_or(0)
+                    ));
+                }
+                Event::CommitGroupCompleted => {
+                    // Feature 050: Single commit group completed successfully (T032-T033)
+                    tracing::info!("Commit group completed, advancing to next group");
+
+                    // Try to advance to next group
+                    if !self.worktree_view.next_commit_group() {
+                        // No more groups - complete workflow
+                        tracing::info!("All commit groups completed successfully");
+                        self.worktree_view.cancel_commit_review();
+                        self.worktree_view
+                            .add_output("✓ All commits completed successfully".to_string());
+                        self.status_message = Some("All commits completed!".to_string());
+                    } else {
+                        // More groups remaining
+                        let total = self
+                            .worktree_view
+                            .commit_groups
+                            .as_ref()
+                            .map(|g| g.len())
+                            .unwrap_or(0);
+                        let current = self.worktree_view.current_commit_index + 1;
+                        self.worktree_view.add_output(format!(
+                            "✓ Commit {}/{} completed",
+                            current - 1,
+                            total
+                        ));
+                        self.status_message = Some(format!("Review group {}/{}", current, total));
                     }
+                }
+                Event::CommitGroupFailed { error } => {
+                    // Feature 050: Single commit group failed (T034)
+                    tracing::error!("Commit group failed: {}", error);
+
+                    // Stay in review mode - user can fix message and retry
+                    self.worktree_view
+                        .add_output(format!("❌ Commit failed: {}", error));
+                    self.status_message = Some("Commit failed - fix and retry".to_string());
+
+                    // Set validation error to guide user
+                    self.worktree_view.commit_validation_error =
+                        Some(format!("Git error: {}", error));
+                }
+                Event::IntelligentCommitFailed { error } => {
+                    // Feature 050: Intelligent commit failed before review mode (T035)
+                    tracing::error!("Intelligent commit failed: {}", error);
+
+                    // Don't enter review mode
+                    self.worktree_view
+                        .add_output(format!("❌ Intelligent commit failed: {}", error));
+                    self.status_message = Some("Commit analysis failed".to_string());
                 }
                 Event::CommitCompleted { success, output } => {
                     self.worktree_view.add_output(output);
@@ -1494,7 +1634,7 @@ impl App {
                 Event::CommitError { error } => {
                     self.worktree_view
                         .add_output(format!("❌ Error: {}", error));
-                    self.status_message = Some(format!("Commit error: {}", error));
+                    // Error is already displayed in output area, no need for status_message duplication
                 }
             }
             debug!(
@@ -1533,8 +1673,11 @@ impl App {
         };
         let tabs = Tabs::new(tab_titles)
             .block(Block::default().borders(Borders::ALL).title(format!(
-                " rstn {} - Rustation Dev Toolkit ",
-                crate::version::short_version()
+                " rstn {}{} - Rustation Dev Toolkit ",
+                crate::version::short_version(),
+                self.session_id.as_ref()
+                    .map(|id| format!(" [session: {}]", id))
+                    .unwrap_or_default()
             )))
             .select(selected_tab)
             .style(Style::default().fg(Color::White))
@@ -1697,17 +1840,11 @@ impl App {
 
                 for (idx, group) in groups.iter().enumerate() {
                     // Unstage all
-                    let _ = Command::new("git")
-                        .args(&["reset", "HEAD"])
-                        .output()
-                        .await;
+                    let _ = Command::new("git").args(&["reset", "HEAD"]).output().await;
 
                     // Stage group files
                     for file in &group.files {
-                        let _ = Command::new("git")
-                            .args(&["add", file])
-                            .output()
-                            .await;
+                        let _ = Command::new("git").args(&["add", file]).output().await;
                     }
 
                     // Commit
@@ -1722,7 +1859,7 @@ impl App {
                             let msg = String::from_utf8_lossy(&output.stdout);
                             results.push((idx + 1, success, msg.to_string()));
                             if !success {
-                                break;  // Stop on failure
+                                break; // Stop on failure
                             }
                         }
                         Err(e) => {
@@ -1734,9 +1871,11 @@ impl App {
 
                 if let Some(sender) = sender {
                     let all_success = results.iter().all(|(_, s, _)| *s);
-                    let summary = results.iter()
-                        .map(|(i, s, o)| format!("{} Group {}: {}",
-                            if *s { "✓" } else { "✗" }, i, o))
+                    let summary = results
+                        .iter()
+                        .map(|(i, s, o)| {
+                            format!("{} Group {}: {}", if *s { "✓" } else { "✗" }, i, o)
+                        })
                         .collect::<Vec<_>>()
                         .join("\n");
 
@@ -1931,7 +2070,10 @@ mod tests {
         }
 
         // Verify dialog is still open (newline, not submit)
-        assert!(app.input_mode, "input_mode should still be true after Ctrl+Enter");
+        assert!(
+            app.input_mode,
+            "input_mode should still be true after Ctrl+Enter"
+        );
         assert!(
             app.input_dialog.is_some(),
             "input_dialog should still exist after Ctrl+Enter"

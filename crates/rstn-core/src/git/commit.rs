@@ -1,6 +1,8 @@
 //! Git commit workflow with security and AI-powered messages
 
-use super::security::{scan_all_changes, scan_staged_changes, SecurityScanResult, SecurityWarning, SensitiveFile};
+use super::security::{
+    scan_all_changes, scan_staged_changes, SecurityScanResult, SecurityWarning, SensitiveFile,
+};
 use crate::errors::Result;
 use tokio::process::Command;
 
@@ -181,30 +183,45 @@ pub async fn interactive_commit() -> Result<CommitResult> {
 /// 3. Calls Claude Code to analyze and group staged changes
 /// 4. Returns all groups for user review
 pub async fn intelligent_commit() -> Result<CommitResult> {
+    tracing::info!("Starting intelligent commit workflow");
+
     // 1. Security scan ALL changes (staged, unstaged, untracked)
+    tracing::debug!("Running security scan on all changes");
     let scan = scan_all_changes().await?;
+    tracing::debug!(
+        "Security scan complete: {} warnings, {} sensitive files, blocked={}",
+        scan.warnings.len(),
+        scan.sensitive_files.len(),
+        scan.blocked
+    );
+
     if scan.blocked {
+        tracing::warn!("Commit blocked by security scan");
         return Ok(CommitResult::Blocked(scan));
     }
 
     // 2. Get staged files and diff stats
+    tracing::debug!("Executing: git diff --cached --name-status");
     let files_output = Command::new("git")
         .args(&["diff", "--cached", "--name-status"])
         .output()
         .await?;
 
     if !files_output.status.success() {
+        tracing::error!("git diff --cached --name-status failed");
         return Err(crate::errors::CoreError::Git(
             "Failed to get staged files".to_string(),
         ));
     }
 
+    tracing::debug!("Executing: git diff --cached --stat");
     let diff_stat_output = Command::new("git")
         .args(&["diff", "--cached", "--stat"])
         .output()
         .await?;
 
     if !diff_stat_output.status.success() {
+        tracing::error!("git diff --cached --stat failed");
         return Err(crate::errors::CoreError::Git(
             "Failed to get diff stats".to_string(),
         ));
@@ -215,19 +232,21 @@ pub async fn intelligent_commit() -> Result<CommitResult> {
 
     // Check if there are any staged changes - if not, auto-stage everything
     if files.trim().is_empty() {
+        tracing::info!("No staged changes found, auto-staging all changes");
+
         // Try to stage all changes
-        let add_output = Command::new("git")
-            .args(&["add", "--all"])
-            .output()
-            .await?;
+        tracing::debug!("Executing: git add --all");
+        let add_output = Command::new("git").args(&["add", "--all"]).output().await?;
 
         if !add_output.status.success() {
+            tracing::error!("git add --all failed");
             return Err(crate::errors::CoreError::Git(
                 "No changes to commit and failed to auto-stage".to_string(),
             ));
         }
 
         // Re-check staged files
+        tracing::debug!("Re-checking staged files after auto-staging");
         let files_output = Command::new("git")
             .args(&["diff", "--cached", "--name-status"])
             .output()
@@ -243,10 +262,18 @@ pub async fn intelligent_commit() -> Result<CommitResult> {
 
         // If still empty, nothing to commit
         if files.trim().is_empty() {
+            tracing::warn!("No changes to commit after auto-staging");
             return Err(crate::errors::CoreError::Git(
                 "No changes to commit".to_string(),
             ));
         }
+
+        tracing::info!(
+            "Auto-staging successful, found {} files",
+            files.lines().count()
+        );
+    } else {
+        tracing::debug!("Found {} staged files", files.lines().count());
     }
 
     // 3. Build prompt for Claude Code
@@ -266,7 +293,10 @@ INSTRUCTIONS:
 4. Types: feat, fix, docs, style, refactor, test, chore
 5. Keep subjects under 72 characters
 
-Return ONLY a JSON array:
+CRITICAL: Respond with ONLY a valid JSON array. No explanations, no markdown formatting, no code fences.
+Just the raw JSON array starting with [ and ending with ].
+
+Expected format:
 [
   {{
     "files": ["path/to/file.rs"],
@@ -279,35 +309,111 @@ Return ONLY a JSON array:
     );
 
     // 4. Call Claude Code CLI
-    let output = Command::new("claude")
-        .arg("-p")
-        .arg(prompt)
-        .arg("--output-format")
-        .arg("text")
-        .arg("--max-turns")
-        .arg("1")
+    tracing::info!("Executing Claude CLI to analyze changes");
+
+    // Try to find Claude CLI executable
+    let claude_path = find_claude_executable().await?;
+    tracing::debug!("Found Claude CLI at: {}", claude_path);
+
+    // Log the prompt being sent
+    tracing::info!("=== CLAUDE PROMPT ===");
+    tracing::info!("Prompt length: {} chars", prompt.len());
+    tracing::info!("Prompt content:\n{}", prompt);
+    tracing::info!("====================");
+
+    // Build argument list for logging
+    let args = vec!["-p", &prompt, "--output-format", "text", "--max-turns", "5"];
+
+    // Log the complete command
+    tracing::info!("=== CLAUDE CLI COMMAND ===");
+    tracing::info!("Executable: {}", claude_path);
+    tracing::info!(
+        "Arguments: -p \"{}\" --output-format text --max-turns 5",
+        if prompt.len() > 50 {
+            format!("{}...", &prompt[..50])
+        } else {
+            prompt.clone()
+        }
+    );
+    tracing::info!("==========================");
+
+    // Also output to console for user visibility
+    eprintln!(
+        "$ claude -p \"<{} chars>\" --output-format text --max-turns 5",
+        prompt.len()
+    );
+
+    let output = Command::new(&claude_path)
+        .args(&args)
         .output()
         .await
-        .map_err(|e| crate::errors::CoreError::CommandFailed(
-            format!("Claude CLI not available: {}", e)
-        ))?;
+        .map_err(|e| {
+            tracing::error!("Failed to execute Claude CLI at {}: {}", claude_path, e);
+            crate::errors::CoreError::CommandFailed(
+                format!("Failed to execute 'claude' command: {}\n\nPlease install Claude Code CLI: https://docs.claude.com/claude-code", e)
+            )
+        })?;
 
     if !output.status.success() {
-        return Err(crate::errors::CoreError::CommandFailed(
-            "Claude failed to analyze changes".to_string()
-        ));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        tracing::error!(
+            "Claude command failed with exit code: {:?}",
+            output.status.code()
+        );
+        tracing::error!("stderr: {}", stderr);
+        tracing::debug!("stdout: {}", stdout);
+        return Err(crate::errors::CoreError::CommandFailed(format!(
+            "Claude command failed to analyze changes:\n{}",
+            stderr.trim()
+        )));
     }
+
+    tracing::debug!("Claude command completed successfully");
 
     // 5. Parse JSON response
     let response = String::from_utf8_lossy(&output.stdout);
+    let stderr_output = String::from_utf8_lossy(&output.stderr);
+
+    // Log complete response
+    tracing::info!("=== CLAUDE RESPONSE ===");
+    tracing::info!("Exit code: {:?}", output.status.code());
+    tracing::info!("Stdout length: {} bytes", response.len());
+    tracing::info!("Stderr length: {} bytes", stderr_output.len());
+
+    if !stderr_output.is_empty() {
+        tracing::info!("Stderr content:\n{}", stderr_output);
+    }
+
+    tracing::info!("Stdout content:\n{}", response);
+    tracing::info!("======================");
+
+    tracing::debug!("Extracting JSON from response");
     let json_str = extract_json_from_response(&response)?;
-    let groups: Vec<CommitGroup> = serde_json::from_str(&json_str)
-        .map_err(|e| crate::errors::CoreError::Git(
-            format!("Failed to parse commit groups: {}", e)
-        ))?;
+    tracing::trace!("Extracted JSON:\n{}", json_str);
+
+    tracing::debug!("Parsing commit groups from JSON");
+    let groups: Vec<CommitGroup> = serde_json::from_str(&json_str).map_err(|e| {
+        tracing::error!("Failed to parse commit groups JSON: {}", e);
+        tracing::debug!("Invalid JSON: {}", json_str);
+        crate::errors::CoreError::Git(format!("Failed to parse commit groups: {}", e))
+    })?;
 
     if groups.is_empty() {
-        return Err(crate::errors::CoreError::Git("No commit groups generated".to_string()));
+        tracing::warn!("Claude returned empty commit groups");
+        return Err(crate::errors::CoreError::Git(
+            "No commit groups generated".to_string(),
+        ));
+    }
+
+    tracing::info!("Successfully parsed {} commit groups", groups.len());
+    for (i, group) in groups.iter().enumerate() {
+        tracing::debug!(
+            "Group {}: {} files - {}",
+            i + 1,
+            group.files.len(),
+            group.message
+        );
     }
 
     Ok(CommitResult::GroupedCommits {
@@ -317,15 +423,185 @@ Return ONLY a JSON array:
     })
 }
 
+/// Find Claude CLI executable by checking common locations
+async fn find_claude_executable() -> Result<String> {
+    use tokio::fs;
+
+    // 1. Check if 'claude' is in PATH
+    if let Ok(path) = which::which("claude") {
+        tracing::debug!("Found claude in PATH: {:?}", path);
+        return Ok(path.to_string_lossy().to_string());
+    }
+
+    // 2. Check common installation locations
+    let home = std::env::var("HOME").map_err(|_| {
+        crate::errors::CoreError::CommandFailed("Could not determine HOME directory".to_string())
+    })?;
+
+    let common_locations = vec![
+        format!("{}/.claude/local/claude", home),
+        format!("{}/.local/bin/claude", home),
+        "/usr/local/bin/claude".to_string(),
+        "/opt/homebrew/bin/claude".to_string(),
+    ];
+
+    for location in &common_locations {
+        tracing::debug!("Checking for claude at: {}", location);
+        if fs::metadata(location).await.is_ok() {
+            tracing::info!("Found claude at: {}", location);
+            return Ok(location.clone());
+        }
+    }
+
+    // 3. Not found - provide helpful error
+    tracing::error!("Claude CLI not found in PATH or common locations");
+    Err(crate::errors::CoreError::CommandFailed(format!(
+        "Claude CLI not found. Checked:\n\
+             - PATH\n\
+             - {}\n\
+             \n\
+             Please install Claude Code CLI or create a symlink:\n\
+             ln -s /path/to/claude ~/.local/bin/claude\n\
+             \n\
+             Install instructions: https://docs.claude.com/claude-code",
+        common_locations.join("\n - ")
+    )))
+}
+
 /// Extract JSON array from Claude's response
 fn extract_json_from_response(response: &str) -> Result<String> {
     let trimmed = response.trim();
+
+    // Try to extract JSON from markdown code fence
+    if let Some(json_start) = trimmed.find("```json") {
+        if let Some(fence_end) = trimmed[json_start..].find("```") {
+            let json_content = &trimmed[json_start + 7..json_start + fence_end];
+            let json_trimmed = json_content.trim();
+            if json_trimmed.starts_with('[') && json_trimmed.ends_with(']') {
+                return Ok(json_trimmed.to_string());
+            }
+        }
+    }
+
+    // Try to extract JSON from generic code fence
+    if let Some(fence_start) = trimmed.find("```") {
+        let after_fence = &trimmed[fence_start + 3..];
+        // Skip language identifier if present (e.g., "```json\n")
+        let content_start = after_fence.find('\n').map(|i| i + 1).unwrap_or(0);
+        if let Some(fence_end) = after_fence[content_start..].find("```") {
+            let json_content = &after_fence[content_start..content_start + fence_end];
+            let json_trimmed = json_content.trim();
+            if json_trimmed.starts_with('[') && json_trimmed.ends_with(']') {
+                return Ok(json_trimmed.to_string());
+            }
+        }
+    }
+
+    // Try to find raw JSON array
     if let Some(start) = trimmed.find('[') {
         if let Some(end) = trimmed.rfind(']') {
             return Ok(trimmed[start..=end].to_string());
         }
     }
-    Err(crate::errors::CoreError::Git("No JSON array in response".to_string()))
+
+    // Better error message with what was actually received
+    let preview = if response.len() > 200 {
+        format!(
+            "{}... ({} more bytes)",
+            &response[..200],
+            response.len() - 200
+        )
+    } else {
+        response.to_string()
+    };
+
+    tracing::error!(
+        "No JSON array found in Claude response. Response preview: {}",
+        preview
+    );
+    Err(crate::errors::CoreError::Git(format!(
+        "No JSON array in response. Claude returned: {}",
+        preview
+    )))
+}
+
+/// Commit a specific group of files with a given message (Feature 050)
+///
+/// This function stages the files in the group and creates a git commit
+/// with the provided message. Used in the commit review workflow.
+///
+/// # Arguments
+/// * `group` - The commit group containing files to commit
+/// * `message` - The commit message (user-edited)
+///
+/// # Returns
+/// * `Ok(())` - Commit succeeded
+/// * `Err(CoreError)` - Commit failed
+///
+/// # Errors
+/// * No files in group
+/// * Git add failed
+/// * Git commit failed
+pub async fn commit_group(group: CommitGroup, message: String) -> Result<()> {
+    // T037: Validate group has files
+    if group.files.is_empty() {
+        return Err(crate::errors::CoreError::Git(
+            "Commit group has no files".to_string(),
+        ));
+    }
+
+    // Validate message is not empty
+    if message.trim().is_empty() {
+        return Err(crate::errors::CoreError::Git(
+            "Commit message cannot be empty".to_string(),
+        ));
+    }
+
+    tracing::info!(
+        "Committing group with {} files: {}",
+        group.files.len(),
+        message.lines().next().unwrap_or("")
+    );
+
+    // T037: Stage the specific files in this group
+    // Use git add -- <files> to stage only these files
+    let add_output = Command::new("git")
+        .arg("add")
+        .arg("--")
+        .args(&group.files)
+        .output()
+        .await?;
+
+    if !add_output.status.success() {
+        let stderr = String::from_utf8_lossy(&add_output.stderr);
+        tracing::error!("Git add failed: {}", stderr);
+        return Err(crate::errors::CoreError::Git(format!(
+            "Failed to stage files: {}",
+            stderr
+        )));
+    }
+
+    // T038: Create the commit with the message
+    let commit_output = Command::new("git")
+        .args(&["commit", "-m", &message])
+        .output()
+        .await?;
+
+    // T039: Handle errors
+    if !commit_output.status.success() {
+        let stderr = String::from_utf8_lossy(&commit_output.stderr);
+        tracing::error!("Git commit failed: {}", stderr);
+        return Err(crate::errors::CoreError::Git(format!(
+            "Commit failed: {}",
+            stderr
+        )));
+    }
+
+    let stdout = String::from_utf8_lossy(&commit_output.stdout);
+    tracing::info!("Commit succeeded: {}", stdout.lines().next().unwrap_or(""));
+
+    // T040: Return success
+    Ok(())
 }
 
 #[cfg(test)]

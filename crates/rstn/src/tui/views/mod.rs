@@ -46,6 +46,8 @@ pub enum ViewAction {
     RunGitCommand(GitCommand),
     /// Run intelligent commit workflow with AI-powered grouping
     RunIntelligentCommit,
+    /// Submit current commit group in review workflow (Feature 050)
+    SubmitCommitGroup,
 }
 
 /// View types for switching

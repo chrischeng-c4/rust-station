@@ -117,10 +117,7 @@ fn test_input_dialog_submits_on_enter() {
     app.handle_key_event(key_event(KeyCode::Enter));
 
     // Dialog should be cleared after submission
-    assert!(
-        !app.input_mode,
-        "Input mode should be false after Enter"
-    );
+    assert!(!app.input_mode, "Input mode should be false after Enter");
     assert!(
         app.input_dialog.is_none(),
         "Dialog should be None after submission"
