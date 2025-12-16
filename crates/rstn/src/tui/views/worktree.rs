@@ -420,6 +420,7 @@ impl SpecifyState {
             SpecPhase::Plan => "plan.md",
             SpecPhase::Tasks => "tasks.md",
             SpecPhase::Analyze => "analysis.md",
+            SpecPhase::Checklist => "checklist.md",
             SpecPhase::Implement => "tasks.md", // Updates task status
             SpecPhase::Review => "review.md",
         }
@@ -433,6 +434,7 @@ impl SpecifyState {
             SpecPhase::Plan => "Enter implementation notes (optional):",
             SpecPhase::Tasks => "Enter task generation notes (optional):",
             SpecPhase::Analyze => "Enter analysis scope (optional):",
+            SpecPhase::Checklist => "Enter checklist focus (optional):",
             SpecPhase::Implement => "Select task to implement:",
             SpecPhase::Review => "Enter review notes (optional):",
         }
@@ -816,6 +818,14 @@ impl WorktreeView {
                 SpecPhase::Analyze => {
                     // Optional phase - mark as completed if tasks exist
                     if spec_dir.join("tasks.md").exists() {
+                        PhaseStatus::Completed
+                    } else {
+                        PhaseStatus::NotStarted
+                    }
+                }
+                SpecPhase::Checklist => {
+                    // Checklist is optional - check if file exists
+                    if spec_dir.join("checklist.md").exists() {
                         PhaseStatus::Completed
                     } else {
                         PhaseStatus::NotStarted
@@ -3150,11 +3160,12 @@ impl View for WorktreeView {
                                             }
                                             // Implement phase uses task execution mode (Feature 056)
                                             SpecPhase::Implement => self.start_implement_mode(),
-                                            // All other phases use interactive flow (Feature 057)
+                                            // All other phases use interactive flow (Feature 057, 058)
                                             SpecPhase::Clarify
                                             | SpecPhase::Plan
                                             | SpecPhase::Tasks
                                             | SpecPhase::Analyze
+                                            | SpecPhase::Checklist
                                             | SpecPhase::Review => {
                                                 self.start_interactive_phase(*phase);
                                                 ViewAction::None

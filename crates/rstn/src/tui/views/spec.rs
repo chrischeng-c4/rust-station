@@ -16,6 +16,7 @@ pub enum SpecPhase {
     Plan,
     Tasks,
     Analyze,
+    Checklist,
     Implement,
     Review,
 }
@@ -28,6 +29,7 @@ impl SpecPhase {
             SpecPhase::Plan,
             SpecPhase::Tasks,
             SpecPhase::Analyze,
+            SpecPhase::Checklist,
             SpecPhase::Implement,
             SpecPhase::Review,
         ]
@@ -40,6 +42,7 @@ impl SpecPhase {
             SpecPhase::Plan => "plan",
             SpecPhase::Tasks => "tasks",
             SpecPhase::Analyze => "analyze",
+            SpecPhase::Checklist => "checklist",
             SpecPhase::Implement => "implement",
             SpecPhase::Review => "review",
         }
@@ -52,6 +55,7 @@ impl SpecPhase {
             "plan" => Some(SpecPhase::Plan),
             "tasks" => Some(SpecPhase::Tasks),
             "analyze" => Some(SpecPhase::Analyze),
+            "checklist" => Some(SpecPhase::Checklist),
             "implement" => Some(SpecPhase::Implement),
             "review" => Some(SpecPhase::Review),
             _ => None,
@@ -65,6 +69,7 @@ impl SpecPhase {
             SpecPhase::Plan => "Plan",
             SpecPhase::Tasks => "Tasks",
             SpecPhase::Analyze => "Analyze",
+            SpecPhase::Checklist => "Checklist",
             SpecPhase::Implement => "Implement",
             SpecPhase::Review => "Review",
         }
@@ -77,6 +82,7 @@ impl SpecPhase {
             SpecPhase::Plan => "Design architecture in plan.md",
             SpecPhase::Tasks => "Generate task breakdown in tasks.md",
             SpecPhase::Analyze => "Validate consistency across artifacts",
+            SpecPhase::Checklist => "Generate QA checklist for feature",
             SpecPhase::Implement => "Execute implementation plan",
             SpecPhase::Review => "Review PR against spec requirements",
         }
@@ -89,6 +95,7 @@ impl SpecPhase {
             SpecPhase::Plan => "/speckit.plan",
             SpecPhase::Tasks => "/speckit.tasks",
             SpecPhase::Analyze => "/speckit.analyze",
+            SpecPhase::Checklist => "/speckit.checklist",
             SpecPhase::Implement => "/speckit.implement",
             SpecPhase::Review => "/speckit.review",
         }
@@ -101,6 +108,7 @@ impl SpecPhase {
             SpecPhase::Plan => 'p',
             SpecPhase::Tasks => 't',
             SpecPhase::Analyze => 'a',
+            SpecPhase::Checklist => 'k',
             SpecPhase::Implement => 'i',
             SpecPhase::Review => 'r',
         }

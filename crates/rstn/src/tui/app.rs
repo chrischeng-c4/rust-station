@@ -797,6 +797,7 @@ impl App {
             SpecPhase::Plan => "plan.md",
             SpecPhase::Tasks => "tasks.md",
             SpecPhase::Analyze => "analysis.md",
+            SpecPhase::Checklist => "checklist.md",
             SpecPhase::Implement => "tasks.md", // Updates task status
             SpecPhase::Review => "review.md",
         }
