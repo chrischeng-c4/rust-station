@@ -3142,15 +3142,23 @@ impl View for WorktreeView {
                             if let Some(command) = self.commands.get(cmd_idx) {
                                 return match command {
                                     Command::SddPhase(phase, _) => {
-                                        // Specify phase uses new interactive flow (Feature 051)
-                                        if *phase == SpecPhase::Specify {
-                                            self.start_specify_input();
-                                            ViewAction::None
-                                        } else if *phase == SpecPhase::Implement {
+                                        match phase {
+                                            // Specify phase uses new interactive flow (Feature 051)
+                                            SpecPhase::Specify => {
+                                                self.start_specify_input();
+                                                ViewAction::None
+                                            }
                                             // Implement phase uses task execution mode (Feature 056)
-                                            self.start_implement_mode()
-                                        } else {
-                                            self.run_phase(*phase)
+                                            SpecPhase::Implement => self.start_implement_mode(),
+                                            // All other phases use interactive flow (Feature 057)
+                                            SpecPhase::Clarify
+                                            | SpecPhase::Plan
+                                            | SpecPhase::Tasks
+                                            | SpecPhase::Analyze
+                                            | SpecPhase::Review => {
+                                                self.start_interactive_phase(*phase);
+                                                ViewAction::None
+                                            }
                                         }
                                     }
                                     Command::GitAction(git_cmd) => {
@@ -3419,7 +3427,7 @@ mod tests {
     }
 
     #[test]
-    fn test_enter_on_clarify_runs_phase() {
+    fn test_enter_on_clarify_uses_interactive_flow() {
         let mut view = create_test_view();
         view.focus = WorktreeFocus::Commands;
 
@@ -3428,14 +3436,14 @@ mod tests {
 
         let action = view.handle_key(key_event(KeyCode::Enter));
 
-        // Should run the phase
-        match action {
-            ViewAction::RunSpecPhase { phase, command, .. } => {
-                assert_eq!(phase, "clarify");
-                assert!(command.contains("clarify"));
-            }
-            _ => panic!("Expected RunSpecPhase action for Clarify phase"),
-        }
+        // Feature 057: Should start interactive flow (Input → Generate → Review)
+        assert_eq!(action, ViewAction::None);
+
+        // Verify interactive input mode is active for Clarify phase
+        assert_eq!(view.content_type, ContentType::SpecifyInput);
+        assert_eq!(view.specify_state.current_phase, SpecPhase::Clarify);
+        assert_eq!(view.specify_state.input_buffer, "");
+        assert!(!view.specify_state.is_generating);
     }
 
     #[test]
