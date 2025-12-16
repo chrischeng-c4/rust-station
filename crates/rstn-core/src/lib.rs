@@ -8,6 +8,7 @@
 //! - Service orchestration
 //! - Health checking
 //! - Spec-driven development workflow
+//! - Plan generation workflow
 //!
 //! Version: 0.1.0
 
@@ -17,6 +18,7 @@ pub mod errors;
 pub mod git;
 pub mod mcp;
 pub mod paths;
+pub mod plan;
 pub mod service;
 pub mod specify;
 pub mod test;
@@ -48,4 +50,9 @@ pub use specify::{
 pub use clarify::{
     AnalysisResult, Answer, Category, ClarifyConfig, ClarifyError, ClarifyReport, CoverageMap,
     CoverageStatus, Question, QuestionFormat, QuestionOption, RecommendedAnswer,
+};
+
+// Plan module re-exports
+pub use plan::{
+    ArtifactKind, ArtifactWriter, PlanArtifact, PlanConfig, PlanContext, PlanError, PlanResult,
 };

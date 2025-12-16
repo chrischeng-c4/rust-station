@@ -414,6 +414,8 @@ COMMIT FORMAT:
 - File system (`specs/` directory, `features.json`) (052-internalize-spec-generation)
 - Rust 1.75+ (edition 2021) + okio, serde, serde_json, thiserror, regex (all in workspace) (053-internalize-clarify)
 - File system (`specs/{NNN}-{name}/spec.md`) (053-internalize-clarify)
+- Rust 1.75+ (edition 2021) + okio (async runtime), serde_json (JSON parsing), thiserror (error handling), which (CLI detection) - all already in workspace (054-internalize-plan)
+- File system - `specs/{NNN}-{name}/` directory structure (054-internalize-plan)
 
 ## Recent Changes
 - 052-internalize-spec-generation: Added Rust 1.75+ (edition 2021) + okio, serde_json, thiserror (all already in workspace)
