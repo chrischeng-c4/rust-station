@@ -8,6 +8,7 @@ use crate::tui::views::{
     ViewType, WorktreeView,
 };
 use crate::tui::widgets::{InputDialog, OptionPicker, TextInput};
+use rstn_core::prompts::PromptManager;
 use crossterm::event::{
     DisableMouseCapture, EnableMouseCapture, KeyCode, KeyEvent, KeyModifiers,
     KeyboardEnhancementFlags, MouseEvent, PopKeyboardEnhancementFlags,
@@ -680,34 +681,35 @@ impl App {
                     }
                 }
             }
-            ViewAction::GenerateSpec { description } => {
-                // Generate spec from feature description (Feature 051, T026)
-                tracing::info!("Starting spec generation for: {}", description);
+            ViewAction::GenerateSpec { phase, description } => {
+                // Generate content for SDD phase (Features 051, 053-058)
+                tracing::info!("Starting {} generation for: {}", phase.name(), description);
 
-                self.status_message = Some("Generating spec...".to_string());
+                self.status_message = Some(format!("Generating {}...", phase.display_name()));
 
                 // Send generation started event (T027)
                 if let Some(sender) = &self.event_sender {
                     let _ = sender.send(Event::SpecifyGenerationStarted);
                 }
 
-                // Spawn async task for spec generation (T024, T025)
+                // Spawn async task for generation (T024, T025)
                 let sender = self.event_sender.clone();
                 let desc = description.clone();
+                let phase_name = phase.name().to_string();
                 tokio::spawn(async move {
-                    match App::execute_spec_generation(desc).await {
-                        Ok((spec, number, name)) => {
-                            tracing::info!("Spec generation completed: {}-{}", number, name);
+                    match App::execute_phase_generation(phase_name.as_str(), desc).await {
+                        Ok((content, number, name)) => {
+                            tracing::info!("Generation completed: {}-{}", number, name);
                             if let Some(sender) = sender {
                                 let _ = sender.send(Event::SpecifyGenerationCompleted {
-                                    spec,
+                                    spec: content,
                                     number,
                                     name,
                                 });
                             }
                         }
                         Err(e) => {
-                            tracing::error!("Spec generation failed: {}", e);
+                            tracing::error!("Generation failed: {}", e);
                             if let Some(sender) = sender {
                                 let _ = sender.send(Event::SpecifyGenerationFailed {
                                     error: e.to_string(),
@@ -717,12 +719,13 @@ impl App {
                     }
                 });
             }
-            ViewAction::SaveSpec { content, number, name } => {
-                // Save generated spec to file (Feature 051)
-                tracing::info!("Saving spec: {}-{}", number, name);
+            ViewAction::SaveSpec { phase, content, number, name } => {
+                // Save generated content to file (Features 051, 053-058)
+                let target_file = Self::get_phase_target_file(&phase);
+                tracing::info!("Saving {} to {}-{}/{}", phase.name(), number, name, target_file);
 
                 let spec_dir = std::path::PathBuf::from(format!("specs/{}-{}", number, name));
-                let spec_file = spec_dir.join("spec.md");
+                let output_file = spec_dir.join(target_file);
 
                 // Create directory if it doesn't exist
                 if let Err(e) = std::fs::create_dir_all(&spec_dir) {
@@ -730,26 +733,57 @@ impl App {
                     return;
                 }
 
-                // Write spec file
-                match std::fs::write(&spec_file, content) {
+                // Write file
+                match std::fs::write(&output_file, content) {
                     Ok(_) => {
-                        self.status_message = Some(format!("Spec saved: {}", spec_file.display()));
+                        self.status_message = Some(format!("{} saved: {}", phase.display_name(), output_file.display()));
                         if let Some(sender) = &self.event_sender {
                             let _ = sender.send(Event::SpecifySaved {
-                                path: spec_file.display().to_string(),
+                                path: output_file.display().to_string(),
                             });
                         }
                     }
                     Err(e) => {
-                        self.status_message = Some(format!("Failed to save spec: {}", e));
+                        self.status_message = Some(format!("Failed to save {}: {}", phase.name(), e));
                     }
                 }
             }
         }
     }
 
-    /// Execute spec generation via shell script (Feature 051, T024, T025)
-    async fn execute_spec_generation(description: String) -> Result<(String, String, String), String> {
+    /// Get target filename for a phase (Features 051, 053-058)
+    fn get_phase_target_file(phase: &SpecPhase) -> &'static str {
+        match phase {
+            SpecPhase::Specify => "spec.md",
+            SpecPhase::Clarify => "spec.md", // Clarify updates the spec
+            SpecPhase::Plan => "plan.md",
+            SpecPhase::Tasks => "tasks.md",
+            SpecPhase::Analyze => "analysis.md",
+            SpecPhase::Implement => "tasks.md", // Updates task status
+            SpecPhase::Review => "review.md",
+        }
+    }
+
+    /// Execute content generation for any SDD phase (Features 051, 053-058)
+    ///
+    /// Routes to appropriate generation logic based on phase:
+    /// - Specify: Creates new feature via shell script
+    /// - Clarify/Plan/Tasks/Analyze: Reads existing spec and generates next artifact
+    async fn execute_phase_generation(phase: &str, description: String) -> Result<(String, String, String), String> {
+        match phase {
+            "specify" => Self::execute_specify_generation(description).await,
+            "clarify" => Self::execute_clarify_generation(description).await,
+            "plan" => Self::execute_plan_generation(description).await,
+            "tasks" => Self::execute_tasks_generation(description).await,
+            "analyze" => Self::execute_analyze_generation(description).await,
+            "implement" => Self::execute_implement_generation(description).await,
+            "review" => Self::execute_review_generation(description).await,
+            _ => Err(format!("Unknown phase: {}", phase)),
+        }
+    }
+
+    /// Execute specify generation via shell script (Feature 051)
+    async fn execute_specify_generation(description: String) -> Result<(String, String, String), String> {
         use tokio::process::Command;
         use tokio::time::{timeout, Duration};
 
@@ -800,6 +834,286 @@ impl App {
             .map_err(|e| format!("Failed to read generated spec: {}", e))?;
 
         Ok((spec_content, feature_num.to_string(), feature_name))
+    }
+
+    /// Detect current feature from git branch
+    ///
+    /// Parses branch name like "059-prompt-content-manager" into ("059", "prompt-content-manager")
+    async fn detect_current_feature() -> Result<(String, String), String> {
+        use tokio::process::Command;
+
+        let output = Command::new("git")
+            .args(["branch", "--show-current"])
+            .output()
+            .await
+            .map_err(|e| format!("Failed to get current branch: {}", e))?;
+
+        if !output.status.success() {
+            return Err("Not in a git repository or no branch checked out".to_string());
+        }
+
+        let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+        // Parse branch name: "059-feature-name" -> ("059", "feature-name")
+        let parts: Vec<&str> = branch.splitn(2, '-').collect();
+        if parts.len() != 2 {
+            return Err(format!(
+                "Branch '{}' doesn't match feature pattern NNN-name",
+                branch
+            ));
+        }
+
+        // Validate feature number is numeric
+        if !parts[0].chars().all(|c| c.is_ascii_digit()) {
+            return Err(format!(
+                "Branch '{}' doesn't start with feature number",
+                branch
+            ));
+        }
+
+        Ok((parts[0].to_string(), parts[1].to_string()))
+    }
+
+    /// Find spec directory for a feature
+    ///
+    /// Searches for specs/{num}-* directory
+    async fn find_spec_dir(feature_num: &str) -> Result<std::path::PathBuf, String> {
+        let specs_dir = std::path::Path::new("specs");
+        if !specs_dir.exists() {
+            return Err("specs/ directory not found".to_string());
+        }
+
+        let pattern = format!("{}-", feature_num);
+        let mut entries = tokio::fs::read_dir(specs_dir)
+            .await
+            .map_err(|e| format!("Failed to read specs/: {}", e))?;
+
+        while let Some(entry) = entries
+            .next_entry()
+            .await
+            .map_err(|e| format!("Failed to read entry: {}", e))?
+        {
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+            if name_str.starts_with(&pattern) && entry.path().is_dir() {
+                return Ok(entry.path());
+            }
+        }
+
+        Err(format!("No spec directory found for feature {}", feature_num))
+    }
+
+    /// Execute a Claude CLI command with a system prompt from PromptManager
+    ///
+    /// Common implementation for all phase generation methods.
+    async fn execute_claude_with_prompt(
+        phase: rstn_core::prompts::SpecPhase,
+        user_message: &str,
+    ) -> Result<String, String> {
+        use tokio::process::Command;
+        use tokio::time::{timeout, Duration};
+
+        let workspace = std::env::current_dir().map_err(|e| e.to_string())?;
+        let manager = PromptManager::new(Some(workspace.clone()));
+
+        let prompt_file = manager
+            .prepare_prompt_file(phase)
+            .map_err(|e| format!("Failed to prepare prompt: {}", e))?;
+
+        let output = timeout(
+            Duration::from_secs(120),
+            Command::new("claude")
+                .arg("--print")
+                .arg("--dangerously-skip-permissions")
+                .arg("--system-prompt-file")
+                .arg(&prompt_file)
+                .arg(user_message)
+                .current_dir(&workspace)
+                .output(),
+        )
+        .await
+        .map_err(|_| "Generation timed out after 120 seconds".to_string())?
+        .map_err(|e| format!("Claude CLI error: {}", e))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("Claude CLI failed: {}", stderr));
+        }
+
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    }
+
+    /// Execute clarify generation (Feature 053)
+    ///
+    /// Reads existing spec and generates clarifying questions.
+    async fn execute_clarify_generation(notes: String) -> Result<(String, String, String), String> {
+        let (feature_num, feature_name) = Self::detect_current_feature().await?;
+        let spec_dir = Self::find_spec_dir(&feature_num).await?;
+
+        // Read existing spec
+        let spec_path = spec_dir.join("spec.md");
+        let spec_content = tokio::fs::read_to_string(&spec_path)
+            .await
+            .map_err(|e| format!("Failed to read spec.md: {}", e))?;
+
+        // Build user message
+        let user_msg = format!(
+            "Feature: {}-{}\n\n## Existing Specification:\n{}\n\n## Additional Notes:\n{}",
+            feature_num, feature_name, spec_content, notes
+        );
+
+        let content =
+            Self::execute_claude_with_prompt(rstn_core::prompts::SpecPhase::Clarify, &user_msg)
+                .await?;
+
+        Ok((content, feature_num, feature_name))
+    }
+
+    /// Execute plan generation (Feature 054)
+    ///
+    /// Reads existing spec and generates architecture plan.
+    async fn execute_plan_generation(notes: String) -> Result<(String, String, String), String> {
+        let (feature_num, feature_name) = Self::detect_current_feature().await?;
+        let spec_dir = Self::find_spec_dir(&feature_num).await?;
+
+        // Read existing spec
+        let spec_path = spec_dir.join("spec.md");
+        let spec_content = tokio::fs::read_to_string(&spec_path)
+            .await
+            .map_err(|e| format!("Failed to read spec.md: {}", e))?;
+
+        // Build user message
+        let user_msg = format!(
+            "Feature: {}-{}\n\n## Specification:\n{}\n\n## Planning Notes:\n{}",
+            feature_num, feature_name, spec_content, notes
+        );
+
+        let content =
+            Self::execute_claude_with_prompt(rstn_core::prompts::SpecPhase::Plan, &user_msg)
+                .await?;
+
+        Ok((content, feature_num, feature_name))
+    }
+
+    /// Execute tasks generation (Feature 055)
+    ///
+    /// Reads existing spec and plan, generates task breakdown.
+    async fn execute_tasks_generation(notes: String) -> Result<(String, String, String), String> {
+        let (feature_num, feature_name) = Self::detect_current_feature().await?;
+        let spec_dir = Self::find_spec_dir(&feature_num).await?;
+
+        // Read existing spec and plan
+        let spec_content = tokio::fs::read_to_string(spec_dir.join("spec.md"))
+            .await
+            .unwrap_or_default();
+        let plan_content = tokio::fs::read_to_string(spec_dir.join("plan.md"))
+            .await
+            .unwrap_or_default();
+
+        // Build user message
+        let user_msg = format!(
+            "Feature: {}-{}\n\n## Specification:\n{}\n\n## Plan:\n{}\n\n## Task Generation Notes:\n{}",
+            feature_num, feature_name, spec_content, plan_content, notes
+        );
+
+        let content =
+            Self::execute_claude_with_prompt(rstn_core::prompts::SpecPhase::Tasks, &user_msg)
+                .await?;
+
+        Ok((content, feature_num, feature_name))
+    }
+
+    /// Execute analyze generation (Feature 057)
+    ///
+    /// Analyzes consistency across spec artifacts.
+    async fn execute_analyze_generation(notes: String) -> Result<(String, String, String), String> {
+        let (feature_num, feature_name) = Self::detect_current_feature().await?;
+        let spec_dir = Self::find_spec_dir(&feature_num).await?;
+
+        // Read all spec artifacts
+        let spec_content = tokio::fs::read_to_string(spec_dir.join("spec.md"))
+            .await
+            .unwrap_or_default();
+        let plan_content = tokio::fs::read_to_string(spec_dir.join("plan.md"))
+            .await
+            .unwrap_or_default();
+        let tasks_content = tokio::fs::read_to_string(spec_dir.join("tasks.md"))
+            .await
+            .unwrap_or_default();
+
+        // Build user message
+        let user_msg = format!(
+            "Feature: {}-{}\n\n## Specification:\n{}\n\n## Plan:\n{}\n\n## Tasks:\n{}\n\n## Analysis Focus:\n{}",
+            feature_num, feature_name, spec_content, plan_content, tasks_content, notes
+        );
+
+        let content =
+            Self::execute_claude_with_prompt(rstn_core::prompts::SpecPhase::Analyze, &user_msg)
+                .await?;
+
+        Ok((content, feature_num, feature_name))
+    }
+
+    /// Execute implement tracking (Feature 056)
+    ///
+    /// Guides implementation based on spec artifacts.
+    async fn execute_implement_generation(notes: String) -> Result<(String, String, String), String> {
+        let (feature_num, feature_name) = Self::detect_current_feature().await?;
+        let spec_dir = Self::find_spec_dir(&feature_num).await?;
+
+        // Read all spec artifacts
+        let spec_content = tokio::fs::read_to_string(spec_dir.join("spec.md"))
+            .await
+            .unwrap_or_default();
+        let plan_content = tokio::fs::read_to_string(spec_dir.join("plan.md"))
+            .await
+            .unwrap_or_default();
+        let tasks_content = tokio::fs::read_to_string(spec_dir.join("tasks.md"))
+            .await
+            .unwrap_or_default();
+
+        // Build user message
+        let user_msg = format!(
+            "Feature: {}-{}\n\n## Specification:\n{}\n\n## Plan:\n{}\n\n## Tasks:\n{}\n\n## Implementation Notes:\n{}",
+            feature_num, feature_name, spec_content, plan_content, tasks_content, notes
+        );
+
+        let content =
+            Self::execute_claude_with_prompt(rstn_core::prompts::SpecPhase::Implement, &user_msg)
+                .await?;
+
+        Ok((content, feature_num, feature_name))
+    }
+
+    /// Execute review generation (Feature 058)
+    ///
+    /// Reviews implementation against spec requirements.
+    async fn execute_review_generation(notes: String) -> Result<(String, String, String), String> {
+        let (feature_num, feature_name) = Self::detect_current_feature().await?;
+        let spec_dir = Self::find_spec_dir(&feature_num).await?;
+
+        // Read all spec artifacts
+        let spec_content = tokio::fs::read_to_string(spec_dir.join("spec.md"))
+            .await
+            .unwrap_or_default();
+        let plan_content = tokio::fs::read_to_string(spec_dir.join("plan.md"))
+            .await
+            .unwrap_or_default();
+        let tasks_content = tokio::fs::read_to_string(spec_dir.join("tasks.md"))
+            .await
+            .unwrap_or_default();
+
+        // Build user message
+        let user_msg = format!(
+            "Feature: {}-{}\n\n## Specification:\n{}\n\n## Plan:\n{}\n\n## Tasks:\n{}\n\n## Review Focus:\n{}",
+            feature_num, feature_name, spec_content, plan_content, tasks_content, notes
+        );
+
+        let content =
+            Self::execute_claude_with_prompt(rstn_core::prompts::SpecPhase::Review, &user_msg)
+                .await?;
+
+        Ok((content, feature_num, feature_name))
     }
 
     /// Handle command output events

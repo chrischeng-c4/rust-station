@@ -48,10 +48,14 @@ pub enum ViewAction {
     RunIntelligentCommit,
     /// Submit current commit group in review workflow (Feature 050)
     SubmitCommitGroup,
-    /// Generate spec from feature description (Feature 051)
-    GenerateSpec { description: String },
-    /// Save generated spec to file (Feature 051)
+    /// Generate content for an SDD phase (Features 051, 053-058)
+    GenerateSpec {
+        phase: SpecPhase,
+        description: String,
+    },
+    /// Save generated content to file (Features 051, 053-058)
     SaveSpec {
+        phase: SpecPhase,
         content: String,
         number: String,
         name: String,

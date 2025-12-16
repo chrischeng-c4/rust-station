@@ -137,16 +137,25 @@ pub enum WorktreeFocus {
 /// - `edit_text_input`: TextInput widget instance for multi-line editing
 /// - `validation_error`: Error message for invalid input (e.g., too short)
 ///
+/// Generalized interactive workflow state for all SDD phases (Features 051, 053-058)
+///
+/// Supports interactive workflows for Specify, Clarify, Plan, Tasks, Analyze phases.
+/// Each phase follows the same pattern: Input → Generate → Review → Edit → Save
+///
 /// ## Lifecycle
 ///
 /// 1. Created with `Default::default()` in idle state
-/// 2. Activated by `start_specify_input()` → Input Phase
+/// 2. Activated by `start_interactive_phase(phase)` → Input Phase
 /// 3. Submitted by `submit_specify_description()` → Generating Phase
 /// 4. Transitions to Review Phase when `Event::SpecifyGenerationCompleted` received
 /// 5. User can edit, save, or cancel from Review Phase
 /// 6. Reset by `cancel_specify()` → returns to idle state
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct SpecifyState {
+    // Phase tracking (Feature 053-058)
+    /// Current SDD phase being executed
+    pub current_phase: SpecPhase,
+
     // Input phase
     pub input_buffer: String,
     pub input_cursor: usize,
@@ -166,9 +175,35 @@ pub struct SpecifyState {
     pub validation_error: Option<String>,
 }
 
+impl Default for SpecifyState {
+    fn default() -> Self {
+        Self {
+            current_phase: SpecPhase::Specify,
+            input_buffer: String::new(),
+            input_cursor: 0,
+            is_generating: false,
+            generation_error: None,
+            generated_spec: None,
+            feature_number: None,
+            feature_name: None,
+            edit_mode: false,
+            edit_text_input: None,
+            validation_error: None,
+        }
+    }
+}
+
 impl SpecifyState {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Create a new state for a specific phase
+    pub fn for_phase(phase: SpecPhase) -> Self {
+        Self {
+            current_phase: phase,
+            ..Self::default()
+        }
     }
 
     pub fn clear(&mut self) {
@@ -181,14 +216,45 @@ impl SpecifyState {
             || self.generated_spec.is_some()
     }
 
+    /// Get the target filename for the current phase
+    pub fn target_filename(&self) -> &'static str {
+        match self.current_phase {
+            SpecPhase::Specify => "spec.md",
+            SpecPhase::Clarify => "spec.md", // Clarify updates the spec
+            SpecPhase::Plan => "plan.md",
+            SpecPhase::Tasks => "tasks.md",
+            SpecPhase::Analyze => "analysis.md",
+            SpecPhase::Implement => "tasks.md", // Updates task status
+            SpecPhase::Review => "review.md",
+        }
+    }
+
+    /// Get input prompt for the current phase
+    pub fn input_prompt(&self) -> &'static str {
+        match self.current_phase {
+            SpecPhase::Specify => "Enter feature description:",
+            SpecPhase::Clarify => "Review and confirm clarifications:",
+            SpecPhase::Plan => "Enter implementation notes (optional):",
+            SpecPhase::Tasks => "Enter task generation notes (optional):",
+            SpecPhase::Analyze => "Enter analysis scope (optional):",
+            SpecPhase::Implement => "Select task to implement:",
+            SpecPhase::Review => "Enter review notes (optional):",
+        }
+    }
+
     pub fn validate_input(&self) -> Result<(), String> {
         let trimmed = self.input_buffer.trim();
-        if trimmed.is_empty() {
-            return Err("Description cannot be empty".to_string());
+
+        // Specify requires meaningful input
+        if self.current_phase == SpecPhase::Specify {
+            if trimmed.is_empty() {
+                return Err("Description cannot be empty".to_string());
+            }
+            if trimmed.len() < 3 {
+                return Err("Description must be at least 3 characters".to_string());
+            }
         }
-        if trimmed.len() < 3 {
-            return Err("Description must be at least 3 characters".to_string());
-        }
+        // Other phases allow empty input (use existing spec/plan context)
         Ok(())
     }
 }
@@ -1336,29 +1402,40 @@ impl WorktreeView {
     }
 
     // ========================================================================
-    // Specify workflow methods (Feature 051)
+    // Interactive phase workflow methods (Features 051, 053-058)
     // ========================================================================
 
-    /// Enter specify Input Phase and display input dialog (T015)
+    /// Enter interactive workflow for any SDD phase (Features 051, 053-058)
     ///
-    /// Initiates the interactive specify workflow by:
+    /// Initiates the interactive workflow for a specific phase by:
     /// - Setting content type to `SpecifyInput`
+    /// - Setting the current phase in specify_state
     /// - Switching focus to content area
-    /// - Clearing any previous specify state
+    /// - Clearing any previous state
+    ///
+    /// # Parameters
+    /// - `phase`: The SDD phase to run interactively
     ///
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use rstn::tui::views::{WorktreeView, ContentType};
+    /// # use rstn::tui::views::{WorktreeView, ContentType, SpecPhase};
     /// # let mut view = WorktreeView::new();
-    /// view.start_specify_input();
+    /// view.start_interactive_phase(SpecPhase::Plan);
     /// assert_eq!(view.content_type, ContentType::SpecifyInput);
-    /// assert!(view.specify_state.input_buffer.is_empty());
+    /// assert_eq!(view.specify_state.current_phase, SpecPhase::Plan);
     /// ```
-    pub fn start_specify_input(&mut self) {
-        self.specify_state = SpecifyState::new();
+    pub fn start_interactive_phase(&mut self, phase: SpecPhase) {
+        self.specify_state = SpecifyState::for_phase(phase);
         self.content_type = ContentType::SpecifyInput;
         self.focus = WorktreeFocus::Content; // Auto-focus Content area
+    }
+
+    /// Enter specify Input Phase (legacy wrapper for Feature 051)
+    ///
+    /// This is a convenience wrapper around `start_interactive_phase(SpecPhase::Specify)`.
+    pub fn start_specify_input(&mut self) {
+        self.start_interactive_phase(SpecPhase::Specify);
     }
 
     /// Cancel specify workflow and return to normal Spec view (T016)
@@ -1481,6 +1558,7 @@ impl WorktreeView {
 
         // Return action to trigger async generation
         ViewAction::GenerateSpec {
+            phase: self.specify_state.current_phase,
             description: self.specify_state.input_buffer.clone(),
         }
     }
@@ -1501,6 +1579,7 @@ impl WorktreeView {
             &self.specify_state.feature_name,
         ) {
             ViewAction::SaveSpec {
+                phase: self.specify_state.current_phase,
                 content: content.clone(),
                 number: number.clone(),
                 name: name.clone(),
@@ -2881,6 +2960,7 @@ mod tests {
     #[test]
     fn test_specify_state_default() {
         let state = SpecifyState::default();
+        assert_eq!(state.current_phase, SpecPhase::Specify);
         assert_eq!(state.input_buffer, "");
         assert_eq!(state.input_cursor, 0);
         assert!(!state.is_generating);
@@ -2891,6 +2971,96 @@ mod tests {
         assert!(!state.edit_mode);
         assert!(state.edit_text_input.is_none());
         assert!(state.validation_error.is_none());
+    }
+
+    #[test]
+    fn test_specify_state_for_phase() {
+        // Test for_phase creates state with correct phase
+        let state = SpecifyState::for_phase(SpecPhase::Plan);
+        assert_eq!(state.current_phase, SpecPhase::Plan);
+        assert_eq!(state.input_buffer, "");
+        assert!(!state.is_generating);
+
+        let state = SpecifyState::for_phase(SpecPhase::Tasks);
+        assert_eq!(state.current_phase, SpecPhase::Tasks);
+    }
+
+    #[test]
+    fn test_start_interactive_phase() {
+        let mut view = create_test_view();
+
+        // Test starting Plan phase
+        view.start_interactive_phase(SpecPhase::Plan);
+        assert_eq!(view.content_type, ContentType::SpecifyInput);
+        assert_eq!(view.specify_state.current_phase, SpecPhase::Plan);
+        assert_eq!(view.focus, WorktreeFocus::Content);
+
+        // Test starting Tasks phase
+        view.start_interactive_phase(SpecPhase::Tasks);
+        assert_eq!(view.specify_state.current_phase, SpecPhase::Tasks);
+
+        // Test starting Clarify phase
+        view.start_interactive_phase(SpecPhase::Clarify);
+        assert_eq!(view.specify_state.current_phase, SpecPhase::Clarify);
+    }
+
+    #[test]
+    fn test_specify_state_target_filename() {
+        let mut state = SpecifyState::default();
+
+        state.current_phase = SpecPhase::Specify;
+        assert_eq!(state.target_filename(), "spec.md");
+
+        state.current_phase = SpecPhase::Clarify;
+        assert_eq!(state.target_filename(), "spec.md");
+
+        state.current_phase = SpecPhase::Plan;
+        assert_eq!(state.target_filename(), "plan.md");
+
+        state.current_phase = SpecPhase::Tasks;
+        assert_eq!(state.target_filename(), "tasks.md");
+
+        state.current_phase = SpecPhase::Analyze;
+        assert_eq!(state.target_filename(), "analysis.md");
+    }
+
+    #[test]
+    fn test_specify_state_input_prompt() {
+        let mut state = SpecifyState::default();
+
+        state.current_phase = SpecPhase::Specify;
+        assert!(state.input_prompt().contains("feature description"));
+
+        state.current_phase = SpecPhase::Plan;
+        assert!(state.input_prompt().contains("implementation notes"));
+
+        state.current_phase = SpecPhase::Tasks;
+        assert!(state.input_prompt().contains("task generation"));
+    }
+
+    #[test]
+    fn test_specify_state_validation_by_phase() {
+        let mut state = SpecifyState::default();
+
+        // Specify phase requires non-empty input
+        state.current_phase = SpecPhase::Specify;
+        state.input_buffer = "".to_string();
+        assert!(state.validate_input().is_err());
+
+        state.input_buffer = "ab".to_string();
+        assert!(state.validate_input().is_err()); // Too short
+
+        state.input_buffer = "valid description".to_string();
+        assert!(state.validate_input().is_ok());
+
+        // Other phases allow empty input
+        state.current_phase = SpecPhase::Plan;
+        state.input_buffer = "".to_string();
+        assert!(state.validate_input().is_ok());
+
+        state.current_phase = SpecPhase::Tasks;
+        state.input_buffer = "".to_string();
+        assert!(state.validate_input().is_ok());
     }
 
     #[test]
@@ -3067,7 +3237,8 @@ mod tests {
 
         // Should return GenerateSpec action
         match action {
-            ViewAction::GenerateSpec { description } => {
+            ViewAction::GenerateSpec { phase, description } => {
+                assert_eq!(phase, SpecPhase::Specify);
                 assert_eq!(description, "Valid feature description");
             }
             _ => panic!("Expected GenerateSpec action"),
@@ -3116,10 +3287,12 @@ mod tests {
         // Verify action
         match action {
             ViewAction::SaveSpec {
+                phase,
                 content,
                 number,
                 name,
             } => {
+                assert_eq!(phase, SpecPhase::Specify);
                 assert_eq!(content, "# Test");
                 assert_eq!(number, "052");
                 assert_eq!(name, "test");
@@ -3234,7 +3407,8 @@ mod tests {
 
         // Should return SaveSpec action
         match action {
-            ViewAction::SaveSpec { content, number, name } => {
+            ViewAction::SaveSpec { phase, content, number, name } => {
+                assert_eq!(phase, SpecPhase::Specify);
                 assert!(content.contains("# Edited Spec"));
                 assert_eq!(number, "051");
                 assert_eq!(name, "edit-mode");
