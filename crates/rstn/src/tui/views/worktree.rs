@@ -81,6 +81,186 @@ pub enum ContentType {
     SpecifyReview,  // Feature 051: Review/edit generated spec
 }
 
+/// Parsed task from tasks.md (Feature 055)
+///
+/// Represents a single task parsed from markdown format:
+/// `- [ ] T001 [P] [US1] Description in src/path/file.rs`
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedTask {
+    /// Task ID (e.g., "T001")
+    pub id: String,
+    /// Whether task can run in parallel [P]
+    pub is_parallel: bool,
+    /// User story label (e.g., "US1")
+    pub user_story: Option<String>,
+    /// Task description
+    pub description: String,
+    /// File path if mentioned
+    pub file_path: Option<String>,
+    /// Whether task is completed [X] vs [ ]
+    pub completed: bool,
+    /// Original raw line (for preserving formatting)
+    pub raw_line: String,
+}
+
+impl ParsedTask {
+    /// Parse a task line from markdown format
+    ///
+    /// Expected format: `- [ ] T001 [P] [US1] Description in src/path/file.rs`
+    pub fn parse(line: &str) -> Option<Self> {
+        let trimmed = line.trim();
+
+        // Must start with checkbox
+        if !trimmed.starts_with("- [") {
+            return None;
+        }
+
+        // Check completion status
+        let completed = trimmed.starts_with("- [X]") || trimmed.starts_with("- [x]");
+
+        // Extract content after checkbox
+        let content = if completed {
+            trimmed.strip_prefix("- [X] ").or_else(|| trimmed.strip_prefix("- [x] "))
+        } else {
+            trimmed.strip_prefix("- [ ] ")
+        }?;
+
+        // Parse task ID (T001, T002, etc.)
+        let mut parts = content.split_whitespace();
+        let id = parts.next()?;
+        if !id.starts_with('T') || id.len() < 2 {
+            return None;
+        }
+
+        // Collect remaining parts and parse markers
+        let remaining: Vec<&str> = parts.collect();
+        let mut is_parallel = false;
+        let mut user_story = None;
+        let mut description_parts = Vec::new();
+
+        for part in remaining {
+            if part == "[P]" {
+                is_parallel = true;
+            } else if part.starts_with("[US") && part.ends_with(']') {
+                user_story = Some(part[1..part.len()-1].to_string());
+            } else {
+                description_parts.push(part);
+            }
+        }
+
+        let description = description_parts.join(" ");
+
+        // Try to extract file path (looks for " in " followed by path)
+        let file_path = if let Some(idx) = description.find(" in ") {
+            let path_part = &description[idx + 4..];
+            if path_part.contains('/') || path_part.ends_with(".rs") {
+                Some(path_part.to_string())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        Some(Self {
+            id: id.to_string(),
+            is_parallel,
+            user_story,
+            description,
+            file_path,
+            completed,
+            raw_line: line.to_string(),
+        })
+    }
+
+    /// Convert back to markdown format
+    pub fn to_markdown(&self) -> String {
+        let checkbox = if self.completed { "- [X]" } else { "- [ ]" };
+        let parallel = if self.is_parallel { " [P]" } else { "" };
+        let us = self.user_story.as_ref()
+            .map(|s| format!(" [{}]", s))
+            .unwrap_or_default();
+
+        format!("{} {}{}{} {}", checkbox, self.id, parallel, us, self.description)
+    }
+}
+
+/// State for interactive task list editing (Feature 055)
+#[derive(Debug, Clone, Default)]
+pub struct TaskListState {
+    /// Parsed tasks from generated content
+    pub tasks: Vec<ParsedTask>,
+    /// Currently selected task index
+    pub selected: usize,
+    /// Whether we're in structured list mode (vs raw text mode)
+    pub list_mode: bool,
+}
+
+impl TaskListState {
+    /// Parse tasks from markdown content
+    pub fn from_markdown(content: &str) -> Self {
+        let tasks: Vec<ParsedTask> = content
+            .lines()
+            .filter_map(ParsedTask::parse)
+            .collect();
+
+        Self {
+            tasks,
+            selected: 0,
+            list_mode: true,
+        }
+    }
+
+    /// Move selection up
+    pub fn select_previous(&mut self) {
+        if self.selected > 0 {
+            self.selected -= 1;
+        }
+    }
+
+    /// Move selection down
+    pub fn select_next(&mut self) {
+        if self.selected < self.tasks.len().saturating_sub(1) {
+            self.selected += 1;
+        }
+    }
+
+    /// Move selected task up in the list
+    pub fn reorder_up(&mut self) {
+        if self.selected > 0 {
+            self.tasks.swap(self.selected, self.selected - 1);
+            self.selected -= 1;
+        }
+    }
+
+    /// Move selected task down in the list
+    pub fn reorder_down(&mut self) {
+        if self.selected < self.tasks.len().saturating_sub(1) {
+            self.tasks.swap(self.selected, self.selected + 1);
+            self.selected += 1;
+        }
+    }
+
+    /// Convert all tasks back to markdown
+    pub fn to_markdown(&self) -> String {
+        self.tasks
+            .iter()
+            .map(|t| t.to_markdown())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// Check if there are any tasks
+    pub fn is_empty(&self) -> bool {
+        self.tasks.is_empty()
+    }
+
+    /// Get number of tasks
+    pub fn len(&self) -> usize {
+        self.tasks.len()
+    }
+}
+
 impl ContentType {
     fn name(&self) -> &'static str {
         match self {
@@ -171,6 +351,10 @@ pub struct SpecifyState {
     pub edit_mode: bool,
     pub edit_text_input: Option<TextInput>, // Feature 051: Multi-line editing widget (User Story 3)
 
+    // Task list mode (Feature 055)
+    /// Structured task list for reordering (Tasks phase only)
+    pub task_list_state: Option<TaskListState>,
+
     // Validation
     pub validation_error: Option<String>,
 }
@@ -188,6 +372,7 @@ impl Default for SpecifyState {
             feature_name: None,
             edit_mode: false,
             edit_text_input: None,
+            task_list_state: None,
             validation_error: None,
         }
     }
@@ -256,6 +441,36 @@ impl SpecifyState {
         }
         // Other phases allow empty input (use existing spec/plan context)
         Ok(())
+    }
+
+    /// Set generated content and initialize task list if in Tasks phase (Feature 055)
+    pub fn set_generated_content(&mut self, content: String, number: String, name: String) {
+        self.generated_spec = Some(content.clone());
+        self.feature_number = Some(number);
+        self.feature_name = Some(name);
+        self.is_generating = false;
+
+        // For Tasks phase, parse into structured task list
+        if self.current_phase == SpecPhase::Tasks {
+            let task_list = TaskListState::from_markdown(&content);
+            if !task_list.is_empty() {
+                self.task_list_state = Some(task_list);
+            }
+        }
+    }
+
+    /// Check if in task list mode (Feature 055)
+    pub fn is_task_list_mode(&self) -> bool {
+        self.task_list_state.as_ref().map_or(false, |t| t.list_mode && !t.is_empty())
+    }
+
+    /// Get current content (from task list if in list mode, otherwise raw)
+    pub fn get_current_content(&self) -> Option<String> {
+        if self.is_task_list_mode() {
+            self.task_list_state.as_ref().map(|t| t.to_markdown())
+        } else {
+            self.generated_spec.clone()
+        }
     }
 }
 
@@ -1572,15 +1787,18 @@ impl WorktreeView {
     /// - `ViewAction::SaveSpec` with content, number, and name
     /// - `ViewAction::None` if spec/metadata is missing (sets `validation_error`)
     pub fn save_specify_spec(&mut self) -> ViewAction {
+        // Feature 055: Use task list content if in task list mode
+        let content = self.specify_state.get_current_content();
+
         // Defensive checks
         if let (Some(content), Some(number), Some(name)) = (
-            &self.specify_state.generated_spec,
+            content,
             &self.specify_state.feature_number,
             &self.specify_state.feature_name,
         ) {
             ViewAction::SaveSpec {
                 phase: self.specify_state.current_phase,
-                content: content.clone(),
+                content,
                 number: number.clone(),
                 name: name.clone(),
             }
@@ -1756,6 +1974,48 @@ impl WorktreeView {
     /// - `ViewAction::SaveSpec` if user pressed Enter
     /// - `ViewAction::None` otherwise
     pub fn handle_specify_review_input(&mut self, key: KeyEvent) -> ViewAction {
+        // Feature 055: Task list mode key handling
+        if self.specify_state.is_task_list_mode() {
+            match (key.code, key.modifiers) {
+                // Shift+J - Move task down in list
+                (KeyCode::Char('J'), _) | (KeyCode::Char('j'), KeyModifiers::SHIFT) => {
+                    if let Some(ref mut task_list) = self.specify_state.task_list_state {
+                        task_list.reorder_down();
+                    }
+                    return ViewAction::None;
+                }
+                // Shift+K - Move task up in list
+                (KeyCode::Char('K'), _) | (KeyCode::Char('k'), KeyModifiers::SHIFT) => {
+                    if let Some(ref mut task_list) = self.specify_state.task_list_state {
+                        task_list.reorder_up();
+                    }
+                    return ViewAction::None;
+                }
+                // j - Select next task
+                (KeyCode::Char('j'), KeyModifiers::NONE) | (KeyCode::Down, _) => {
+                    if let Some(ref mut task_list) = self.specify_state.task_list_state {
+                        task_list.select_next();
+                    }
+                    return ViewAction::None;
+                }
+                // k - Select previous task
+                (KeyCode::Char('k'), KeyModifiers::NONE) | (KeyCode::Up, _) => {
+                    if let Some(ref mut task_list) = self.specify_state.task_list_state {
+                        task_list.select_previous();
+                    }
+                    return ViewAction::None;
+                }
+                // t - Toggle between list mode and raw text mode
+                (KeyCode::Char('t'), KeyModifiers::NONE) => {
+                    if let Some(ref mut task_list) = self.specify_state.task_list_state {
+                        task_list.list_mode = !task_list.list_mode;
+                    }
+                    return ViewAction::None;
+                }
+                _ => {}
+            }
+        }
+
         match key.code {
             // Enter - Save spec
             KeyCode::Enter => self.save_specify_spec(),
@@ -2167,6 +2427,7 @@ impl WorktreeView {
     }
 
     /// Render specify Review Phase with spec preview (T034, T038, T039)
+    /// Feature 055: Enhanced with structured task list rendering
     fn render_specify_review(&self, frame: &mut Frame, area: Rect) {
         // Build ALL lines with styling
         let mut all_lines: Vec<Line> = vec![];
@@ -2185,32 +2446,122 @@ impl WorktreeView {
             all_lines.push(Line::from(""));
         }
 
-        // Spec content section
-        all_lines.push(Line::from(Span::styled(
-            "Generated Specification:",
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        )));
-        all_lines.push(Line::from(""));
+        // Feature 055: Check if in task list mode
+        if self.specify_state.is_task_list_mode() {
+            // Render structured task list
+            all_lines.push(Line::from(Span::styled(
+                "Generated Tasks (List Mode):",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )));
+            all_lines.push(Line::from(""));
 
-        // Spec markdown content
-        if let Some(spec) = &self.specify_state.generated_spec {
-            for line in spec.lines() {
-                all_lines.push(Line::from(line.to_string()));
+            if let Some(ref task_list) = self.specify_state.task_list_state {
+                for (idx, task) in task_list.tasks.iter().enumerate() {
+                    let is_selected = idx == task_list.selected;
+
+                    // Build task line with markers
+                    let mut spans = vec![];
+
+                    // Selection indicator
+                    if is_selected {
+                        spans.push(Span::styled("▶ ", Style::default().fg(Color::Green)));
+                    } else {
+                        spans.push(Span::raw("  "));
+                    }
+
+                    // Checkbox
+                    let checkbox = if task.completed { "[X]" } else { "[ ]" };
+                    spans.push(Span::styled(
+                        checkbox,
+                        Style::default().fg(if task.completed { Color::Green } else { Color::Gray }),
+                    ));
+                    spans.push(Span::raw(" "));
+
+                    // Task ID
+                    spans.push(Span::styled(
+                        &task.id,
+                        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    ));
+                    spans.push(Span::raw(" "));
+
+                    // Parallel marker
+                    if task.is_parallel {
+                        spans.push(Span::styled("[P]", Style::default().fg(Color::Magenta)));
+                        spans.push(Span::raw(" "));
+                    }
+
+                    // User story marker
+                    if let Some(ref us) = task.user_story {
+                        spans.push(Span::styled(
+                            format!("[{}]", us),
+                            Style::default().fg(Color::Blue),
+                        ));
+                        spans.push(Span::raw(" "));
+                    }
+
+                    // Description
+                    let desc_style = if is_selected {
+                        Style::default().add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default()
+                    };
+                    spans.push(Span::styled(&task.description, desc_style));
+
+                    all_lines.push(Line::from(spans));
+                }
+
+                // Task count
+                all_lines.push(Line::from(""));
+                all_lines.push(Line::from(Span::styled(
+                    format!("{} tasks total", task_list.tasks.len()),
+                    Style::default().fg(Color::DarkGray),
+                )));
             }
-        }
 
-        // Action hints (T039)
-        all_lines.push(Line::from(""));
-        all_lines.push(Line::from(vec![
-            Span::styled("[Enter]", Style::default().fg(Color::Green)),
-            Span::raw(" Save  "),
-            Span::styled("[e]", Style::default().fg(Color::Cyan)),
-            Span::raw(" Edit  "),
-            Span::styled("[Esc]", Style::default().fg(Color::Red)),
-            Span::raw(" Cancel"),
-        ]));
+            // Action hints for task list mode
+            all_lines.push(Line::from(""));
+            all_lines.push(Line::from(vec![
+                Span::styled("[j/k]", Style::default().fg(Color::Cyan)),
+                Span::raw(" Select  "),
+                Span::styled("[J/K]", Style::default().fg(Color::Yellow)),
+                Span::raw(" Reorder  "),
+                Span::styled("[t]", Style::default().fg(Color::Magenta)),
+                Span::raw(" Toggle mode  "),
+                Span::styled("[Enter]", Style::default().fg(Color::Green)),
+                Span::raw(" Save  "),
+                Span::styled("[Esc]", Style::default().fg(Color::Red)),
+                Span::raw(" Cancel"),
+            ]));
+        } else {
+            // Standard spec content section
+            all_lines.push(Line::from(Span::styled(
+                "Generated Specification:",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )));
+            all_lines.push(Line::from(""));
+
+            // Spec markdown content
+            if let Some(spec) = &self.specify_state.generated_spec {
+                for line in spec.lines() {
+                    all_lines.push(Line::from(line.to_string()));
+                }
+            }
+
+            // Action hints (T039)
+            all_lines.push(Line::from(""));
+            all_lines.push(Line::from(vec![
+                Span::styled("[Enter]", Style::default().fg(Color::Green)),
+                Span::raw(" Save  "),
+                Span::styled("[e]", Style::default().fg(Color::Cyan)),
+                Span::raw(" Edit  "),
+                Span::styled("[Esc]", Style::default().fg(Color::Red)),
+                Span::raw(" Cancel"),
+            ]));
+        }
 
         // Apply scrolling based on content_scroll
         let visible_height = area.height.saturating_sub(2) as usize;
@@ -2220,12 +2571,19 @@ impl WorktreeView {
             .take(visible_height)
             .collect();
 
+        // Determine title based on mode
+        let title = if self.specify_state.is_task_list_mode() {
+            "Review Tasks (Reorder with J/K)"
+        } else {
+            "Review Generated Spec"
+        };
+
         // Render paragraph
         let paragraph = Paragraph::new(visible_lines)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .title("Review Generated Spec")
+                    .title(title)
                     .border_style(Style::default().fg(Color::Cyan)),
             )
             .wrap(Wrap { trim: false });
@@ -3532,5 +3890,264 @@ mod tests {
             kind: crossterm::event::KeyEventKind::Press,
             state: crossterm::event::KeyEventState::NONE,
         }
+    }
+
+    // ===== Feature 055: Interactive Task Generation Tests =====
+
+    #[test]
+    fn test_parsed_task_parse_basic() {
+        let line = "- [ ] T001 Create User model in src/models/user.rs";
+        let task = ParsedTask::parse(line).expect("Should parse basic task");
+
+        assert_eq!(task.id, "T001");
+        assert!(!task.is_parallel);
+        assert!(task.user_story.is_none());
+        assert_eq!(task.description, "Create User model in src/models/user.rs");
+        assert!(!task.completed);
+    }
+
+    #[test]
+    fn test_parsed_task_parse_with_parallel_marker() {
+        let line = "- [ ] T002 [P] Implement UserService in src/services/";
+        let task = ParsedTask::parse(line).expect("Should parse task with [P]");
+
+        assert_eq!(task.id, "T002");
+        assert!(task.is_parallel);
+        assert!(task.user_story.is_none());
+        assert_eq!(task.description, "Implement UserService in src/services/");
+        assert!(!task.completed);
+    }
+
+    #[test]
+    fn test_parsed_task_parse_with_user_story() {
+        let line = "- [ ] T003 [US1] Add validation logic";
+        let task = ParsedTask::parse(line).expect("Should parse task with [US]");
+
+        assert_eq!(task.id, "T003");
+        assert!(!task.is_parallel);
+        assert_eq!(task.user_story, Some("US1".to_string()));
+        assert_eq!(task.description, "Add validation logic");
+    }
+
+    #[test]
+    fn test_parsed_task_parse_with_all_markers() {
+        let line = "- [X] T004 [P] [US2] Complete implementation";
+        let task = ParsedTask::parse(line).expect("Should parse task with all markers");
+
+        assert_eq!(task.id, "T004");
+        assert!(task.is_parallel);
+        assert_eq!(task.user_story, Some("US2".to_string()));
+        assert_eq!(task.description, "Complete implementation");
+        assert!(task.completed);
+    }
+
+    #[test]
+    fn test_parsed_task_parse_rejects_non_task() {
+        assert!(ParsedTask::parse("# Section Header").is_none());
+        assert!(ParsedTask::parse("Regular paragraph text").is_none());
+        assert!(ParsedTask::parse("- [ ] No task ID").is_none());
+        assert!(ParsedTask::parse("").is_none());
+    }
+
+    #[test]
+    fn test_parsed_task_to_markdown() {
+        let task = ParsedTask {
+            id: "T001".to_string(),
+            is_parallel: false,
+            user_story: None,
+            description: "Test description".to_string(),
+            file_path: None,
+            completed: false,
+            raw_line: String::new(),
+        };
+
+        assert_eq!(task.to_markdown(), "- [ ] T001 Test description");
+
+        let task_parallel = ParsedTask {
+            id: "T002".to_string(),
+            is_parallel: true,
+            user_story: Some("US1".to_string()),
+            description: "Parallel task".to_string(),
+            file_path: None,
+            completed: true,
+            raw_line: String::new(),
+        };
+
+        assert_eq!(task_parallel.to_markdown(), "- [X] T002 [P] [US1] Parallel task");
+    }
+
+    #[test]
+    fn test_task_list_state_from_markdown() {
+        let content = r#"# Tasks
+
+- [ ] T001 First task
+- [ ] T002 [P] Parallel task
+- [ ] T003 [US1] User story task
+
+## Dependencies
+
+Some other content
+"#;
+        let state = TaskListState::from_markdown(content);
+
+        assert_eq!(state.len(), 3);
+        assert_eq!(state.tasks[0].id, "T001");
+        assert_eq!(state.tasks[1].id, "T002");
+        assert!(state.tasks[1].is_parallel);
+        assert_eq!(state.tasks[2].id, "T003");
+        assert_eq!(state.tasks[2].user_story, Some("US1".to_string()));
+    }
+
+    #[test]
+    fn test_task_list_state_selection() {
+        let content = "- [ ] T001 First\n- [ ] T002 Second\n- [ ] T003 Third";
+        let mut state = TaskListState::from_markdown(content);
+
+        assert_eq!(state.selected, 0);
+
+        state.select_next();
+        assert_eq!(state.selected, 1);
+
+        state.select_next();
+        assert_eq!(state.selected, 2);
+
+        // Should not go past last item
+        state.select_next();
+        assert_eq!(state.selected, 2);
+
+        state.select_previous();
+        assert_eq!(state.selected, 1);
+
+        state.select_previous();
+        assert_eq!(state.selected, 0);
+
+        // Should not go before first item
+        state.select_previous();
+        assert_eq!(state.selected, 0);
+    }
+
+    #[test]
+    fn test_task_list_state_reorder_up() {
+        let content = "- [ ] T001 First\n- [ ] T002 Second\n- [ ] T003 Third";
+        let mut state = TaskListState::from_markdown(content);
+
+        // Select second task
+        state.select_next();
+        assert_eq!(state.selected, 1);
+        assert_eq!(state.tasks[1].id, "T002");
+
+        // Reorder up
+        state.reorder_up();
+
+        // T002 should now be first, selection follows
+        assert_eq!(state.selected, 0);
+        assert_eq!(state.tasks[0].id, "T002");
+        assert_eq!(state.tasks[1].id, "T001");
+        assert_eq!(state.tasks[2].id, "T003");
+
+        // Reorder up at top should do nothing
+        state.reorder_up();
+        assert_eq!(state.selected, 0);
+        assert_eq!(state.tasks[0].id, "T002");
+    }
+
+    #[test]
+    fn test_task_list_state_reorder_down() {
+        let content = "- [ ] T001 First\n- [ ] T002 Second\n- [ ] T003 Third";
+        let mut state = TaskListState::from_markdown(content);
+
+        // Selection starts at first task
+        assert_eq!(state.selected, 0);
+        assert_eq!(state.tasks[0].id, "T001");
+
+        // Reorder down
+        state.reorder_down();
+
+        // T001 should now be second, selection follows
+        assert_eq!(state.selected, 1);
+        assert_eq!(state.tasks[0].id, "T002");
+        assert_eq!(state.tasks[1].id, "T001");
+        assert_eq!(state.tasks[2].id, "T003");
+
+        // Reorder down again
+        state.reorder_down();
+        assert_eq!(state.selected, 2);
+        assert_eq!(state.tasks[2].id, "T001");
+
+        // Reorder down at bottom should do nothing
+        state.reorder_down();
+        assert_eq!(state.selected, 2);
+        assert_eq!(state.tasks[2].id, "T001");
+    }
+
+    #[test]
+    fn test_task_list_state_to_markdown() {
+        let content = "- [ ] T001 First\n- [ ] T002 [P] Second\n- [X] T003 [US1] Third";
+        let mut state = TaskListState::from_markdown(content);
+
+        // Reorder: move T003 to top
+        state.select_next();
+        state.select_next(); // Select T003
+        state.reorder_up();  // T003 is now second
+        state.reorder_up();  // T003 is now first
+
+        let markdown = state.to_markdown();
+        let lines: Vec<&str> = markdown.lines().collect();
+
+        assert_eq!(lines.len(), 3);
+        assert!(lines[0].contains("T003"));
+        assert!(lines[1].contains("T001"));
+        assert!(lines[2].contains("T002"));
+    }
+
+    #[test]
+    fn test_specify_state_task_list_mode() {
+        let mut state = SpecifyState::for_phase(SpecPhase::Tasks);
+
+        // Initially not in task list mode
+        assert!(!state.is_task_list_mode());
+
+        // Set content with tasks
+        let content = "- [ ] T001 First\n- [ ] T002 Second".to_string();
+        state.set_generated_content(content, "055".to_string(), "test-feature".to_string());
+
+        // Should now have task list state
+        assert!(state.task_list_state.is_some());
+        let task_list = state.task_list_state.as_ref().unwrap();
+        assert_eq!(task_list.len(), 2);
+
+        // Enable list mode
+        if let Some(ref mut tl) = state.task_list_state {
+            tl.list_mode = true;
+        }
+        assert!(state.is_task_list_mode());
+
+        // get_current_content should return task list markdown
+        let content = state.get_current_content();
+        assert!(content.is_some());
+        assert!(content.unwrap().contains("T001"));
+    }
+
+    #[test]
+    fn test_specify_state_task_list_get_content_after_reorder() {
+        let mut state = SpecifyState::for_phase(SpecPhase::Tasks);
+
+        let content = "- [ ] T001 First\n- [ ] T002 Second\n- [ ] T003 Third".to_string();
+        state.set_generated_content(content, "055".to_string(), "test".to_string());
+
+        // Reorder tasks
+        if let Some(ref mut tl) = state.task_list_state {
+            tl.list_mode = true;
+            tl.reorder_down(); // Move T001 down
+        }
+
+        // Content should reflect reordered tasks
+        let result = state.get_current_content().unwrap();
+        let lines: Vec<&str> = result.lines().collect();
+
+        // T002 should now be first
+        assert!(lines[0].contains("T002"));
+        assert!(lines[1].contains("T001"));
+        assert!(lines[2].contains("T003"));
     }
 }
