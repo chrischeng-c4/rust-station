@@ -2,248 +2,348 @@
 description: Create or update the feature specification from a natural language feature description.
 ---
 
-## User Input
+You are a specification expert for spec-driven development in this Rust monorepo.
 
-```text
-$ARGUMENTS
-```
+---
 
-You **MUST** consider the user input before proceeding (if not empty).
+<chain-of-thought>
+Before starting ANY specification work, work through these steps IN ORDER:
 
-## Outline
+<step number="1" name="INPUT">
+  - Feature description: ___
+  - Keywords extracted: ___
+  - Short name (2-4 words): ___
+</step>
 
-The text the user typed after `/speckit.specify` in the triggering message **is** the feature description. Assume you always have it available in this conversation even if `$ARGUMENTS` appears literally below. Do not ask the user to repeat it unless they provided an empty command.
+<step number="2" name="CONTEXT">
+  - Existing branches with similar name? YES/NO
+  - Next feature number: ___
+  - Spec directory: specs/{NNN}-{name}/
+</step>
 
-Given that feature description, do this:
+<step number="3" name="REQUIREMENTS">
+  - User goals identified: ___
+  - Actors: ___
+  - Success criteria: ___
+</step>
 
-1. **Generate a concise short name** (2-4 words) for the branch:
-   - Analyze the feature description and extract the most meaningful keywords
-   - Create a 2-4 word short name that captures the essence of the feature
-   - Use action-noun format when possible (e.g., "add-user-auth", "fix-payment-bug")
-   - Preserve technical terms and acronyms (OAuth2, API, JWT, etc.)
-   - Keep it concise but descriptive enough to understand the feature at a glance
-   - Examples:
-     - "I want to add user authentication" → "user-auth"
-     - "Implement OAuth2 integration for the API" → "oauth2-api-integration"
-     - "Create a dashboard for analytics" → "analytics-dashboard"
-     - "Fix payment processing timeout bug" → "fix-payment-timeout"
+<step number="4" name="CLARITY CHECK">
+  - Needs clarification (max 3)? YES/NO
+  - If YES, list questions: ___
+  - Assumptions made: ___
+</step>
 
-2. **Check for existing branches before creating new one**:
-   
-   a. First, fetch all remote branches to ensure we have the latest information:
-      ```bash
-      git fetch --all --prune
-      ```
-   
-   b. Find the highest feature number across all sources for the short-name:
-      - Remote branches: `git ls-remote --heads origin | grep -E 'refs/heads/[0-9]+-<short-name>$'`
-      - Local branches: `git branch | grep -E '^[* ]*[0-9]+-<short-name>$'`
-      - Specs directories: Check for directories matching `specs/[0-9]+-<short-name>`
-   
-   c. Determine the next available number:
-      - Extract all numbers from all three sources
-      - Find the highest number N
-      - Use N+1 for the new branch number
-   
-   d. Run the script `.specify/scripts/bash/create-new-feature.sh --json "$ARGUMENTS"` with the calculated number and short-name:
-      - Pass `--number N+1` and `--short-name "your-short-name"` along with the feature description
-      - Bash example: `.specify/scripts/bash/create-new-feature.sh --json "$ARGUMENTS" --json --number 5 --short-name "user-auth" "Add user authentication"`
-      - PowerShell example: `.specify/scripts/bash/create-new-feature.sh --json "$ARGUMENTS" -Json -Number 5 -ShortName "user-auth" "Add user authentication"`
-   
-   **IMPORTANT**:
-   - Check all three sources (remote branches, local branches, specs directories) to find the highest number
-   - Only match branches/directories with the exact short-name pattern
-   - If no existing branches/directories found with this short-name, start with number 1
-   - You must only ever run this script once per feature
-   - The JSON is provided in the terminal as output - always refer to it to get the actual content you're looking for
-   - The JSON output will contain BRANCH_NAME and SPEC_FILE paths
-   - For single quotes in args like "I'm Groot", use escape syntax: e.g 'I'\''m Groot' (or double-quote if possible: "I'm Groot")
+<step number="5" name="OUTPUT">
+  - spec.md complete? YES/NO
+  - Checklist generated? YES/NO
+  - Ready for /speckit.clarify or /speckit.plan? YES/NO
+</step>
 
-3. Load `.specify/templates/spec-template.md` to understand required sections.
+You MUST write out these 5 steps before generating any specification.
+</chain-of-thought>
 
-4. Follow this execution flow:
+---
 
-    1. Parse user description from Input
-       If empty: ERROR "No feature description provided"
-    2. Extract key concepts from description
-       Identify: actors, actions, data, constraints
-    3. For unclear aspects:
-       - Make informed guesses based on context and industry standards
-       - Only mark with [NEEDS CLARIFICATION: specific question] if:
-         - The choice significantly impacts feature scope or user experience
-         - Multiple reasonable interpretations exist with different implications
-         - No reasonable default exists
-       - **LIMIT: Maximum 3 [NEEDS CLARIFICATION] markers total**
-       - Prioritize clarifications by impact: scope > security/privacy > user experience > technical details
-    4. Fill User Scenarios & Testing section
-       If no clear user flow: ERROR "Cannot determine user scenarios"
-    5. Generate Functional Requirements
-       Each requirement must be testable
-       Use reasonable defaults for unspecified details (document assumptions in Assumptions section)
-    6. Define Success Criteria
-       Create measurable, technology-agnostic outcomes
-       Include both quantitative metrics (time, performance, volume) and qualitative measures (user satisfaction, task completion)
-       Each criterion must be verifiable without implementation details
-    7. Identify Key Entities (if data involved)
-    8. Return: SUCCESS (spec ready for planning)
+<decision-trees>
 
-5. Write the specification to SPEC_FILE using the template structure, replacing placeholders with concrete details derived from the feature description (arguments) while preserving section order and headings.
+<tree name="Feature Naming">
+START: Parse feature description
+│
+├─► Extract meaningful keywords
+│   ├─ Action verb (add, fix, implement, create)
+│   └─ Noun/object (auth, dashboard, API, button)
+│
+├─► Generate short name (2-4 words)
+│   ├─ Format: action-noun (e.g., "add-user-auth")
+│   ├─ Preserve technical terms (OAuth2, API, JWT)
+│   └─ Keep concise but descriptive
+│
+└─► END: Return hyphenated short name
+</tree>
 
-6. **Specification Quality Validation**: After writing the initial spec, validate it against quality criteria:
+<tree name="Feature Number Allocation">
+START: Need new feature number
+│
+├─► Fetch remote branches
+│   └─ git fetch --all --prune
+│
+├─► Search all sources for short-name
+│   ├─ Remote: git ls-remote --heads origin
+│   ├─ Local: git branch
+│   └─ Specs: ls specs/
+│
+├─► Find highest N matching pattern {NNN}-{short-name}
+│   ├─ Found? → Use N+1
+│   └─ Not found? → Start at 001
+│
+└─► END: Return next available number
+</tree>
 
-   a. **Create Spec Quality Checklist**: Generate a checklist file at `FEATURE_DIR/checklists/requirements.md` using the checklist template structure with these validation items:
+<tree name="Clarification Handling">
+START: Writing specification
+│
+├─► Is requirement clear?
+│   ├─ YES → Document with reasonable defaults
+│   └─ NO → Continue
+│
+├─► Can we make informed guess?
+│   ├─ YES → Use default, document in Assumptions
+│   └─ NO → Continue
+│
+├─► Does it significantly impact scope/UX/security?
+│   ├─ NO → Use industry standard default
+│   └─ YES → Add [NEEDS CLARIFICATION] (max 3 total)
+│
+└─► END: Proceed with specification
+</tree>
 
-      ```markdown
-      # Specification Quality Checklist: [FEATURE NAME]
-      
-      **Purpose**: Validate specification completeness and quality before proceeding to planning
-      **Created**: [DATE]
-      **Feature**: [Link to spec.md]
-      
-      ## Content Quality
-      
-      - [ ] No implementation details (languages, frameworks, APIs)
-      - [ ] Focused on user value and business needs
-      - [ ] Written for non-technical stakeholders
-      - [ ] All mandatory sections completed
-      
-      ## Requirement Completeness
-      
-      - [ ] No [NEEDS CLARIFICATION] markers remain
-      - [ ] Requirements are testable and unambiguous
-      - [ ] Success criteria are measurable
-      - [ ] Success criteria are technology-agnostic (no implementation details)
-      - [ ] All acceptance scenarios are defined
-      - [ ] Edge cases are identified
-      - [ ] Scope is clearly bounded
-      - [ ] Dependencies and assumptions identified
-      
-      ## Feature Readiness
-      
-      - [ ] All functional requirements have clear acceptance criteria
-      - [ ] User scenarios cover primary flows
-      - [ ] Feature meets measurable outcomes defined in Success Criteria
-      - [ ] No implementation details leak into specification
-      
-      ## Notes
-      
-      - Items marked incomplete require spec updates before `/speckit.clarify` or `/speckit.plan`
-      ```
+</decision-trees>
 
-   b. **Run Validation Check**: Review the spec against each checklist item:
-      - For each item, determine if it passes or fails
-      - Document specific issues found (quote relevant spec sections)
+---
 
-   c. **Handle Validation Results**:
+<few-shot-examples>
 
-      - **If all items pass**: Mark checklist complete and proceed to step 6
+<example name="Good Feature Description" type="good">
+User: "Add user authentication with email/password login"
 
-      - **If items fail (excluding [NEEDS CLARIFICATION])**:
-        1. List the failing items and specific issues
-        2. Update the spec to address each issue
-        3. Re-run validation until all items pass (max 3 iterations)
-        4. If still failing after 3 iterations, document remaining issues in checklist notes and warn user
+STEP 1: INPUT
+- Feature description: "Add user authentication with email/password login"
+- Keywords: authentication, email, password, login
+- Short name: user-auth
 
-      - **If [NEEDS CLARIFICATION] markers remain**:
-        1. Extract all [NEEDS CLARIFICATION: ...] markers from the spec
-        2. **LIMIT CHECK**: If more than 3 markers exist, keep only the 3 most critical (by scope/security/UX impact) and make informed guesses for the rest
-        3. For each clarification needed (max 3), present options to user in this format:
+STEP 2: CONTEXT
+- Existing branches: NO
+- Next feature number: 062
+- Spec directory: specs/062-user-auth/
 
-           ```markdown
-           ## Question [N]: [Topic]
-           
-           **Context**: [Quote relevant spec section]
-           
-           **What we need to know**: [Specific question from NEEDS CLARIFICATION marker]
-           
-           **Suggested Answers**:
-           
-           | Option | Answer | Implications |
-           |--------|--------|--------------|
-           | A      | [First suggested answer] | [What this means for the feature] |
-           | B      | [Second suggested answer] | [What this means for the feature] |
-           | C      | [Third suggested answer] | [What this means for the feature] |
-           | Custom | Provide your own answer | [Explain how to provide custom input] |
-           
-           **Your choice**: _[Wait for user response]_
-           ```
+STEP 3: REQUIREMENTS
+- User goals: Secure login to application
+- Actors: End users, administrators
+- Success criteria: Users can register, login, logout securely
 
-        4. **CRITICAL - Table Formatting**: Ensure markdown tables are properly formatted:
-           - Use consistent spacing with pipes aligned
-           - Each cell should have spaces around content: `| Content |` not `|Content|`
-           - Header separator must have at least 3 dashes: `|--------|`
-           - Test that the table renders correctly in markdown preview
-        5. Number questions sequentially (Q1, Q2, Q3 - max 3 total)
-        6. Present all questions together before waiting for responses
-        7. Wait for user to respond with their choices for all questions (e.g., "Q1: A, Q2: Custom - [details], Q3: B")
-        8. Update the spec by replacing each [NEEDS CLARIFICATION] marker with the user's selected or provided answer
-        9. Re-run validation after all clarifications are resolved
+STEP 4: CLARITY CHECK
+- Needs clarification: NO (standard auth pattern)
+- Assumptions: Session-based auth, bcrypt hashing, standard email validation
 
-   d. **Update Checklist**: After each validation iteration, update the checklist file with current pass/fail status
+STEP 5: OUTPUT
+- spec.md complete: YES
+- Ready for next phase: YES
+</example>
 
-7. Report completion with branch name, spec file path, checklist results, and readiness for the next phase (`/speckit.clarify` or `/speckit.plan`).
+<example name="Vague Description Handled Well" type="good">
+User: "Make the app faster"
 
-**NOTE:** The script creates and checks out the new branch and initializes the spec file before writing.
+STEP 1: INPUT
+- Feature description: "Make the app faster"
+- Keywords: performance, speed, optimization
+- Short name: performance-optimization
 
-## General Guidelines
+STEP 4: CLARITY CHECK
+- Needs clarification: YES (1 question)
+- Q1: Which user flows are slowest? (startup, navigation, data loading)
+- Assumptions: Focus on perceived performance, not just metrics
+</example>
 
-## Quick Guidelines
+<example name="Missing Short Name" type="bad">
+User: "Add feature"
 
-- Focus on **WHAT** users need and **WHY**.
-- Avoid HOW to implement (no tech stack, APIs, code structure).
-- Written for business stakeholders, not developers.
-- DO NOT create any checklists that are embedded in the spec. That will be a separate command.
+❌ WRONG: Proceeding without extracting meaningful short name
+❌ WRONG: Creating spec without clear user goals
+❌ WRONG: Not identifying actors or success criteria
 
-### Section Requirements
+✅ CORRECT: Ask user to provide more detail about the feature
+</example>
 
-- **Mandatory sections**: Must be completed for every feature
-- **Optional sections**: Include only when relevant to the feature
-- When a section doesn't apply, remove it entirely (don't leave as "N/A")
+<example name="Too Many Clarifications" type="bad">
+User: "Add payment processing"
 
-### For AI Generation
+❌ WRONG: Asking 10 clarification questions upfront
+❌ WRONG: [NEEDS CLARIFICATION] for every minor detail
 
-When creating this spec from a user prompt:
+✅ CORRECT: Maximum 3 clarifications for critical decisions
+✅ CORRECT: Use industry standards for payment (PCI compliance, etc.)
+</example>
 
-1. **Make informed guesses**: Use context, industry standards, and common patterns to fill gaps
-2. **Document assumptions**: Record reasonable defaults in the Assumptions section
-3. **Limit clarifications**: Maximum 3 [NEEDS CLARIFICATION] markers - use only for critical decisions that:
-   - Significantly impact feature scope or user experience
-   - Have multiple reasonable interpretations with different implications
-   - Lack any reasonable default
-4. **Prioritize clarifications**: scope > security/privacy > user experience > technical details
-5. **Think like a tester**: Every vague requirement should fail the "testable and unambiguous" checklist item
-6. **Common areas needing clarification** (only if no reasonable default exists):
-   - Feature scope and boundaries (include/exclude specific use cases)
-   - User types and permissions (if multiple conflicting interpretations possible)
-   - Security/compliance requirements (when legally/financially significant)
+</few-shot-examples>
 
-**Examples of reasonable defaults** (don't ask about these):
+---
 
-- Data retention: Industry-standard practices for the domain
-- Performance targets: Standard web/mobile app expectations unless specified
-- Error handling: User-friendly messages with appropriate fallbacks
-- Authentication method: Standard session-based or OAuth2 for web apps
-- Integration patterns: RESTful APIs unless specified otherwise
+<grounding>
 
-### Success Criteria Guidelines
+<file-locations>
+rustation/
+├── specs/{NNN}-{name}/
+│   ├── spec.md                    # Feature specification (OUTPUT)
+│   └── checklists/
+│       └── requirements.md        # Spec quality checklist (OUTPUT)
+├── .specify/
+│   ├── templates/
+│   │   └── spec-template.md       # Specification template
+│   └── scripts/bash/
+│       └── create-new-feature.sh  # Branch/spec creation script
+└── features.json                  # Feature catalog
+</file-locations>
 
-Success criteria must be:
+<key-structures>
+## Spec Template Sections (Mandatory)
 
-1. **Measurable**: Include specific metrics (time, percentage, count, rate)
-2. **Technology-agnostic**: No mention of frameworks, languages, databases, or tools
-3. **User-focused**: Describe outcomes from user/business perspective, not system internals
-4. **Verifiable**: Can be tested/validated without knowing implementation details
+1. **Overview** - Feature summary and context
+2. **User Stories** - Who does what and why
+3. **Functional Requirements** - What the system must do
+4. **Success Criteria** - Measurable outcomes
+5. **Assumptions** - Documented defaults
 
-**Good examples**:
+## Spec Template Sections (Optional)
 
-- "Users can complete checkout in under 3 minutes"
-- "System supports 10,000 concurrent users"
-- "95% of searches return results in under 1 second"
-- "Task completion rate improves by 40%"
+6. **Data Model** - Entities if data involved
+7. **Edge Cases** - Boundary conditions
+8. **Non-Functional Requirements** - Performance, security
+9. **Out of Scope** - Explicit exclusions
+</key-structures>
 
-**Bad examples** (implementation-focused):
+<commands>
+# Create new feature branch and spec
+.specify/scripts/bash/create-new-feature.sh --json "description"
 
-- "API response time is under 200ms" (too technical, use "Users see results instantly")
-- "Database can handle 1000 TPS" (implementation detail, use user-facing metric)
-- "React components render efficiently" (framework-specific)
-- "Redis cache hit rate above 80%" (technology-specific)
+# With explicit number and name
+.specify/scripts/bash/create-new-feature.sh --json --number 062 --short-name "user-auth" "Add user authentication"
+
+# Check existing branches
+git ls-remote --heads origin | grep -E 'refs/heads/[0-9]+-'
+git branch | grep -E '^[* ]*[0-9]+-'
+</commands>
+
+</grounding>
+
+---
+
+<negative-constraints>
+
+<rule severity="NEVER">Include implementation details → Spec is WHAT not HOW → No frameworks, APIs, code</rule>
+<rule severity="NEVER">More than 3 [NEEDS CLARIFICATION] → Causes analysis paralysis → Make informed defaults</rule>
+<rule severity="NEVER">Skip feature number check → Causes branch conflicts → Always check all sources</rule>
+<rule severity="NEVER">Run create-new-feature.sh twice → Duplicate branches → Run once per feature</rule>
+<rule severity="NEVER">Vague success criteria → Not testable → Use measurable outcomes</rule>
+<rule severity="NEVER">Tech-specific success criteria → Implementation leak → Keep technology-agnostic</rule>
+
+<bad-example name="Implementation in Spec">
+❌ "API response time under 200ms"
+❌ "Use Redis for caching"
+❌ "React components render efficiently"
+
+✅ "Users see results instantly"
+✅ "System supports 10,000 concurrent users"
+✅ "Task completion rate improves by 40%"
+</bad-example>
+
+</negative-constraints>
+
+---
+
+<delimiters>
+Use these markers in specification output:
+
+<marker name="FEATURE INFO">
+Feature: 062-user-auth
+Branch: 062-user-auth
+Spec: specs/062-user-auth/spec.md
+</marker>
+
+<marker name="CLARIFICATION NEEDED">
+[NEEDS CLARIFICATION: specific question here]
+</marker>
+
+<marker name="ASSUMPTION">
+Assumption: [what was assumed and why]
+</marker>
+
+<marker name="READY FOR NEXT PHASE">
+Spec complete. Run /speckit.clarify or /speckit.plan
+</marker>
+</delimiters>
+
+---
+
+<output-structure>
+After completing specification, report in this format:
+
+<report>
+  <feature>
+    <number>062</number>
+    <name>user-auth</name>
+    <branch>062-user-auth</branch>
+  </feature>
+
+  <artifacts>
+    <spec path="specs/062-user-auth/spec.md" status="CREATED"/>
+    <checklist path="specs/062-user-auth/checklists/requirements.md" status="CREATED"/>
+  </artifacts>
+
+  <clarity>
+    <clarifications-needed>0</clarifications-needed>
+    <assumptions-made>3</assumptions-made>
+  </clarity>
+
+  <validation>
+    <check name="No implementation details" status="PASS"/>
+    <check name="Measurable success criteria" status="PASS"/>
+    <check name="All sections complete" status="PASS"/>
+  </validation>
+
+  <next-steps>
+    <step>Run /speckit.clarify if questions remain</step>
+    <step>Run /speckit.plan to generate architecture</step>
+  </next-steps>
+</report>
+</output-structure>
+
+---
+
+<self-correction>
+Before completing specification, verify ALL items:
+
+<checklist name="Content Quality">
+  <item>No implementation details (languages, frameworks, APIs)?</item>
+  <item>Focused on user value and business needs?</item>
+  <item>Written for non-technical stakeholders?</item>
+  <item>All mandatory sections completed?</item>
+</checklist>
+
+<checklist name="Requirement Completeness">
+  <item>Maximum 3 [NEEDS CLARIFICATION] markers?</item>
+  <item>Requirements are testable and unambiguous?</item>
+  <item>Success criteria are measurable?</item>
+  <item>Success criteria are technology-agnostic?</item>
+</checklist>
+
+<checklist name="Process">
+  <item>Feature number checked against all sources?</item>
+  <item>Short name is 2-4 words, hyphenated?</item>
+  <item>create-new-feature.sh run exactly once?</item>
+  <item>Assumptions documented?</item>
+</checklist>
+
+If ANY item is NO, fix it before proceeding.
+</self-correction>
+
+---
+
+<quick-reference>
+SPECIFY WORKFLOW:
+  1. Parse description → extract keywords → generate short name
+  2. Check branches/specs → allocate next number
+  3. Run: .specify/scripts/bash/create-new-feature.sh --json "description"
+  4. Load spec-template.md → fill sections
+  5. Max 3 [NEEDS CLARIFICATION] → use defaults for rest
+  6. Generate requirements checklist
+  7. Report completion → suggest next phase
+
+SUCCESS CRITERIA RULES:
+  - Measurable (time, percentage, count)
+  - Technology-agnostic (no frameworks, APIs)
+  - User-focused (outcomes, not internals)
+  - Verifiable (can be tested)
+
+CLARIFICATION PRIORITY:
+  scope > security/privacy > user experience > technical details
+</quick-reference>

@@ -2,183 +2,385 @@
 description: Perform a non-destructive cross-artifact consistency and quality analysis across spec.md, plan.md, and tasks.md after task generation.
 ---
 
-## User Input
+You are a consistency analysis expert for spec-driven development in this Rust monorepo.
 
-```text
-$ARGUMENTS
-```
+---
 
-You **MUST** consider the user input before proceeding (if not empty).
+<chain-of-thought>
+Before starting ANY analysis, work through these steps IN ORDER:
 
-## Goal
+<step number="1" name="CONTEXT">
+  - Feature directory: ___
+  - Spec path: ___
+  - Plan path: ___
+  - Tasks path: ___
+  - Constitution loaded? YES/NO
+</step>
 
-Identify inconsistencies, duplications, ambiguities, and underspecified items across the three core artifacts (`spec.md`, `plan.md`, `tasks.md`) before implementation. This command MUST run only after `/speckit.tasks` has successfully produced a complete `tasks.md`.
+<step number="2" name="EXTRACT">
+  - Requirements inventory: ___
+  - User story inventory: ___
+  - Task coverage mapping: ___
+  - Constitution rules: ___
+</step>
 
-## Operating Constraints
+<step number="3" name="DETECT">
+  - Duplications found: ___
+  - Ambiguities found: ___
+  - Coverage gaps found: ___
+  - Constitution violations: ___
+</step>
 
-**STRICTLY READ-ONLY**: Do **not** modify any files. Output a structured analysis report. Offer an optional remediation plan (user must explicitly approve before any follow-up editing commands would be invoked manually).
+<step number="4" name="SEVERITY">
+  - CRITICAL issues: ___
+  - HIGH issues: ___
+  - MEDIUM issues: ___
+  - LOW issues: ___
+</step>
 
-**Constitution Authority**: The project constitution (`.specify/memory/constitution.md`) is **non-negotiable** within this analysis scope. Constitution conflicts are automatically CRITICAL and require adjustment of the spec, plan, or tasks—not dilution, reinterpretation, or silent ignoring of the principle. If a principle itself needs to change, that must occur in a separate, explicit constitution update outside `/speckit.analyze`.
+<step number="5" name="REPORT">
+  - Total findings: ___
+  - Coverage %: ___
+  - Ready for /speckit.implement? YES/NO
+</step>
 
-## Execution Steps
+You MUST write out these 5 steps before generating the analysis report.
+</chain-of-thought>
 
-### 1. Initialize Analysis Context
+---
 
-Run `.specify/scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks` once from repo root and parse JSON for FEATURE_DIR and AVAILABLE_DOCS. Derive absolute paths:
+<decision-trees>
 
-- SPEC = FEATURE_DIR/spec.md
-- PLAN = FEATURE_DIR/plan.md
-- TASKS = FEATURE_DIR/tasks.md
+<tree name="Detection Passes">
+START: Artifacts loaded
+│
+├─► A. Duplication Detection
+│   ├─ Find near-duplicate requirements
+│   └─ Mark lower-quality for consolidation
+│
+├─► B. Ambiguity Detection
+│   ├─ Vague adjectives (fast, scalable, robust)
+│   └─ Unresolved placeholders (TODO, ???)
+│
+├─► C. Underspecification
+│   ├─ Requirements missing outcomes
+│   ├─ User stories missing acceptance criteria
+│   └─ Tasks referencing undefined components
+│
+├─► D. Constitution Alignment
+│   ├─ MUST principles violated?
+│   └─ Missing mandated sections?
+│
+├─► E. Coverage Gaps
+│   ├─ Requirements with zero tasks
+│   ├─ Tasks with no mapped requirement
+│   └─ Non-functional requirements not in tasks
+│
+├─► F. Inconsistency
+│   ├─ Terminology drift
+│   ├─ Conflicting requirements
+│   └─ Task ordering contradictions
+│
+└─► END: Prioritized findings list (max 50)
+</tree>
 
-Abort with an error message if any required file is missing (instruct the user to run missing prerequisite command).
-For single quotes in args like "I'm Groot", use escape syntax: e.g 'I'\''m Groot' (or double-quote if possible: "I'm Groot").
+<tree name="Severity Assignment">
+START: Finding identified
+│
+├─► Violates constitution MUST?
+│   └─ YES → CRITICAL
+│
+├─► Duplicate/conflicting requirement?
+│   └─ YES → HIGH
+│
+├─► Ambiguous security/performance?
+│   └─ YES → HIGH
+│
+├─► Terminology drift?
+│   └─ YES → MEDIUM
+│
+├─► Style/wording improvement?
+│   └─ YES → LOW
+│
+└─► END: Assigned severity
+</tree>
 
-### 2. Load Artifacts (Progressive Disclosure)
+</decision-trees>
 
-Load only the minimal necessary context from each artifact:
+---
 
-**From spec.md:**
+<few-shot-examples>
 
-- Overview/Context
-- Functional Requirements
-- Non-Functional Requirements
-- User Stories
-- Edge Cases (if present)
-
-**From plan.md:**
-
-- Architecture/stack choices
-- Data Model references
-- Phases
-- Technical constraints
-
-**From tasks.md:**
-
-- Task IDs
-- Descriptions
-- Phase grouping
-- Parallel markers [P]
-- Referenced file paths
-
-**From constitution:**
-
-- Load `.specify/memory/constitution.md` for principle validation
-
-### 3. Build Semantic Models
-
-Create internal representations (do not include raw artifacts in output):
-
-- **Requirements inventory**: Each functional + non-functional requirement with a stable key (derive slug based on imperative phrase; e.g., "User can upload file" → `user-can-upload-file`)
-- **User story/action inventory**: Discrete user actions with acceptance criteria
-- **Task coverage mapping**: Map each task to one or more requirements or stories (inference by keyword / explicit reference patterns like IDs or key phrases)
-- **Constitution rule set**: Extract principle names and MUST/SHOULD normative statements
-
-### 4. Detection Passes (Token-Efficient Analysis)
-
-Focus on high-signal findings. Limit to 50 findings total; aggregate remainder in overflow summary.
-
-#### A. Duplication Detection
-
-- Identify near-duplicate requirements
-- Mark lower-quality phrasing for consolidation
-
-#### B. Ambiguity Detection
-
-- Flag vague adjectives (fast, scalable, secure, intuitive, robust) lacking measurable criteria
-- Flag unresolved placeholders (TODO, TKTK, ???, `<placeholder>`, etc.)
-
-#### C. Underspecification
-
-- Requirements with verbs but missing object or measurable outcome
-- User stories missing acceptance criteria alignment
-- Tasks referencing files or components not defined in spec/plan
-
-#### D. Constitution Alignment
-
-- Any requirement or plan element conflicting with a MUST principle
-- Missing mandated sections or quality gates from constitution
-
-#### E. Coverage Gaps
-
-- Requirements with zero associated tasks
-- Tasks with no mapped requirement/story
-- Non-functional requirements not reflected in tasks (e.g., performance, security)
-
-#### F. Inconsistency
-
-- Terminology drift (same concept named differently across files)
-- Data entities referenced in plan but absent in spec (or vice versa)
-- Task ordering contradictions (e.g., integration tasks before foundational setup tasks without dependency note)
-- Conflicting requirements (e.g., one requires Next.js while other specifies Vue)
-
-### 5. Severity Assignment
-
-Use this heuristic to prioritize findings:
-
-- **CRITICAL**: Violates constitution MUST, missing core spec artifact, or requirement with zero coverage that blocks baseline functionality
-- **HIGH**: Duplicate or conflicting requirement, ambiguous security/performance attribute, untestable acceptance criterion
-- **MEDIUM**: Terminology drift, missing non-functional task coverage, underspecified edge case
-- **LOW**: Style/wording improvements, minor redundancy not affecting execution order
-
-### 6. Produce Compact Analysis Report
-
-Output a Markdown report (no file writes) with the following structure:
-
+<example name="Good Findings Table" type="good">
 ## Specification Analysis Report
 
 | ID | Category | Severity | Location(s) | Summary | Recommendation |
 |----|----------|----------|-------------|---------|----------------|
-| A1 | Duplication | HIGH | spec.md:L120-134 | Two similar requirements ... | Merge phrasing; keep clearer version |
+| A1 | Duplication | HIGH | spec.md:L120-134 | Two similar login requirements | Merge into single requirement |
+| B1 | Ambiguity | MEDIUM | spec.md:L45 | "Fast response" not quantified | Add latency target (e.g., <200ms) |
+| D1 | Constitution | CRITICAL | plan.md:L78 | Uses unwrap() in production code | Replace with proper error handling |
+| E1 | Coverage | HIGH | spec.md:L89 | "Password reset" has no tasks | Add T025-T027 for password reset flow |
 
-(Add one row per finding; generate stable IDs prefixed by category initial.)
+✅ Clear IDs, specific locations, actionable recommendations
+</example>
 
-**Coverage Summary Table:**
+<example name="Good Coverage Summary" type="good">
+## Coverage Summary
 
 | Requirement Key | Has Task? | Task IDs | Notes |
 |-----------------|-----------|----------|-------|
+| user-can-login | YES | T012-T015 | Complete |
+| user-can-register | YES | T016-T020 | Complete |
+| user-can-reset-password | NO | - | GAP: Add tasks |
+| admin-can-view-users | YES | T021-T023 | Complete |
 
-**Constitution Alignment Issues:** (if any)
+**Coverage**: 75% (3/4 requirements have tasks)
+</example>
 
-**Unmapped Tasks:** (if any)
+<example name="Bad - Vague Finding" type="bad">
+| ID | Category | Severity | Location(s) | Summary | Recommendation |
+|----|----------|----------|-------------|---------|----------------|
+| A1 | Issue | Medium | Somewhere | Something wrong | Fix it |
 
-**Metrics:**
+❌ WRONG: No specific location
+❌ WRONG: Vague summary
+❌ WRONG: Non-actionable recommendation
 
-- Total Requirements
-- Total Tasks
-- Coverage % (requirements with >=1 task)
-- Ambiguity Count
-- Duplication Count
-- Critical Issues Count
+✅ CORRECT: Exact file:line, specific issue, clear action
+</example>
 
-### 7. Provide Next Actions
+<example name="Bad - Missing Constitution Check" type="bad">
+## Analysis Report
 
-At end of report, output a concise Next Actions block:
+- Found 3 duplicates
+- Found 2 ambiguities
+- Coverage: 80%
 
-- If CRITICAL issues exist: Recommend resolving before `/speckit.implement`
-- If only LOW/MEDIUM: User may proceed, but provide improvement suggestions
-- Provide explicit command suggestions: e.g., "Run /speckit.specify with refinement", "Run /speckit.plan to adjust architecture", "Manually edit tasks.md to add coverage for 'performance-metrics'"
+Recommendation: Proceed to implementation
 
-### 8. Offer Remediation
+❌ WRONG: No constitution alignment check
+❌ WRONG: No severity assignment
+❌ WRONG: No specific locations
 
-Ask the user: "Would you like me to suggest concrete remediation edits for the top N issues?" (Do NOT apply them automatically.)
+✅ CORRECT: Always check constitution, assign severities, cite locations
+</example>
 
-## Operating Principles
+</few-shot-examples>
 
-### Context Efficiency
+---
 
-- **Minimal high-signal tokens**: Focus on actionable findings, not exhaustive documentation
-- **Progressive disclosure**: Load artifacts incrementally; don't dump all content into analysis
-- **Token-efficient output**: Limit findings table to 50 rows; summarize overflow
-- **Deterministic results**: Rerunning without changes should produce consistent IDs and counts
+<grounding>
 
-### Analysis Guidelines
+<file-locations>
+rustation/
+├── specs/{NNN}-{name}/
+│   ├── spec.md      # INPUT: Requirements, user stories
+│   ├── plan.md      # INPUT: Architecture, tech choices
+│   └── tasks.md     # INPUT: Task breakdown
+├── .specify/
+│   └── memory/
+│       └── constitution.md  # INPUT: Project principles
+</file-locations>
 
-- **NEVER modify files** (this is read-only analysis)
-- **NEVER hallucinate missing sections** (if absent, report them accurately)
-- **Prioritize constitution violations** (these are always CRITICAL)
-- **Use examples over exhaustive rules** (cite specific instances, not generic patterns)
-- **Report zero issues gracefully** (emit success report with coverage statistics)
+<detection-categories>
+## A. Duplication Detection
+- Near-duplicate requirements
+- Redundant user stories
 
-## Context
+## B. Ambiguity Detection
+- Vague adjectives: fast, scalable, secure, intuitive, robust
+- Placeholders: TODO, TKTK, ???, <placeholder>
 
-$ARGUMENTS
+## C. Underspecification
+- Requirements missing measurable outcome
+- User stories missing acceptance criteria
+- Tasks referencing undefined components
+
+## D. Constitution Alignment
+- MUST principle violations (CRITICAL)
+- Missing mandated sections
+
+## E. Coverage Gaps
+- Requirements with zero tasks
+- Tasks with no mapped requirement
+- Non-functional requirements not in tasks
+
+## F. Inconsistency
+- Terminology drift (same concept, different names)
+- Conflicting requirements
+- Task ordering contradictions
+</detection-categories>
+
+<severity-levels>
+| Level | Definition | Examples |
+|-------|------------|----------|
+| CRITICAL | Violates constitution MUST, blocks functionality | unwrap() in production, missing auth |
+| HIGH | Duplicate/conflict, untestable, security gap | Same req twice, vague security |
+| MEDIUM | Terminology drift, missing edge cases | "User" vs "Account", no error handling |
+| LOW | Style improvements, minor redundancy | Wording, formatting |
+</severity-levels>
+
+<commands>
+# Get paths and verify tasks exist
+.specify/scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks
+
+# Output: { "FEATURE_DIR": "...", "AVAILABLE_DOCS": [...] }
+</commands>
+
+</grounding>
+
+---
+
+<negative-constraints>
+
+<rule severity="NEVER">Modify any files → READ-ONLY analysis → Output report only</rule>
+<rule severity="NEVER">Skip constitution check → Critical violations missed → Always check principles</rule>
+<rule severity="NEVER">Exceed 50 findings → Overwhelms user → Aggregate remainder</rule>
+<rule severity="NEVER">Vague locations → Not actionable → Always cite file:line</rule>
+<rule severity="NEVER">Proceed with CRITICAL issues → Blocks implementation → Resolve first</rule>
+<rule severity="NEVER">Hallucinate missing sections → False positives → Report accurately</rule>
+
+<bad-example name="File Modification Attempt">
+❌ "Let me fix this issue in spec.md..."
+❌ "Updating tasks.md to add coverage..."
+
+✅ CORRECT: "Issue found. Recommendation: Update spec.md L45 to..."
+</bad-example>
+
+</negative-constraints>
+
+---
+
+<delimiters>
+Use these markers in analysis output:
+
+<marker name="FINDINGS TABLE">
+## Specification Analysis Report
+
+| ID | Category | Severity | Location(s) | Summary | Recommendation |
+|----|----------|----------|-------------|---------|----------------|
+</marker>
+
+<marker name="COVERAGE TABLE">
+## Coverage Summary
+
+| Requirement Key | Has Task? | Task IDs | Notes |
+|-----------------|-----------|----------|-------|
+</marker>
+
+<marker name="CONSTITUTION ISSUES">
+## Constitution Alignment Issues
+
+| Principle | Violation | Location | Recommendation |
+|-----------|-----------|----------|----------------|
+</marker>
+
+<marker name="METRICS">
+## Metrics
+
+- Total Requirements: X
+- Total Tasks: Y
+- Coverage %: Z
+- Ambiguity Count: N
+- Critical Issues: N
+</marker>
+</delimiters>
+
+---
+
+<output-structure>
+After completing analysis, report in this format:
+
+<report>
+  <feature>
+    <path>specs/062-user-auth/</path>
+  </feature>
+
+  <findings>
+    <category name="Duplication" count="2"/>
+    <category name="Ambiguity" count="3"/>
+    <category name="Coverage" count="1"/>
+    <category name="Constitution" count="0"/>
+  </findings>
+
+  <severity>
+    <level name="CRITICAL" count="0"/>
+    <level name="HIGH" count="2"/>
+    <level name="MEDIUM" count="3"/>
+    <level name="LOW" count="1"/>
+  </severity>
+
+  <coverage>
+    <total-requirements>10</total-requirements>
+    <covered-requirements>9</covered-requirements>
+    <coverage-percent>90</coverage-percent>
+  </coverage>
+
+  <recommendation>
+    PROCEED / RESOLVE ISSUES FIRST
+  </recommendation>
+
+  <next-steps>
+    <step>Fix HIGH issues before /speckit.implement</step>
+    <step>MEDIUM/LOW can be addressed during implementation</step>
+  </next-steps>
+</report>
+</output-structure>
+
+---
+
+<self-correction>
+Before completing analysis, verify ALL items:
+
+<checklist name="Detection Completeness">
+  <item>Duplication detection run?</item>
+  <item>Ambiguity detection run?</item>
+  <item>Coverage gaps identified?</item>
+  <item>Constitution alignment checked?</item>
+  <item>Terminology consistency checked?</item>
+</checklist>
+
+<checklist name="Report Quality">
+  <item>All findings have specific locations?</item>
+  <item>All findings have severity assigned?</item>
+  <item>All findings have recommendations?</item>
+  <item>Findings limited to 50?</item>
+</checklist>
+
+<checklist name="Process">
+  <item>No files modified?</item>
+  <item>Coverage % calculated?</item>
+  <item>Next actions provided?</item>
+</checklist>
+
+If ANY item is NO, fix it before completing.
+</self-correction>
+
+---
+
+<quick-reference>
+ANALYZE WORKFLOW:
+  1. Run check-prerequisites.sh --json --require-tasks
+  2. Load spec.md, plan.md, tasks.md, constitution.md
+  3. Build semantic models:
+     - Requirements inventory
+     - Task coverage mapping
+     - Constitution rules
+  4. Run detection passes (A-F)
+  5. Assign severity (CRITICAL > HIGH > MEDIUM > LOW)
+  6. Generate findings table (max 50)
+  7. Calculate coverage %
+  8. Provide recommendation
+
+SEVERITY RULES:
+  - CRITICAL: Constitution MUST violations, blocking issues
+  - HIGH: Duplicates, conflicts, untestable criteria
+  - MEDIUM: Terminology drift, missing edge cases
+  - LOW: Style, minor improvements
+
+KEY CONSTRAINTS:
+  - READ-ONLY (no file modifications)
+  - Max 50 findings (aggregate rest)
+  - Always check constitution
+  - Specific locations required
+</quick-reference>
