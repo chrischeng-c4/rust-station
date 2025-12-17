@@ -409,6 +409,199 @@ COMMIT FORMAT:
   <tip>Use `just install-dev` for hot reload symlinks</tip>
 </debugging>
 
+---
+
+## MCP Architecture (Features 060-065)
+
+rstn uses a **dual-channel architecture** for Claude Code communication, replacing fragile text-based status parsing with robust MCP tools.
+
+### Architecture Overview
+
+```
+Claude Code (claude CLI)
+    ↓ (display channel)
+    ├── stream-json: Real-time text output
+    │   ├── Cost tracking (total_cost_usd)
+    │   ├── Session management (session_id)
+    │   └── Display rendering
+    │
+    ↓ (control channel)
+    └── MCP/SSE: Structured tool calls
+        ├── rstn_report_status
+        ├── rstn_read_spec
+        ├── rstn_get_context
+        └── rstn_complete_task
+```
+
+### Display Channel (stream-json)
+
+Purpose: Real-time text rendering and metadata tracking
+
+- **Format**: JSONL (one JSON object per line)
+- **Transport**: stdout from `claude --output-format stream-json`
+- **Content**: Assistant responses, cost data, session IDs
+
+### Control Channel (MCP over SSE)
+
+Purpose: State transitions and structured communication
+
+- **Protocol**: JSON-RPC 2.0 (Model Context Protocol)
+- **Transport**: Server-Sent Events (SSE) over HTTP
+- **Port**: 19560 (default, auto-increments if busy)
+- **URL**: `http://127.0.0.1:19560`
+
+### Available MCP Tools
+
+| Tool | Purpose | Key Parameters |
+|------|---------|----------------|
+| `rstn_report_status` | Report status changes | status: "needs_input" \| "completed" \| "error" |
+| `rstn_read_spec` | Read spec artifacts | artifact: "spec" \| "plan" \| "tasks" \| "checklist" \| "analysis" |
+| `rstn_get_context` | Get feature context | (none - returns current feature metadata) |
+| `rstn_complete_task` | Mark task complete | task_id: "T001", skip_validation: bool |
+
+### Tool Usage Example
+
+**Old Way (Removed in Feature 064):**
+```
+❌ Output status block:
+```rscli-status
+{"status":"needs_input","prompt":"Describe the feature"}
+```
+```
+
+**New Way (MCP Tools):**
+```
+✅ Call MCP tool:
+rstn_report_status({
+  "status": "needs_input",
+  "prompt": "Describe the feature"
+})
+```
+
+### Implementation Details
+
+**Server Startup** (`main.rs`):
+```rust
+let (mcp_event_tx, _mcp_event_rx) = mpsc::channel(100);
+let mcp_config = McpServerConfig::default();
+let mcp_handle = mcp_server::start_server(mcp_config, mcp_event_tx).await?;
+
+// Write config for Claude Code to discover
+mcp_server::write_mcp_config(mcp_handle.port())?;
+```
+
+**Tool Handler Pattern** (`mcp_server.rs`):
+```rust
+struct MyToolHandler {
+    event_tx: mpsc::Sender<Event>,
+}
+
+#[async_trait::async_trait]
+impl ToolHandler for MyToolHandler {
+    async fn call(&self, arguments: HashMap<String, Value>) -> McpResult<ToolResult> {
+        // 1. Extract and validate arguments
+        let arg = arguments.get("field")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| McpError::validation("Missing 'field'"))?;
+
+        // 2. Send event to TUI
+        self.event_tx.send(Event::MyEvent { arg }).await?;
+
+        // 3. Return success
+        Ok(ToolResult {
+            content: vec![ContentBlock::text("Success")],
+            is_error: Some(false),
+            ..Default::default()
+        })
+    }
+}
+```
+
+**Event Handling** (`app.rs`):
+```rust
+Event::McpStatus { status, prompt, message } => {
+    match status.as_str() {
+        "needs_input" => {
+            self.input_dialog = Some(InputDialog::new("Input", prompt));
+            self.input_mode = true;
+        }
+        "completed" => {
+            self.worktree_view.command_done();
+            self.status_message = Some("Completed".to_string());
+        }
+        "error" => {
+            self.status_message = Some(format!("Error: {}", message));
+        }
+        _ => {}
+    }
+}
+```
+
+### Configuration
+
+rstn automatically writes `~/.config/claude-code/mcp_servers.json` with:
+
+```json
+{
+  "rstn": {
+    "transport": "sse",
+    "url": "http://127.0.0.1:19560"
+  }
+}
+```
+
+Claude Code auto-discovers this and connects to the MCP server.
+
+### Troubleshooting
+
+| Issue | Cause | Solution |
+|-------|-------|----------|
+| MCP server not starting | Port 19560 busy | Server auto-increments port. Check logs for actual port. |
+| Tool not found | Outdated rstn version | Ensure rstn >= 0.2.0 with Features 060-065 |
+| Connection refused | Server not running | Verify `rstn` TUI is active. MCP server starts with TUI. |
+| Tools not discovered | Config file missing | Check `~/.config/claude-code/mcp_servers.json` exists |
+| Event not received | Channel closed | Check for panics in tool handlers or event loop |
+
+### Testing
+
+**Run MCP integration tests:**
+```bash
+cargo test -p rstn --test mcp_server_test
+```
+
+**Test coverage:**
+- Server lifecycle (startup/shutdown)
+- Tool registration
+- Event dispatch (status, task completion)
+- Error handling
+- State updates
+
+### Migration Notes
+
+**Feature 064 removed text-based parsing:**
+- ❌ Removed: `RscliStatus` struct, `parse_status()` methods
+- ❌ Removed: `STATUS_BLOCK_START/END` constants
+- ❌ Removed: Text-based fallback heuristics
+- ✅ Replaced: All status communication now via MCP tools
+
+**System prompt updated:**
+Claude is instructed to use MCP tools instead of status blocks:
+```
+Use these MCP tools to communicate status and task progress:
+- rstn_report_status: Report task status changes
+- rstn_complete_task: Mark tasks complete
+- rstn_read_spec: Read spec artifacts
+- rstn_get_context: Get current feature context
+```
+
+### Further Reading
+
+- **Tool Schemas**: See `docs/mcp-tools.md` for detailed tool reference
+- **MCP Spec**: [Model Context Protocol](https://modelcontextprotocol.io/)
+- **SSE Spec**: [Server-Sent Events](https://html.spec.whatwg.org/multipage/server-sent-events.html)
+
+---
+
 ## Active Technologies
 - Rust 1.75+ (edition 2021) + okio, serde_json, thiserror (all already in workspace) (052-internalize-spec-generation)
 - File system (`specs/` directory, `features.json`) (052-internalize-spec-generation)
