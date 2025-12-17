@@ -44,8 +44,19 @@ impl Default for McpServerConfig {
     }
 }
 
+/// Event recorded for MCP server activity tracking
+#[derive(Debug, Clone)]
+pub struct McpEvent {
+    /// Timestamp when event occurred
+    pub timestamp: std::time::Instant,
+    /// Event type: "STATUS", "READ", "CONTEXT", "TASK"
+    pub event_type: String,
+    /// Event details/message
+    pub details: String,
+}
+
 /// Shared state accessible by tool handlers
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct McpState {
     /// Current feature number (e.g., "060")
     pub feature_number: Option<String>,
@@ -57,6 +68,30 @@ pub struct McpState {
     pub phase: Option<String>,
     /// Spec directory path
     pub spec_dir: Option<String>,
+    /// Server start time for uptime calculation
+    pub server_start_time: std::time::Instant,
+    /// Count of calls per tool
+    pub tool_call_counts: std::collections::HashMap<String, usize>,
+    /// Last tool call (tool name, timestamp)
+    pub last_tool_call: Option<(String, std::time::Instant)>,
+    /// Recent events (max 50)
+    pub recent_events: std::collections::VecDeque<McpEvent>,
+}
+
+impl Default for McpState {
+    fn default() -> Self {
+        Self {
+            feature_number: None,
+            feature_name: None,
+            branch: None,
+            phase: None,
+            spec_dir: None,
+            server_start_time: std::time::Instant::now(),
+            tool_call_counts: std::collections::HashMap::new(),
+            last_tool_call: None,
+            recent_events: std::collections::VecDeque::new(),
+        }
+    }
 }
 
 /// Result from a tool call
@@ -229,6 +264,7 @@ impl McpServerHandle {
 /// Handler for rstn_report_status tool
 struct ReportStatusHandler {
     event_tx: mpsc::Sender<Event>,
+    state: Arc<Mutex<McpState>>,
 }
 
 #[async_trait::async_trait]
@@ -263,6 +299,25 @@ impl prism_mcp_rs::prelude::ToolHandler for ReportStatusHandler {
             .get("message")
             .and_then(|v| v.as_str())
             .map(String::from);
+
+        // Track metrics
+        {
+            let mut state = self.state.lock().await;
+            *state
+                .tool_call_counts
+                .entry("rstn_report_status".to_string())
+                .or_insert(0) += 1;
+            state.last_tool_call =
+                Some(("rstn_report_status".to_string(), std::time::Instant::now()));
+            state.recent_events.push_back(McpEvent {
+                timestamp: std::time::Instant::now(),
+                event_type: "STATUS".to_string(),
+                details: status.clone(),
+            });
+            if state.recent_events.len() > 50 {
+                state.recent_events.pop_front();
+            }
+        }
 
         // Send event to TUI main loop
         self.event_tx
@@ -326,10 +381,25 @@ impl prism_mcp_rs::prelude::ToolHandler for ReadSpecHandler {
         let filename = Self::artifact_to_filename(artifact)
             .ok_or_else(|| McpError::validation(format!("Invalid artifact: {}", artifact)))?;
 
-        // Get spec directory from state
-        let state = self.state.lock().await;
-        let spec_dir = state.spec_dir.clone();
-        drop(state);
+        // Track metrics and get spec directory from state
+        let spec_dir = {
+            let mut state = self.state.lock().await;
+            *state
+                .tool_call_counts
+                .entry("rstn_read_spec".to_string())
+                .or_insert(0) += 1;
+            state.last_tool_call =
+                Some(("rstn_read_spec".to_string(), std::time::Instant::now()));
+            state.recent_events.push_back(McpEvent {
+                timestamp: std::time::Instant::now(),
+                event_type: "READ".to_string(),
+                details: format!("{}.md", artifact),
+            });
+            if state.recent_events.len() > 50 {
+                state.recent_events.pop_front();
+            }
+            state.spec_dir.clone()
+        };
 
         let spec_dir = spec_dir.ok_or_else(|| {
             McpError::validation("No active feature. Run a spec phase first (e.g., specify, plan)")
@@ -375,16 +445,36 @@ impl prism_mcp_rs::prelude::ToolHandler for GetContextHandler {
     ) -> prism_mcp_rs::prelude::McpResult<prism_mcp_rs::prelude::ToolResult> {
         use prism_mcp_rs::prelude::*;
 
-        // Get current context from state
-        let state = self.state.lock().await;
-        let context = FeatureContext {
-            feature_number: state.feature_number.clone(),
-            feature_name: state.feature_name.clone(),
-            branch: state.branch.clone(),
-            phase: state.phase.clone(),
-            spec_dir: state.spec_dir.clone(),
+        // Track metrics and get current context from state
+        let context = {
+            let mut state = self.state.lock().await;
+            *state
+                .tool_call_counts
+                .entry("rstn_get_context".to_string())
+                .or_insert(0) += 1;
+            state.last_tool_call =
+                Some(("rstn_get_context".to_string(), std::time::Instant::now()));
+            let feature_desc = state
+                .feature_number
+                .as_ref()
+                .map(|n| format!("Feature {}", n))
+                .unwrap_or_else(|| "No feature".to_string());
+            state.recent_events.push_back(McpEvent {
+                timestamp: std::time::Instant::now(),
+                event_type: "CONTEXT".to_string(),
+                details: feature_desc,
+            });
+            if state.recent_events.len() > 50 {
+                state.recent_events.pop_front();
+            }
+            FeatureContext {
+                feature_number: state.feature_number.clone(),
+                feature_name: state.feature_name.clone(),
+                branch: state.branch.clone(),
+                phase: state.phase.clone(),
+                spec_dir: state.spec_dir.clone(),
+            }
         };
-        drop(state);
 
         info!("MCP tool rstn_get_context called");
 
@@ -405,6 +495,7 @@ impl prism_mcp_rs::prelude::ToolHandler for GetContextHandler {
 /// Handler for rstn_complete_task tool
 struct CompleteTaskHandler {
     event_tx: mpsc::Sender<Event>,
+    state: Arc<Mutex<McpState>>,
 }
 
 #[async_trait::async_trait]
@@ -427,6 +518,25 @@ impl prism_mcp_rs::prelude::ToolHandler for CompleteTaskHandler {
             .get("skip_validation")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
+
+        // Track metrics
+        {
+            let mut state = self.state.lock().await;
+            *state
+                .tool_call_counts
+                .entry("rstn_complete_task".to_string())
+                .or_insert(0) += 1;
+            state.last_tool_call =
+                Some(("rstn_complete_task".to_string(), std::time::Instant::now()));
+            state.recent_events.push_back(McpEvent {
+                timestamp: std::time::Instant::now(),
+                event_type: "TASK".to_string(),
+                details: format!("{} completed", task_id),
+            });
+            if state.recent_events.len() > 50 {
+                state.recent_events.pop_front();
+            }
+        }
 
         // Send event to TUI main loop for task completion
         // The app.rs event handler will handle the actual file modification
@@ -459,15 +569,16 @@ impl prism_mcp_rs::prelude::ToolHandler for CompleteTaskHandler {
 /// # Arguments
 /// * `config` - Server configuration
 /// * `event_tx` - Channel to send events to the TUI
+/// * `state` - Shared MCP state for metrics tracking
 ///
 /// # Returns
 /// A handle to control the server
 pub async fn start_server(
     config: McpServerConfig,
     event_tx: mpsc::Sender<Event>,
+    state: Arc<Mutex<McpState>>,
 ) -> Result<McpServerHandle> {
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
-    let state = Arc::new(Mutex::new(McpState::default()));
     let state_clone = state.clone();
 
     let port = config.port;
@@ -535,6 +646,7 @@ async fn register_tools(
             status_tool_schema(),
             ReportStatusHandler {
                 event_tx: event_tx.clone(),
+                state: state.clone(),
             },
         )
         .await
@@ -580,6 +692,7 @@ async fn register_tools(
             complete_task_tool_schema(),
             CompleteTaskHandler {
                 event_tx: event_tx.clone(),
+                state: state.clone(),
             },
         )
         .await

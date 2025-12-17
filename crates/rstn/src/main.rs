@@ -54,8 +54,9 @@ async fn main() -> Result<()> {
 }
 
 async fn run_tui_mode(session_id: String) -> Result<()> {
-    use rstn::tui::mcp_server::{self, McpServerConfig};
-    use tokio::sync::mpsc;
+    use rstn::tui::mcp_server::{self, McpServerConfig, McpState};
+    use std::sync::Arc;
+    use tokio::sync::{mpsc, Mutex};
 
     info!("starting TUI mode");
 
@@ -69,11 +70,14 @@ async fn run_tui_mode(session_id: String) -> Result<()> {
     }
     debug!("TTY check passed");
 
+    // Create shared MCP state for metrics tracking
+    let mcp_state = Arc::new(Mutex::new(McpState::default()));
+
     // Start MCP server for Claude Code communication
     debug!("starting MCP server");
     let (mcp_event_tx, _mcp_event_rx) = mpsc::channel(100);
     let mcp_config = McpServerConfig::default();
-    let mcp_handle = match mcp_server::start_server(mcp_config, mcp_event_tx).await {
+    let mcp_handle = match mcp_server::start_server(mcp_config, mcp_event_tx, mcp_state.clone()).await {
         Ok(handle) => {
             info!("MCP server started on {}", handle.url());
             // Write MCP config for Claude Code discovery
@@ -89,7 +93,7 @@ async fn run_tui_mode(session_id: String) -> Result<()> {
     };
 
     debug!("creating App instance with session_id: {}", session_id);
-    let mut app = App::new_with_session(Some(session_id));
+    let mut app = App::new_with_session(mcp_state.clone(), Some(session_id));
     debug!("App created successfully");
 
     debug!("running app main loop");

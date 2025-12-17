@@ -2,12 +2,14 @@
 
 mod command_runner;
 mod dashboard;
+mod mcp_server;
 mod settings;
 mod spec;
 mod worktree;
 
 pub use command_runner::{CommandRunner, OutputLine, OutputLineType};
 pub use dashboard::Dashboard;
+pub use mcp_server::McpServerView;
 pub use settings::SettingsView;
 pub use spec::{AutoFlowState, ClaudeOptions, PhaseStatus, SpecPhase, SpecView};
 pub use worktree::{ContentType, GitCommand, WorktreeFocus, WorktreeView};

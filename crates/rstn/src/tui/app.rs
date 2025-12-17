@@ -2,10 +2,11 @@
 
 use crate::tui::claude_stream::ClaudeStreamMessage;
 use crate::tui::event::{Event, EventHandler};
+use crate::tui::mcp_server::McpState;
 use crate::tui::protocol::{OutputParser, ProtocolMessage};
 use crate::tui::views::{
-    CommandRunner, ContentType, Dashboard, SettingsView, SpecPhase, SpecView, View, ViewAction,
-    ViewType, WorktreeView,
+    CommandRunner, ContentType, Dashboard, McpServerView, SettingsView, SpecPhase, SpecView, View,
+    ViewAction, ViewType, WorktreeView,
 };
 use crate::tui::widgets::{InputDialog, OptionPicker, TextInput};
 use crate::domain::prompts::PromptManager;
@@ -23,7 +24,8 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::layout::Rect;
 use ratatui::Terminal;
 use std::io::{stdout, Stdout};
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc};
+use tokio::sync::Mutex;
 use tracing::debug;
 
 /// Result type for the app
@@ -33,6 +35,7 @@ pub type AppResult<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CurrentView {
     Worktree,
+    McpServer,
     Settings,
     Dashboard,
 }
@@ -45,6 +48,8 @@ pub struct App {
     pub current_view: CurrentView,
     /// Worktree-focused development workspace view state
     pub worktree_view: WorktreeView,
+    /// MCP Server info view state
+    pub mcp_server_view: McpServerView,
     /// Dashboard view state
     pub dashboard: Dashboard,
     /// Settings view state
@@ -85,12 +90,6 @@ pub struct App {
     pub tab_bar_rect: Option<Rect>,
 }
 
-impl Default for App {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 /// Check if a point (column, row) is within a rectangle
 fn point_in_rect(col: u16, row: u16, rect: &Rect) -> bool {
     col >= rect.x
@@ -101,16 +100,17 @@ fn point_in_rect(col: u16, row: u16, rect: &Rect) -> bool {
 
 impl App {
     /// Create a new application instance
-    pub fn new() -> Self {
-        Self::new_with_session(None)
+    pub fn new(mcp_state: Arc<Mutex<McpState>>) -> Self {
+        Self::new_with_session(mcp_state, None)
     }
 
     /// Create a new application instance with a session ID
-    pub fn new_with_session(session_id: Option<String>) -> Self {
+    pub fn new_with_session(mcp_state: Arc<Mutex<McpState>>, session_id: Option<String>) -> Self {
         Self {
             running: true,
             current_view: CurrentView::Worktree,
             worktree_view: WorktreeView::new(),
+            mcp_server_view: McpServerView::new(mcp_state),
             dashboard: Dashboard::new(),
             settings_view: SettingsView::new(),
             command_runner: CommandRunner::new(),
@@ -131,6 +131,13 @@ impl App {
             session_id,
             tab_bar_rect: None,
         }
+    }
+
+    /// Create a new application instance for testing (with default MCP state)
+    #[cfg(test)]
+    fn new_for_test() -> Self {
+        let mcp_state = Arc::new(Mutex::new(McpState::default()));
+        Self::new(mcp_state)
     }
 
     /// Check if worktree view is in an input mode that should block global hotkeys
@@ -201,13 +208,15 @@ impl App {
             KeyCode::Char('[') => {
                 self.current_view = match self.current_view {
                     CurrentView::Worktree => CurrentView::Dashboard,
-                    CurrentView::Settings => CurrentView::Worktree,
+                    CurrentView::McpServer => CurrentView::Worktree,
+                    CurrentView::Settings => CurrentView::McpServer,
                     CurrentView::Dashboard => CurrentView::Settings,
                 };
                 self.status_message = Some(format!(
                     "Switched to {} view",
                     match self.current_view {
                         CurrentView::Worktree => "Worktree",
+                        CurrentView::McpServer => "MCP Server",
                         CurrentView::Settings => "Settings",
                         CurrentView::Dashboard => "Dashboard",
                     }
@@ -216,7 +225,8 @@ impl App {
             }
             KeyCode::Char(']') => {
                 self.current_view = match self.current_view {
-                    CurrentView::Worktree => CurrentView::Settings,
+                    CurrentView::Worktree => CurrentView::McpServer,
+                    CurrentView::McpServer => CurrentView::Settings,
                     CurrentView::Settings => CurrentView::Dashboard,
                     CurrentView::Dashboard => CurrentView::Worktree,
                 };
@@ -224,6 +234,7 @@ impl App {
                     "Switched to {} view",
                     match self.current_view {
                         CurrentView::Worktree => "Worktree",
+                        CurrentView::McpServer => "MCP Server",
                         CurrentView::Settings => "Settings",
                         CurrentView::Dashboard => "Dashboard",
                     }
@@ -245,8 +256,8 @@ impl App {
                             self.dashboard.next_pane(); // Dashboard doesn't have prev_pane yet
                             self.status_message = Some("Switched to next pane".to_string());
                         }
-                        CurrentView::Settings => {
-                            // Settings view doesn't have panes
+                        CurrentView::McpServer | CurrentView::Settings => {
+                            // MCP Server and Settings views don't have panes
                         }
                     }
                 } else {
@@ -260,8 +271,8 @@ impl App {
                             self.dashboard.next_pane();
                             self.status_message = Some("Switched to next pane".to_string());
                         }
-                        CurrentView::Settings => {
-                            // Settings view doesn't have panes
+                        CurrentView::McpServer | CurrentView::Settings => {
+                            // MCP Server and Settings views don't have panes
                         }
                     }
                 }
@@ -273,10 +284,14 @@ impl App {
                 return;
             }
             KeyCode::Char('2') => {
-                self.current_view = CurrentView::Settings;
+                self.current_view = CurrentView::McpServer;
                 return;
             }
             KeyCode::Char('3') => {
+                self.current_view = CurrentView::Settings;
+                return;
+            }
+            KeyCode::Char('4') => {
                 self.current_view = CurrentView::Dashboard;
                 return;
             }
@@ -296,6 +311,7 @@ impl App {
         // Delegate to current view and handle returned action
         let action = match self.current_view {
             CurrentView::Worktree => self.worktree_view.handle_key(key),
+            CurrentView::McpServer => self.mcp_server_view.handle_key(key),
             CurrentView::Settings => self.settings_view.handle_key(key),
             CurrentView::Dashboard => self.dashboard.handle_key(key),
         };
@@ -318,10 +334,10 @@ impl App {
         // Check if clicked on tab bar (top-level view switching)
         if let Some(tab_rect) = self.tab_bar_rect {
             if point_in_rect(col, row, &tab_rect) {
-                // Calculate which tab was clicked (3 tabs: Worktree, Settings, Dashboard)
+                // Calculate which tab was clicked (4 tabs: Worktree, MCP Server, Settings, Dashboard)
                 // Tab bar has borders, so effective width is tab_rect.width - 2
                 let inner_width = tab_rect.width.saturating_sub(2);
-                let tab_width = inner_width / 3;
+                let tab_width = inner_width / 4;
                 let click_offset = col.saturating_sub(tab_rect.x + 1);
 
                 let clicked_tab = click_offset / tab_width;
@@ -332,10 +348,14 @@ impl App {
                         self.status_message = Some("Switched to Worktree".to_string());
                     }
                     1 => {
+                        self.current_view = CurrentView::McpServer;
+                        self.status_message = Some("Switched to MCP Server".to_string());
+                    }
+                    2 => {
                         self.current_view = CurrentView::Settings;
                         self.status_message = Some("Switched to Settings".to_string());
                     }
-                    2 => {
+                    3 => {
                         self.current_view = CurrentView::Dashboard;
                         self.status_message = Some("Switched to Dashboard".to_string());
                     }
@@ -350,8 +370,8 @@ impl App {
             CurrentView::Worktree => {
                 self.worktree_view.handle_mouse(col, row);
             }
-            CurrentView::Settings => {
-                // Settings view doesn't have panes yet
+            CurrentView::McpServer | CurrentView::Settings => {
+                // MCP Server and Settings views don't have panes yet
             }
             CurrentView::Dashboard => {
                 // Dashboard could implement pane switching later
@@ -1821,7 +1841,9 @@ impl App {
     pub fn copy_current_pane(&mut self) {
         let (content, pane_name) = match self.current_view {
             CurrentView::Worktree => (self.worktree_view.get_focused_pane_text(), "current pane"),
-            CurrentView::Settings => ("".to_string(), "settings"), // Settings doesn't have copyable panes
+            CurrentView::McpServer | CurrentView::Settings => {
+                ("".to_string(), "settings") // MCP Server and Settings don't have copyable panes
+            }
             CurrentView::Dashboard => (self.dashboard.get_focused_pane_text(), "current pane"),
         };
 
@@ -1851,6 +1873,7 @@ impl App {
     pub fn copy_current_tab_styled(&mut self) {
         let (content, tab_name) = match self.current_view {
             CurrentView::Worktree => (self.worktree_view.get_styled_output(), "Worktree"),
+            CurrentView::McpServer => ("".to_string(), "MCP Server"), // MCP Server doesn't have styled output yet
             CurrentView::Settings => ("".to_string(), "Settings"), // Settings doesn't have styled output
             CurrentView::Dashboard => (self.dashboard.get_styled_output(), "Dashboard"),
         };
@@ -2019,6 +2042,7 @@ impl App {
                                     let lines = content.lines().count();
                                     let tab_name = match self.current_view {
                                         CurrentView::Worktree => "Worktree",
+                                        CurrentView::McpServer => "MCP Server",
                                         CurrentView::Settings => "Settings",
                                         CurrentView::Dashboard => "Dashboard",
                                     };
@@ -2424,11 +2448,17 @@ impl App {
         self.tab_bar_rect = Some(chunks[0]);
 
         // Render tabs
-        let tab_titles = vec!["[1] Worktree", "[2] Settings", "[3] Dashboard"];
+        let tab_titles = vec![
+            "[1] Worktree",
+            "[2] MCP Server",
+            "[3] Settings",
+            "[4] Dashboard",
+        ];
         let selected_tab = match self.current_view {
             CurrentView::Worktree => 0,
-            CurrentView::Settings => 1,
-            CurrentView::Dashboard => 2,
+            CurrentView::McpServer => 1,
+            CurrentView::Settings => 2,
+            CurrentView::Dashboard => 3,
         };
         let tabs = Tabs::new(tab_titles)
             .block(Block::default().borders(Borders::ALL).title(format!(
@@ -2446,6 +2476,7 @@ impl App {
         // Render current view
         match self.current_view {
             CurrentView::Worktree => self.worktree_view.render(frame, chunks[1]),
+            CurrentView::McpServer => self.mcp_server_view.render(frame, chunks[1]),
             CurrentView::Settings => self.settings_view.render(frame, chunks[1]),
             CurrentView::Dashboard => self.dashboard.render(frame, chunks[1]),
         }
@@ -2665,7 +2696,7 @@ mod tests {
     // T024: Test that RequestInput sets input_mode to true
     #[test]
     fn test_request_input_sets_input_mode() {
-        let mut app = App::new();
+        let mut app = App::new_for_test();
 
         // Verify initial state
         assert!(!app.input_mode, "input_mode should be false initially");
@@ -2690,7 +2721,7 @@ mod tests {
     // T025: Test that RequestInput creates an input dialog
     #[test]
     fn test_request_input_creates_dialog() {
-        let mut app = App::new();
+        let mut app = App::new_for_test();
 
         // Simulate ViewAction::RequestInput
         app.handle_view_action(ViewAction::RequestInput {
@@ -2711,7 +2742,7 @@ mod tests {
     // T026: Test that key events in input mode route to input handler
     #[test]
     fn test_key_event_routes_to_input_mode_handler() {
-        let mut app = App::new();
+        let mut app = App::new_for_test();
 
         // Setup input mode
         app.handle_view_action(ViewAction::RequestInput {
@@ -2734,7 +2765,7 @@ mod tests {
     // T027: Test that Enter submits single-line input
     #[test]
     fn test_enter_submits_single_line_input() {
-        let mut app = App::new();
+        let mut app = App::new_for_test();
 
         // Create a single-line (non-multiline) dialog
         app.handle_view_action(ViewAction::RequestInput {
@@ -2766,7 +2797,7 @@ mod tests {
     // T028: Test that Enter submits multiline input
     #[test]
     fn test_enter_submits_multiline_input() {
-        let mut app = App::new();
+        let mut app = App::new_for_test();
 
         // Create multiline dialog (feature description triggers multiline)
         app.handle_view_action(ViewAction::RequestInput {
@@ -2801,7 +2832,7 @@ mod tests {
     // T028b: Test that Ctrl+Enter creates newline in multiline input
     #[test]
     fn test_ctrl_enter_creates_newline_in_multiline_input() {
-        let mut app = App::new();
+        let mut app = App::new_for_test();
 
         // Create multiline dialog
         app.handle_view_action(ViewAction::RequestInput {
@@ -2851,7 +2882,7 @@ mod tests {
     // T029: Test that Escape cancels input
     #[test]
     fn test_escape_cancels_input() {
-        let mut app = App::new();
+        let mut app = App::new_for_test();
 
         // Setup input mode
         app.handle_view_action(ViewAction::RequestInput {
@@ -2876,7 +2907,7 @@ mod tests {
     // Additional: Test defensive state check syncs input_mode
     #[test]
     fn test_defensive_state_check_resets_orphan_input_mode() {
-        let mut app = App::new();
+        let mut app = App::new_for_test();
 
         // Manually create inconsistent state: input_mode=true but no dialog
         app.input_mode = true;
@@ -2895,7 +2926,7 @@ mod tests {
     // Additional: Test defensive state check enables input_mode when dialog exists
     #[test]
     fn test_defensive_state_check_enables_input_mode_for_orphan_dialog() {
-        let mut app = App::new();
+        let mut app = App::new_for_test();
 
         // Manually create inconsistent state: dialog exists but input_mode=false
         app.input_mode = false;
@@ -2934,7 +2965,7 @@ mod tests {
     // E2E: Click on Settings tab switches to Settings view
     #[test]
     fn test_mouse_click_settings_tab() {
-        let mut app = App::new();
+        let mut app = App::new_for_test();
 
         // Render to populate tab_bar_rect
         render_app_to_test_backend(&mut app, 80, 24);
@@ -2974,7 +3005,7 @@ mod tests {
     // E2E: Click on Dashboard tab switches to Dashboard view
     #[test]
     fn test_mouse_click_dashboard_tab() {
-        let mut app = App::new();
+        let mut app = App::new_for_test();
         render_app_to_test_backend(&mut app, 80, 24);
 
         let tab_rect = app.tab_bar_rect.unwrap();
@@ -3000,7 +3031,7 @@ mod tests {
     // E2E: Click on Worktree tab (from another view) switches back
     #[test]
     fn test_mouse_click_worktree_tab_from_settings() {
-        let mut app = App::new();
+        let mut app = App::new_for_test();
         app.current_view = CurrentView::Settings; // Start on Settings
 
         render_app_to_test_backend(&mut app, 80, 24);
@@ -3025,7 +3056,7 @@ mod tests {
     fn test_mouse_click_pane_switches_focus() {
         use crate::tui::views::WorktreeFocus;
 
-        let mut app = App::new();
+        let mut app = App::new_for_test();
         render_app_to_test_backend(&mut app, 120, 40);
 
         // Verify initial focus is Commands
@@ -3058,7 +3089,7 @@ mod tests {
     fn test_mouse_click_output_pane() {
         use crate::tui::views::WorktreeFocus;
 
-        let mut app = App::new();
+        let mut app = App::new_for_test();
         render_app_to_test_backend(&mut app, 120, 40);
 
         // Click on Output pane
@@ -3077,7 +3108,7 @@ mod tests {
     // E2E: Mouse events other than left-click are ignored
     #[test]
     fn test_mouse_non_click_events_ignored() {
-        let mut app = App::new();
+        let mut app = App::new_for_test();
         render_app_to_test_backend(&mut app, 80, 24);
 
         let tab_rect = app.tab_bar_rect.unwrap();
@@ -3117,7 +3148,7 @@ mod tests {
     // E2E: Click outside tab bar doesn't switch views
     #[test]
     fn test_mouse_click_outside_tab_bar() {
-        let mut app = App::new();
+        let mut app = App::new_for_test();
         render_app_to_test_backend(&mut app, 80, 24);
 
         // Click well below the tab bar (in content area)
