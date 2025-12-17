@@ -1,31 +1,33 @@
 //! Cargo command wrapper
 
-use crate::tui::claude_stream::{ClaudeStreamMessage, RscliStatus};
+use crate::tui::claude_stream::ClaudeStreamMessage;
 use crate::tui::event::Event;
 use crate::{Result, RscliError};
 use std::process::{Output, Stdio};
 use std::sync::mpsc;
 use tokio::process::Command;
 
-/// System prompt for RSCLI JSON status output
+/// System prompt for RSCLI MCP integration
 ///
 /// This is appended via `--append-system-prompt` to instruct Claude
-/// to output structured status blocks that rscli can parse.
+/// to use MCP tools to communicate with rstn.
 const RSCLI_SYSTEM_PROMPT: &str = r#"
-## RSCLI Integration Protocol
+## RSCLI MCP Integration
 
-At the END of your response, output a JSON status block:
+Use these MCP tools to communicate status and task progress:
 
-```rscli-status
-{"status":"needs_input","prompt":"Your prompt here"}
-```
+- **rstn_report_status**: Report task status changes
+  - status: "needs_input" (with prompt), "completed", or "error" (with message)
 
-Status values:
-- "needs_input": Need user input. Include "prompt" field with the question.
-- "completed": Phase finished successfully.
-- "error": Error occurred. Include "message" field with error details.
+- **rstn_complete_task**: Mark tasks complete
+  - task_id: Task ID (e.g., "T001", "T002")
 
-Always include this status block at the very end of your response.
+- **rstn_read_spec**: Read spec artifacts
+  - artifact: "spec", "plan", "tasks", "checklist", or "analysis"
+
+- **rstn_get_context**: Get current feature context
+
+Use these tools instead of text-based status output.
 "#;
 
 /// Test results summary
@@ -347,8 +349,6 @@ pub struct ClaudeCliOptions {
 pub struct ClaudeResult {
     /// Session ID for resuming conversation
     pub session_id: Option<String>,
-    /// Parsed RSCLI status from Claude's output
-    pub status: Option<RscliStatus>,
     /// Whether the command exited successfully
     pub success: bool,
 }
@@ -443,14 +443,7 @@ pub async fn run_claude_command_streaming(
                     result.session_id = msg.session_id.clone();
                 }
 
-                // Parse status from assistant messages
-                if msg.msg_type == "assistant" {
-                    if let Some(status) = msg.parse_status() {
-                        result.status = Some(status);
-                    }
-                }
-
-                // Send to TUI for real-time display
+                // Send to TUI for real-time display (status comes via MCP tools)
                 if let Some(ref s) = sender {
                     let _ = s.send(Event::ClaudeStream(msg));
                 }

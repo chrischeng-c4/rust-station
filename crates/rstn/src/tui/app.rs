@@ -1,6 +1,6 @@
 //! Application state and main loop for the TUI
 
-use crate::tui::claude_stream::{ClaudeStreamMessage, RscliStatus};
+use crate::tui::claude_stream::ClaudeStreamMessage;
 use crate::tui::event::{Event, EventHandler};
 use crate::tui::protocol::{OutputParser, ProtocolMessage};
 use crate::tui::views::{
@@ -465,29 +465,24 @@ impl App {
                     if let Some(sender) = sender {
                         match result {
                             Ok(claude_result) => {
-                                // Send completion event with parsed status
+                                // Send completion event (status comes via MCP tools)
                                 let _ = sender.send(Event::ClaudeCompleted {
                                     phase: phase_name,
                                     success: claude_result.success,
                                     session_id: claude_result.session_id,
-                                    status: claude_result.status,
                                 });
                             }
                             Err(e) => {
-                                // Send error as ClaudeCompleted with error status
-                                let error_status = RscliStatus {
-                                    status: "error".to_string(),
-                                    prompt: None,
-                                    message: Some(format!(
-                                        "Failed to run Claude CLI: {}. Make sure 'claude' CLI is installed.",
-                                        e
-                                    )),
-                                };
+                                // Send error as ClaudeCompleted
+                                let error_msg = format!(
+                                    "Failed to run Claude CLI: {}. Make sure 'claude' CLI is installed.",
+                                    e
+                                );
+                                tracing::error!("{}", error_msg);
                                 let _ = sender.send(Event::ClaudeCompleted {
                                     phase: phase_name,
                                     success: false,
                                     session_id: None,
-                                    status: Some(error_status),
                                 });
                             }
                         }
@@ -1683,9 +1678,8 @@ impl App {
     fn handle_claude_completed(
         &mut self,
         phase: String,
-        _success: bool,
+        success: bool,
         session_id: Option<String>,
-        status: Option<RscliStatus>,
     ) {
         // Save session ID for this feature
         if let Some(sid) = session_id {
@@ -1695,63 +1689,11 @@ impl App {
             }
         }
 
-        // Handle based on parsed JSON status
-        if let Some(status) = status {
-            match status.status.as_str() {
-                "needs_input" => {
-                    // Use the prompt from JSON, or fallback
-                    let prompt = status
-                        .prompt
-                        .unwrap_or_else(|| "Enter your response:".to_string());
-                    self.worktree_view.pending_follow_up = true;
-                    // Use centered input dialog for better UX
-                    self.input_dialog = Some(InputDialog::new("Claude Input", prompt));
-                    self.input_mode = true;
-                    self.status_message = Some("Waiting for your response...".to_string());
-                }
-                "error" => {
-                    let msg = status
-                        .message
-                        .unwrap_or_else(|| "Unknown error".to_string());
-                    self.worktree_view.command_done();
-                    self.status_message = Some(format!("{} error: {}", phase, msg));
-                }
-                "completed" | _ => {
-                    self.worktree_view.command_done();
-                    self.status_message = Some(format!("{} phase completed", phase));
-                }
-            }
-        } else {
-            // No status block - use heuristic detection
-            // Check if the last non-empty log entry looks like a question
-            let entries: Vec<_> = self.worktree_view.log_buffer.entries().collect();
-            let needs_input = entries
-                .iter()
-                .rev()
-                .find(|entry| !entry.content.trim().is_empty())
-                .map(|entry| {
-                    let text = entry.content.trim().to_lowercase();
-                    text.ends_with('?')
-                        || text.contains("please describe")
-                        || text.contains("what feature")
-                        || text.contains("please provide")
-                        || text.contains("could you")
-                        || text.contains("would you like")
-                })
-                .unwrap_or(false);
+        // Status changes now come via Event::McpStatus (Feature 061)
+        // No text-based detection needed here
 
-            if needs_input && self.worktree_view.active_session_id.is_some() {
-                // Looks like Claude asked a question - prompt for input
-                self.worktree_view.pending_follow_up = true;
-                // Use centered input dialog for better UX
-                self.input_dialog = Some(InputDialog::new("Claude Input", "Enter your response:"));
-                self.input_mode = true;
-                self.status_message = Some("Claude is waiting for your input...".to_string());
-            } else {
-                // Truly completed
-                self.worktree_view.command_done();
-                self.status_message = Some(format!("{} phase finished", phase));
-            }
+        if success {
+            self.status_message = Some(format!("{} phase completed", phase));
         }
 
         self.running_spec_phase = None;
@@ -2152,10 +2094,9 @@ impl App {
                     phase,
                     success,
                     session_id,
-                    status,
                 } => {
                     debug!("main_loop iteration {}: Event::ClaudeCompleted", iteration);
-                    self.handle_claude_completed(phase, success, session_id, status);
+                    self.handle_claude_completed(phase, success, session_id);
                 }
                 Event::McpStatus {
                     status,

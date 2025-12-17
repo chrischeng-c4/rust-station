@@ -1,6 +1,6 @@
 //! Event handling for the TUI application
 
-use crate::tui::claude_stream::{ClaudeStreamMessage, RscliStatus};
+use crate::tui::claude_stream::ClaudeStreamMessage;
 use crossterm::event::{self, Event as CrosstermEvent, KeyEvent, MouseEvent};
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -50,12 +50,11 @@ pub enum Event {
     },
     /// Claude streaming JSON message received (real-time output)
     ClaudeStream(ClaudeStreamMessage),
-    /// Claude command completed with parsed status
+    /// Claude command completed
     ClaudeCompleted {
         phase: String,
         success: bool,
         session_id: Option<String>,
-        status: Option<RscliStatus>,
     },
     /// MCP tool called: rstn_report_status
     McpStatus {

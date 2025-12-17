@@ -6,36 +6,36 @@
 
 ## Phase 1: Remove Status Parsing
 
-- [ ] T001 Remove STATUS_BLOCK_START constant
-- [ ] T002 Remove STATUS_BLOCK_END constant
-- [ ] T003 Remove RscliStatus struct
-- [ ] T004 Remove parse_status() method
-- [ ] T005 Remove needs_input() method
-- [ ] T006 Remove is_completed() method
-- [ ] T007 Remove has_error() method
-- [ ] T008 Remove get_input_prompt() method
-- [ ] T009 Remove get_error_message() method
+- [x] T001 Remove STATUS_BLOCK_START constant
+- [x] T002 Remove STATUS_BLOCK_END constant
+- [x] T003 Remove RscliStatus struct
+- [x] T004 Remove parse_status() method
+- [x] T005 Remove needs_input() method
+- [x] T006 Remove is_completed() method
+- [x] T007 Remove has_error() method
+- [x] T008 Remove get_input_prompt() method
+- [x] T009 Remove get_error_message() method
 
 ## Phase 2: Simplify Display
 
-- [ ] T010 Simplify get_display_text() to passthrough
+- [x] T010 Simplify get_display_text() to passthrough
 
 ## Phase 3: Update Event Handling
 
-- [ ] T011 Remove text-based fallback in handle_claude_completed()
-- [ ] T012 Verify MCP-only control path works
+- [x] T011 Remove text-based fallback in handle_claude_completed()
+- [x] T012 Verify MCP-only control path works
 
 ## Phase 4: Update System Prompt
 
-- [ ] T013 Update RSCLI_SYSTEM_PROMPT in cargo.rs
-- [ ] T014 Add MCP tool usage instructions
+- [x] T013 Update RSCLI_SYSTEM_PROMPT in cargo.rs
+- [x] T014 Add MCP tool usage instructions
 
 ## Phase 5: Verification
 
-- [ ] T015 Run cargo build -p rstn
-- [ ] T016 Run cargo test -p rstn
-- [ ] T017 Run cargo clippy -p rstn
-- [ ] T018 Manual test full SDD workflow
+- [x] T015 Run cargo build -p rstn
+- [x] T016 Run cargo test -p rstn
+- [x] T017 Run cargo clippy -p rstn
+- [x] T018 Manual test full SDD workflow
 
 ## Dependencies
 
