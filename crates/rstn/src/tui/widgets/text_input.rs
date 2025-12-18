@@ -9,7 +9,7 @@ use ratatui::{
 };
 
 /// Text input widget for capturing user input
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TextInput {
     /// Current text value (single-line mode)
     pub value: String,

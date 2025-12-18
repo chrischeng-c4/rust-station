@@ -2,7 +2,7 @@ use ratatui::style::Color;
 use std::time::SystemTime;
 
 /// Category of log entry for styling and filtering
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum LogCategory {
     /// User actions (command selection, input, focus changes)
     User,
@@ -53,11 +53,36 @@ impl LogCategory {
 }
 
 /// A single timestamped log entry
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct LogEntry {
+    #[serde(with = "systemtime_serde")]
     pub timestamp: SystemTime,
     pub category: LogCategory,
     pub content: String,
+}
+
+/// Serde helper for SystemTime serialization
+mod systemtime_serde {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    pub fn serialize<S>(time: &SystemTime, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let duration = time
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or(Duration::from_secs(0));
+        duration.as_secs().serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<SystemTime, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let secs = u64::deserialize(deserializer)?;
+        Ok(UNIX_EPOCH + Duration::from_secs(secs))
+    }
 }
 
 impl LogEntry {

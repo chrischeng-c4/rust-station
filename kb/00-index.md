@@ -9,6 +9,7 @@ Welcome to the rustation knowledge base! This is your central hub for understand
 ## Quick Links
 
 **For Contributors**:
+- [State Serializability](01-architecture/state-serializability.md) - **Core principle**: State as JSON/YAML
 - [Technical Debt Analysis](03-complexity-analysis/technical-debt.md) - Current pain points
 - [rstn TUI Architecture](01-architecture/rstn-tui-architecture.md) - How the TUI works
 - [SDD Workflow Guide](04-sdd-workflow/when-to-use-which.md) - When to use full vs lightweight SDD
@@ -37,6 +38,7 @@ kb/
 ├── 00-index.md (this file)           - START HERE
 ├── 01-architecture/                  - System architecture
 │   ├── overview.md                   - High-level system diagram
+│   ├── state-serializability.md      - **Core principle**: State as JSON/YAML
 │   ├── rstn-tui-architecture.md      - TUI layers, event flow, state
 │   ├── rush-shell-architecture.md    - Parser, executor, builtins
 │   ├── mcp-integration.md            - HTTP server, JSON-RPC, tools
@@ -159,4 +161,5 @@ Questions or suggestions for the knowledge base?
 
 ## Changelog
 
+- 2025-12-18: Added state-serializability.md - Core architecture principle (Feature 079)
 - 2025-12-18: Initial KB structure created

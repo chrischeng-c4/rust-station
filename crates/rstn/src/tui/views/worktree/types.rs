@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use crate::tui::views::{PhaseStatus, SpecPhase};
 
 /// Feature information extracted from git branch
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct FeatureInfo {
     pub number: String,
     pub name: String,
@@ -20,7 +20,7 @@ pub struct FeatureInfo {
 }
 
 /// Git command types
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum GitCommand {
     Commit,
     Push,
@@ -54,7 +54,7 @@ impl GitCommand {
 }
 
 /// Unified command that can be a workflow command, SDD phase, or Git action
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Command {
     PromptClaude,                     // Primary workflow command
     SddPhase(SpecPhase, PhaseStatus), // SDD workflow phases
@@ -62,7 +62,7 @@ pub enum Command {
 }
 
 /// Content type to display in middle panel
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ContentType {
     Spec,
     Plan,
@@ -90,7 +90,7 @@ impl ContentType {
 }
 
 /// Focus state for the Worktree view
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum WorktreeFocus {
     Commands, // Unified panel for SDD phases and Git actions
     Content,  // Content display (spec, plan, tasks)

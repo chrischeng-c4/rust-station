@@ -7,7 +7,7 @@
 ///
 /// Represents a single task parsed from markdown format:
 /// `- [ ] T001 [P] [US1] Description in src/path/file.rs`
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ParsedTask {
     /// Task ID (e.g., "T001")
     pub id: String,
@@ -115,7 +115,7 @@ impl ParsedTask {
 }
 
 /// State for interactive task list editing (Feature 055)
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TaskListState {
     /// Parsed tasks from generated content
     pub tasks: Vec<ParsedTask>,

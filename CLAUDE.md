@@ -388,6 +388,7 @@ Key implementation file:
 <knowledge-base>
 Comprehensive documentation (created 2025-12-18):
 - `kb/00-index.md` - START HERE (navigation hub)
+- `kb/01-architecture/state-serializability.md` - **CORE PRINCIPLE**: State as JSON/YAML (Feature 079)
 - `kb/01-architecture/overview.md` - System architecture
 - `kb/01-architecture/rstn-tui-architecture.md` - TUI design (current + target)
 - `kb/03-complexity-analysis/technical-debt.md` - Current issues & metrics
@@ -430,6 +431,8 @@ Key insights:
 <rule severity="NEVER">Skip clippy → Lints accumulate → Run cargo clippy before commit</rule>
 <rule severity="NEVER">Use -p + stream-json without --verbose → CLI error → Always add --verbose flag</rule>
 <rule severity="NEVER">Use "transport" in MCP config → Invalid schema → Use "type" field instead</rule>
+<rule severity="NEVER">Implement features without state tests → Untestable code → All features MUST have state serialization and transition tests (see kb/01-architecture/state-serializability.md)</rule>
+<rule severity="NEVER">Create non-serializable state → Breaks core principle → All state structs MUST derive Serialize + Deserialize</rule>
 
 <bad-example name="Skip flow diagrams">
 User: "Add Prompt Claude command"

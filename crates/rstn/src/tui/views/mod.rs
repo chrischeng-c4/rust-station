@@ -8,11 +8,11 @@ mod spec;
 mod worktree;
 
 pub use command_runner::{CommandRunner, OutputLine, OutputLineType};
-pub use dashboard::Dashboard;
+pub use dashboard::{Dashboard, DashboardPanel, TestResults};
 pub use mcp_server::McpServerView;
 pub use settings::SettingsView;
 pub use spec::{AutoFlowState, ClaudeOptions, PhaseStatus, SpecPhase, SpecView};
-pub use worktree::{ContentType, GitCommand, WorktreeFocus, WorktreeView};
+pub use worktree::{Command, ContentType, FeatureInfo, GitCommand, InlineInput, SpecifyState, WorktreeFocus, WorktreeView};
 
 use crossterm::event::KeyEvent;
 use ratatui::layout::Rect;

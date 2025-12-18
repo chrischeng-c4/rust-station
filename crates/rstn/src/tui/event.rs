@@ -8,7 +8,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 /// Worktree type classification
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum WorktreeType {
     /// Not in a git repository
     NotGit,

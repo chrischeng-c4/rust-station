@@ -6,6 +6,7 @@ use clap::Parser;
 use rstn::cli::{Commands, McpCommands, ServiceCommands, SpecCommands, WorktreeCommands};
 use rstn::settings::Settings;
 use rstn::tui::App;
+use rstn::tui::state::StateInvariants;
 use rstn::version;
 use rstn::{commands, logging, Result};
 use tracing::{debug, info};
@@ -30,6 +31,18 @@ struct Args {
     /// Suppress non-essential output
     #[arg(short, long, conflicts_with = "verbose")]
     quiet: bool,
+
+    /// Save application state to a file (JSON format)
+    #[arg(long, value_name = "FILE")]
+    save_state: Option<std::path::PathBuf>,
+
+    /// Load application state from a file (JSON or YAML)
+    #[arg(long, value_name = "FILE")]
+    load_state: Option<std::path::PathBuf>,
+
+    /// Print the state schema version and exit
+    #[arg(long)]
+    state_version: bool,
 }
 
 #[tokio::main]
@@ -51,6 +64,51 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
     debug!(cli = args.cli, command = ?args.command, "parsed arguments");
+
+    // Handle --state-version flag (print and exit)
+    if args.state_version {
+        use rstn::tui::state::AppState;
+        println!("rstn state schema version: {}", AppState::schema_version());
+        return Ok(());
+    }
+
+    // Handle --save-state flag (save current state and exit)
+    if let Some(save_path) = &args.save_state {
+        use rstn::tui::state::AppState;
+        debug!(path = ?save_path, "saving state to file");
+
+        let state = AppState::default();
+        state.save_to_file(save_path)
+            .map_err(|e| anyhow::anyhow!("Failed to save state: {}", e))?;
+
+        println!("State saved to: {}", save_path.display());
+        info!("state saved successfully");
+        return Ok(());
+    }
+
+    // Handle --load-state flag (load state and print summary)
+    if let Some(load_path) = &args.load_state {
+        use rstn::tui::state::AppState;
+        debug!(path = ?load_path, "loading state from file");
+
+        let state = AppState::load_from_file(load_path)
+            .map_err(|e| anyhow::anyhow!("Failed to load state: {}", e))?;
+        state.assert_invariants();
+
+        println!("State loaded from: {}", load_path.display());
+        println!("State version: {}", state.version);
+        println!("Worktree view:");
+        if let Some(ref feature) = state.worktree_view.feature_info {
+            println!("  Feature: {}-{}", feature.number, feature.name);
+        } else {
+            println!("  No feature loaded");
+        }
+        println!("  Focus: {:?}", state.worktree_view.focus);
+        println!("  Content type: {:?}", state.worktree_view.content_type);
+
+        info!("state loaded successfully");
+        return Ok(());
+    }
 
     // If --cli flag is provided OR a command is specified, run in CLI mode
     let result = if args.cli || args.command.is_some() {

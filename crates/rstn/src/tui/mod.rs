@@ -11,6 +11,7 @@ pub mod event;
 pub mod logging;
 pub mod mcp_server;
 pub mod protocol;
+pub mod state;  // NEW: State management (Feature 079)
 pub mod views;
 pub mod widgets;
 

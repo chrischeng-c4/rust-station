@@ -1,9 +1,11 @@
 //! Application state and main loop for the TUI
 
+use crate::session::get_data_dir;
 use crate::tui::claude_stream::ClaudeStreamMessage;
 use crate::tui::event::{Event, EventHandler};
 use crate::tui::mcp_server::McpState;
 use crate::tui::protocol::{OutputParser, ProtocolMessage};
+use crate::tui::state::AppState;
 use crate::tui::views::{
     CommandRunner, ContentType, Dashboard, McpServerView, SettingsView, SpecPhase, SpecView, View,
     ViewAction, ViewType, WorktreeView,
@@ -103,6 +105,29 @@ fn point_in_rect(col: u16, row: u16, rect: &Rect) -> bool {
 }
 
 impl App {
+    /// Load saved session state from disk
+    fn load_session() -> Option<AppState> {
+        let session_path = get_data_dir().join("session.yaml");
+
+        if !session_path.exists() {
+            debug!("No session file found at {:?}, using defaults", session_path);
+            return None;
+        }
+
+        match AppState::load_from_file(&session_path) {
+            Ok(state) => {
+                debug!("Successfully loaded session from {:?}", session_path);
+                eprintln!("Restored session from {:?}", session_path);
+                Some(state)
+            }
+            Err(e) => {
+                eprintln!("Warning: Failed to load session: {}, using defaults", e);
+                debug!("Session load error: {:?}", e);
+                None
+            }
+        }
+    }
+
     /// Create a new application instance
     pub fn new(mcp_state: Arc<Mutex<McpState>>) -> Self {
         Self::new_with_session(mcp_state, None)
@@ -110,13 +135,36 @@ impl App {
 
     /// Create a new application instance with a session ID
     pub fn new_with_session(mcp_state: Arc<Mutex<McpState>>, session_id: Option<String>) -> Self {
+        // Try to load saved session state
+        let app_state = Self::load_session();
+
+        // Reconstruct views from saved state, or use defaults
+        let (worktree_view, dashboard, settings_view) = if let Some(state) = app_state {
+            // Restore from saved state
+            (
+                WorktreeView::from_state(state.worktree_view).unwrap_or_else(|e| {
+                    eprintln!("Warning: Failed to restore worktree view: {}, using defaults", e);
+                    WorktreeView::new()
+                }),
+                Dashboard::from_state(state.dashboard_view),
+                SettingsView::from_state(state.settings_view),
+            )
+        } else {
+            // Use default initialization
+            (
+                WorktreeView::new(),
+                Dashboard::new(),
+                SettingsView::new(),
+            )
+        };
+
         Self {
             running: true,
             current_view: CurrentView::Worktree,
-            worktree_view: WorktreeView::new(),
+            worktree_view,
             mcp_server_view: McpServerView::new(mcp_state.clone()),
-            dashboard: Dashboard::new(),
-            settings_view: SettingsView::new(),
+            dashboard,
+            settings_view,
             command_runner: CommandRunner::new(),
             spec_view: SpecView::new(),
             status_message: None,
@@ -2238,6 +2286,40 @@ impl App {
         Ok(lines.join("\n"))
     }
 
+    /// Save current session state to disk
+    fn save_session(&self) -> AppResult<()> {
+        debug!("Saving session state...");
+
+        // Extract state from all views
+        let app_state = AppState {
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            worktree_view: self.worktree_view.to_state(),
+            dashboard_view: self.dashboard.to_state(),
+            settings_view: self.settings_view.to_state(),
+        };
+
+        // Get session file path: ~/.rstn/session.yaml
+        let session_path = get_data_dir().join("session.yaml");
+
+        // Ensure parent directory exists
+        if let Some(parent) = session_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        // Save to YAML file
+        match app_state.save_to_yaml_file(&session_path) {
+            Ok(_) => {
+                debug!("Session saved to {:?}", session_path);
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("Warning: Failed to save session: {}", e);
+                // Don't fail the app exit on save error - just log it
+                Ok(())
+            }
+        }
+    }
+
     /// Run the TUI application
     pub fn run(&mut self) -> AppResult<()> {
         debug!("App::run() starting");
@@ -2289,6 +2371,11 @@ impl App {
         debug!("Entering main_loop...");
         let result = self.main_loop(&mut terminal, &event_handler);
         debug!("main_loop returned: {:?}", result.as_ref().map(|_| "Ok"));
+
+        // Save session state before exiting
+        debug!("Saving session...");
+        let _ = self.save_session(); // Ignore errors - don't fail exit
+        debug!("Session save complete");
 
         // Restore terminal
         debug!("Restoring terminal...");
