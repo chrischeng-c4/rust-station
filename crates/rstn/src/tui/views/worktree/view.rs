@@ -1314,6 +1314,26 @@ impl WorktreeView {
         self.start_interactive_phase(SpecPhase::Specify);
     }
 
+    /// Start Prompt Claude input workflow
+    ///
+    /// Initializes the prompt input UI for direct Claude Code interaction.
+    /// User can type a multi-line prompt, then submit with Ctrl+Enter.
+    ///
+    /// # Workflow
+    /// 1. Show input textarea (read-only initially)
+    /// 2. Press 'i' to enter edit mode
+    /// 3. Type prompt (multi-line, Ctrl+Enter for newlines in edit mode)
+    /// 4. Press Esc to exit edit mode
+    /// 5. Press Ctrl+Enter to submit prompt
+    pub fn start_prompt_input(&mut self) {
+        // Initialize TextInput widget for multi-line prompt
+        self.prompt_input = Some(TextInput::new(String::new()));
+        self.prompt_edit_mode = false; // Start in view mode (press 'i' to edit)
+        self.prompt_output.clear();
+        self.content_type = ContentType::PromptInput;
+        self.focus = WorktreeFocus::Content; // Auto-focus Content area
+    }
+
     /// Start implement mode to execute tasks (Feature 056)
     ///
     /// Loads existing tasks.md and enters task execution mode.
@@ -2821,8 +2841,7 @@ impl View for WorktreeView {
                             if let Some(command) = self.commands.get(cmd_idx) {
                                 return match command {
                                     Command::PromptClaude => {
-                                        // TODO(Task 1.4): Implement start_prompt_input()
-                                        // self.start_prompt_input();
+                                        self.start_prompt_input();
                                         ViewAction::None
                                     }
                                     Command::SddPhase(phase, _) => {
