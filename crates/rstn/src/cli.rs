@@ -104,6 +104,32 @@ pub enum Commands {
         #[command(subcommand)]
         command: ServiceCommands,
     },
+
+    /// Send a prompt directly to Claude and stream the response
+    Prompt {
+        /// The prompt message to send to Claude
+        message: String,
+
+        /// Maximum number of agentic turns (default: 1)
+        #[arg(long, default_value = "1")]
+        max_turns: u32,
+
+        /// Skip permission prompts for automation
+        #[arg(long)]
+        skip_permissions: bool,
+
+        /// Continue from a previous session
+        #[arg(long)]
+        continue_session: bool,
+
+        /// Specific session ID to resume (requires --continue-session)
+        #[arg(long, requires = "continue_session")]
+        session_id: Option<String>,
+
+        /// Allowed tools (comma-separated, empty = all)
+        #[arg(long, value_delimiter = ',')]
+        allowed_tools: Vec<String>,
+    },
 }
 
 #[derive(Subcommand, Debug)]

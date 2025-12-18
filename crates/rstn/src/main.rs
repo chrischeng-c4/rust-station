@@ -244,6 +244,26 @@ async fn run_cli_mode(args: Args) -> Result<()> {
                 commands::service::status(name).await?;
             }
         },
+
+        Commands::Prompt {
+            message,
+            max_turns,
+            skip_permissions,
+            continue_session,
+            session_id,
+            allowed_tools,
+        } => {
+            commands::prompt::run(
+                &message,
+                max_turns,
+                skip_permissions,
+                continue_session,
+                session_id,
+                allowed_tools,
+                args.verbose,
+            )
+            .await?;
+        }
     }
 
     Ok(())

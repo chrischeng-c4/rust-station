@@ -845,6 +845,193 @@ Use these MCP tools to communicate status and task progress:
 
 ---
 
+## CLI/TUI Architecture Pattern
+
+**Core Principle**: CLI and TUI are just different **interfaces** (presentation layers) over the same **core business logic**.
+
+### Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                   Presentation Layer                         │
+│   ┌──────────────────┐           ┌──────────────────┐       │
+│   │  CLI Interface   │           │  TUI Interface   │       │
+│   │  (commands/)     │           │  (tui/views/)    │       │
+│   │                  │           │                  │       │
+│   │ - Parse args     │           │ - Input dialog   │       │
+│   │ - Print stdout   │           │ - Event sender   │       │
+│   │ - Exit codes     │           │ - UI rendering   │       │
+│   └────────┬─────────┘           └────────┬─────────┘       │
+└────────────┼──────────────────────────────┼─────────────────┘
+             │                              │
+             └──────────────┬───────────────┘
+                            │
+┌───────────────────────────▼──────────────────────────────────┐
+│                   Core Business Logic                        │
+│                   (runners/cargo.rs)                         │
+│                                                              │
+│  - run_claude_command_streaming()                           │
+│  - ClaudeCliOptions                                         │
+│  - ClaudeResult                                             │
+│  - Claude CLI discovery (claude_discovery)                  │
+│  - JSONL parsing (tui/claude_stream::ClaudeStreamMessage)   │
+│  - Session management                                       │
+│  - MCP integration                                          │
+│  - Error handling                                           │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Shared Core Components
+
+Both CLI and TUI use the **same business logic**:
+
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| `run_claude_command_streaming()` | `runners/cargo.rs` | Execute Claude CLI with streaming |
+| `ClaudeCliOptions` | `runners/cargo.rs` | Configuration (max_turns, permissions, tools) |
+| `ClaudeResult` | `runners/cargo.rs` | Result with session_id, success, content |
+| `ClaudeStreamMessage` | `tui/claude_stream.rs` | JSONL message parsing |
+| `ClaudeDiscovery::find_claude()` | `claude_discovery.rs` | Locate Claude binary |
+| MCP config | `domain/paths.rs` | MCP server integration |
+
+### Interface Layer Differences
+
+**What differs** between CLI and TUI is **only** the I/O handling:
+
+| Aspect | CLI | TUI |
+|--------|-----|-----|
+| **Input** | Command-line args (`clap`) | Input dialog widget |
+| **Output** | `stdout`/`stderr` (pipeable) | Event sender → UI renderer |
+| **Streaming** | `print!()` + `flush()` | `Event::ClaudeStream` → event loop |
+| **Session display** | `eprintln!()` at end | Status widget in UI |
+| **Errors** | Exit code (0/non-zero) | Error dialog |
+| **User flow** | Single command → result | Multi-step interaction |
+
+### Implementation Example
+
+**CLI** (`commands/prompt.rs`):
+```rust
+// Print directly to stdout
+if msg.msg_type == "assistant" {
+    if let Some(text) = msg.get_text() {
+        print!("{}", text);
+        std::io::Write::flush(&mut std::io::stdout())?;
+    }
+}
+```
+
+**TUI** (`runners/cargo.rs`):
+```rust
+// Send event to TUI event loop
+if msg.msg_type == "assistant" {
+    if let Some(ref sender) = event_sender {
+        sender.send(Event::ClaudeStream(msg))?;
+    }
+}
+```
+
+### Testing Strategy
+
+**Key Insight**: CLI is easier to test than TUI
+
+#### CLI Testing (Simple)
+```bash
+# Direct input/output testing
+cargo run -p rstn -- prompt "test" --skip-permissions
+# ✅ Easy to verify stdout/stderr
+# ✅ Easy to script/automate
+# ✅ Deterministic
+```
+
+#### TUI Testing (Complex)
+```rust
+// Requires TestBackend, mock events, layout verification
+let mut terminal = TestBackend::new(80, 24);
+app.handle_key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::empty()));
+// ❌ Complex setup
+// ❌ Event loop coordination
+// ❌ State management
+```
+
+#### Development Strategy
+
+**Build CLI first, then TUI wrapper**:
+
+1. **CLI validates core logic**:
+   - ✅ Claude CLI integration works
+   - ✅ JSONL parsing works
+   - ✅ Session management works
+   - ✅ Error handling works
+   - ✅ Easy to test
+
+2. **TUI adds UI/UX layer**:
+   - ✅ Core already validated
+   - ✅ Only test UI behavior
+   - ✅ Event dispatching
+   - ✅ Rendering/layout
+
+**Result**: If TUI has issues after CLI passes, they're **UI/UX problems only**, not logic bugs.
+
+### Code Reuse Pattern
+
+Both interfaces can share implementation:
+
+```rust
+// Core function with generic output handler
+pub async fn run_claude_command_streaming<F>(
+    message: &str,
+    options: &ClaudeCliOptions,
+    output_handler: F,
+) -> Result<ClaudeResult>
+where
+    F: Fn(ClaudeStreamMessage) -> Result<()>
+{
+    // ... spawn Claude CLI, parse JSONL ...
+
+    for line in lines {
+        let msg = parse_jsonl(&line)?;
+        output_handler(msg)?;  // ← Generic callback
+    }
+}
+
+// CLI uses it:
+run_claude_command_streaming(msg, opts, |msg| {
+    print!("{}", msg.get_text().unwrap_or_default());
+    Ok(())
+})
+
+// TUI uses it:
+run_claude_command_streaming(msg, opts, |msg| {
+    sender.send(Event::ClaudeStream(msg))?;
+    Ok(())
+})
+```
+
+### Benefits of This Pattern
+
+1. **Single source of truth**: Core logic in one place
+2. **Easier testing**: Validate via CLI first
+3. **Reduced duplication**: No duplicate command building, parsing, error handling
+4. **Better maintainability**: Fix bugs in one place
+5. **Clear separation**: Interface layer vs business logic
+
+### Current Implementation
+
+As of 2025-12-18:
+
+- **CLI**: `commands/prompt.rs` - Direct Claude prompting from command line
+  - Usage: `rstn prompt "message" --max-turns 5 --skip-permissions`
+  - Streams to stdout, status to stderr
+  - Session continuation with `--continue-session --session-id`
+
+- **TUI**: `tui/views/spec.rs` - Prompt Claude via input dialog
+  - Usage: Press `p` → Input dialog → Stream to output panel
+  - Session management via `ViewAction::RunPromptClaude`
+
+Both use `runners/cargo.rs::run_claude_command_streaming()` as the core implementation.
+
+---
+
 ## Active Technologies
 - Rust 1.75+ (edition 2021) + okio, serde_json, thiserror (all already in workspace) (052-internalize-spec-generation)
 - File system (`specs/` directory, `features.json`) (052-internalize-spec-generation)
