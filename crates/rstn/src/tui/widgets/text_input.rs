@@ -108,13 +108,11 @@ impl TextInput {
                 self.lines[self.cursor_line].push_str(&current_line);
                 self.adjust_scroll();
             }
-        } else {
-            if self.cursor_position > 0 && !self.value.is_empty() {
-                let delete_pos = self.cursor_position - 1;
-                if delete_pos < self.value.len() {
-                    self.value.remove(delete_pos);
-                    self.cursor_position = delete_pos;
-                }
+        } else if self.cursor_position > 0 && !self.value.is_empty() {
+            let delete_pos = self.cursor_position - 1;
+            if delete_pos < self.value.len() {
+                self.value.remove(delete_pos);
+                self.cursor_position = delete_pos;
             }
         }
     }
@@ -137,10 +135,8 @@ impl TextInput {
                 self.cursor_column = self.lines[self.cursor_line].len();
                 self.adjust_scroll();
             }
-        } else {
-            if self.cursor_position > 0 {
-                self.cursor_position -= 1;
-            }
+        } else if self.cursor_position > 0 {
+            self.cursor_position -= 1;
         }
     }
 
@@ -155,10 +151,8 @@ impl TextInput {
                 self.cursor_column = 0;
                 self.adjust_scroll();
             }
-        } else {
-            if self.cursor_position < self.value.len() {
-                self.cursor_position += 1;
-            }
+        } else if self.cursor_position < self.value.len() {
+            self.cursor_position += 1;
         }
     }
 
@@ -431,7 +425,7 @@ impl TextInput {
         buf.set_string(
             area.x + x_offset,
             y,
-            &cursor_char.to_string(),
+            cursor_char.to_string(),
             Style::default()
                 .fg(Color::Black)
                 .bg(Color::White)

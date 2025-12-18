@@ -10,16 +10,6 @@ use tokio::time::timeout;
 
 use super::{ArtifactKind, PlanConfig, PlanContext, PlanError};
 
-/// Check if Claude Code CLI is available
-///
-/// Verifies that the `claude` command exists and is executable.
-pub fn check_claude_cli_available() -> Result<(), PlanError> {
-    match which::which("claude") {
-        Ok(_) => Ok(()),
-        Err(_) => Err(PlanError::ClaudeNotFound),
-    }
-}
-
 /// Generate plan content using Claude Code CLI
 ///
 /// Calls Claude Code CLI in headless mode to generate a plan
@@ -61,11 +51,16 @@ pub async fn generate_artifact_content(
 
 /// Execute Claude CLI with the given prompt
 async fn execute_claude_cli(prompt: &str, timeout_secs: u64) -> Result<String, PlanError> {
+    // Find Claude CLI using unified discovery
+    let claude_path = crate::claude_discovery::ClaudeDiscovery::find_claude()
+        .await
+        .map_err(|_| PlanError::ClaudeNotFound)?;
+
     let timeout_duration = Duration::from_secs(timeout_secs);
 
     let output = timeout(
         timeout_duration,
-        Command::new("claude")
+        Command::new(&claude_path)
             .arg("--print")
             .arg("--dangerously-skip-permissions")
             .arg(prompt)
@@ -264,21 +259,4 @@ mod tests {
         assert!(prompt.contains("Implementation steps"));
     }
 
-    #[tokio::test]
-    async fn test_claude_cli_check() {
-        // This test verifies the function doesn't panic
-        // Result depends on whether claude is installed
-        let result = check_claude_cli_available();
-        match result {
-            Ok(()) => {
-                // Claude is installed
-            }
-            Err(PlanError::ClaudeNotFound) => {
-                // Claude is not installed, expected in CI
-            }
-            Err(e) => {
-                panic!("Unexpected error: {:?}", e);
-            }
-        }
-    }
 }

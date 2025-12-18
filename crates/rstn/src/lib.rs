@@ -3,6 +3,7 @@
 //! This crate contains both the CLI/TUI application code and the core domain logic.
 
 // CLI/TUI modules
+pub mod claude_discovery;
 pub mod cli;
 pub mod commands;
 pub mod logging;
@@ -47,6 +48,9 @@ pub enum RscliError {
 
     #[error("Command not found: {0}")]
     CommandNotFound(String),
+
+    #[error("Command execution failed: {0}")]
+    CommandFailed(String),
 
     #[error(transparent)]
     Io(#[from] std::io::Error),

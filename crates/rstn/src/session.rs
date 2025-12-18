@@ -1,32 +1,54 @@
 //! Session management for Claude Code sessions per feature
 //!
-//! Each feature gets its own session ID stored in ~/.rustation/sessions/<feature>.session
+//! Each feature gets its own session ID stored in ~/.rstn/sessions/<feature>.session
 //! This enables Claude Code to use cached context for cost savings.
 
 use std::path::PathBuf;
 
-/// Get the base directory for rustation data (with migration from old path)
+/// Get the base directory for rstn data (with migration from old paths)
 pub fn get_data_dir() -> PathBuf {
     let home = dirs::home_dir().expect("Could not find home directory");
-    let new_path = home.join(".rustation");
-    let old_path = home.join(".rust-station");
+    let new_path = home.join(".rstn");
+    let old_path = home.join(".rustation");
+    let legacy_path = home.join(".rust-station");
 
-    // If new path doesn't exist but old one does, migrate
-    if !new_path.exists() && old_path.exists() {
-        if let Err(e) = std::fs::rename(&old_path, &new_path) {
-            eprintln!(
-                "Warning: Could not migrate config from {} to {}: {}",
-                old_path.display(),
-                new_path.display(),
-                e
-            );
-            eprintln!("You may need to manually copy your settings.");
-        } else {
-            println!(
-                "Migrated configuration from {} to {}",
-                old_path.display(),
-                new_path.display()
-            );
+    // Priority: .rstn > .rustation > .rust-station
+    if !new_path.exists() {
+        if old_path.exists() {
+            // Migrate .rustation → .rstn
+            if let Err(e) = std::fs::rename(&old_path, &new_path) {
+                eprintln!(
+                    "Warning: Could not migrate data from {} to {}: {}",
+                    old_path.display(),
+                    new_path.display(),
+                    e
+                );
+                eprintln!("Continuing with old path. You may want to manually migrate.");
+                return old_path; // Fall back to old path
+            } else {
+                println!(
+                    "✓ Migrated rstn data: {} → {}",
+                    old_path.display(),
+                    new_path.display()
+                );
+            }
+        } else if legacy_path.exists() {
+            // Migrate .rust-station → .rstn
+            if let Err(e) = std::fs::rename(&legacy_path, &new_path) {
+                eprintln!(
+                    "Warning: Could not migrate legacy data from {} to {}: {}",
+                    legacy_path.display(),
+                    new_path.display(),
+                    e
+                );
+                return legacy_path; // Fall back to legacy path
+            } else {
+                println!(
+                    "✓ Migrated legacy data: {} → {}",
+                    legacy_path.display(),
+                    new_path.display()
+                );
+            }
         }
     }
 
@@ -90,7 +112,7 @@ pub fn list_sessions() -> std::io::Result<Vec<(String, String)>> {
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
-        if path.extension().map_or(false, |ext| ext == "session") {
+        if path.extension().is_some_and(|ext| ext == "session") {
             if let Some(stem) = path.file_stem() {
                 let feature = stem.to_string_lossy().to_string();
                 if let Ok(session_id) = std::fs::read_to_string(&path) {
@@ -111,6 +133,6 @@ mod tests {
         let path = get_session_path("041");
         assert!(path
             .to_string_lossy()
-            .contains(".rustation/sessions/041.session"));
+            .contains(".rstn/sessions/041.session"));
     }
 }

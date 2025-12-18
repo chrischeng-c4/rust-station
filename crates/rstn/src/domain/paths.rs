@@ -63,19 +63,42 @@ pub fn mcp_logs_dir() -> Result<PathBuf> {
     Ok(data_dir()?.join("logs/mcp"))
 }
 
-/// Get rustation home directory (~/.rustation)
+/// Get rstn home directory (~/.rstn)
+pub fn rstn_home() -> Result<PathBuf> {
+    dirs::home_dir()
+        .map(|p| p.join(".rstn"))
+        .ok_or_else(|| CoreError::Config("Could not determine home directory".into()))
+}
+
+/// Get rustation home directory (~/.rustation) - DEPRECATED, for migration fallback only
+#[deprecated(note = "Use rstn_home() instead. Kept for migration fallback.")]
 pub fn rustation_home() -> Result<PathBuf> {
     dirs::home_dir()
         .map(|p| p.join(".rustation"))
         .ok_or_else(|| CoreError::Config("Could not determine home directory".into()))
 }
 
-/// Get rstn logs directory (~/.rustation/logs)
-pub fn rstn_logs_dir() -> Result<PathBuf> {
-    Ok(rustation_home()?.join("logs"))
+/// Get MCP config file path (~/.rstn/mcp-session.json)
+pub fn mcp_config_path() -> Result<PathBuf> {
+    Ok(rstn_home()?.join("mcp-session.json"))
 }
 
-/// Get rstn log file path (~/.rustation/logs/rstn.log)
+/// Get sessions directory (~/.rstn/sessions)
+pub fn sessions_dir() -> Result<PathBuf> {
+    Ok(rstn_home()?.join("sessions"))
+}
+
+/// Get settings file path (~/.rstn/settings.json)
+pub fn settings_path() -> Result<PathBuf> {
+    Ok(rstn_home()?.join("settings.json"))
+}
+
+/// Get rstn logs directory (~/.rstn/logs)
+pub fn rstn_logs_dir() -> Result<PathBuf> {
+    Ok(rstn_home()?.join("logs"))
+}
+
+/// Get rstn log file path (~/.rstn/logs/rstn.log)
 pub fn rstn_log_file() -> Result<PathBuf> {
     Ok(rstn_logs_dir()?.join("rstn.log"))
 }

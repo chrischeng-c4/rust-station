@@ -311,9 +311,11 @@ Expected format:
     // 4. Call Claude Code CLI
     tracing::info!("Executing Claude CLI to analyze changes");
 
-    // Try to find Claude CLI executable
-    let claude_path = find_claude_executable().await?;
-    tracing::debug!("Found Claude CLI at: {}", claude_path);
+    // Try to find Claude CLI executable using unified discovery
+    let claude_path = crate::claude_discovery::ClaudeDiscovery::find_claude()
+        .await
+        .map_err(|e| crate::domain::errors::CoreError::CommandFailed(format!("Failed to find Claude CLI: {}", e)))?;
+    tracing::debug!("Found Claude CLI at: {}", claude_path.display());
 
     // Log the prompt being sent
     tracing::info!("=== CLAUDE PROMPT ===");
@@ -326,7 +328,7 @@ Expected format:
 
     // Log the complete command
     tracing::info!("=== CLAUDE CLI COMMAND ===");
-    tracing::info!("Executable: {}", claude_path);
+    tracing::info!("Executable: {}", claude_path.display());
     tracing::info!(
         "Arguments: -p \"{}\" --output-format text --max-turns 5",
         if prompt.len() > 50 {
@@ -348,7 +350,7 @@ Expected format:
         .output()
         .await
         .map_err(|e| {
-            tracing::error!("Failed to execute Claude CLI at {}: {}", claude_path, e);
+            tracing::error!("Failed to execute Claude CLI at {}: {}", claude_path.display(), e);
             crate::domain::errors::CoreError::CommandFailed(
                 format!("Failed to execute 'claude' command: {}\n\nPlease install Claude Code CLI: https://docs.claude.com/claude-code", e)
             )
@@ -423,50 +425,6 @@ Expected format:
     })
 }
 
-/// Find Claude CLI executable by checking common locations
-async fn find_claude_executable() -> Result<String> {
-    use tokio::fs;
-
-    // 1. Check if 'claude' is in PATH
-    if let Ok(path) = which::which("claude") {
-        tracing::debug!("Found claude in PATH: {:?}", path);
-        return Ok(path.to_string_lossy().to_string());
-    }
-
-    // 2. Check common installation locations
-    let home = std::env::var("HOME").map_err(|_| {
-        crate::domain::errors::CoreError::CommandFailed("Could not determine HOME directory".to_string())
-    })?;
-
-    let common_locations = vec![
-        format!("{}/.claude/local/claude", home),
-        format!("{}/.local/bin/claude", home),
-        "/usr/local/bin/claude".to_string(),
-        "/opt/homebrew/bin/claude".to_string(),
-    ];
-
-    for location in &common_locations {
-        tracing::debug!("Checking for claude at: {}", location);
-        if fs::metadata(location).await.is_ok() {
-            tracing::info!("Found claude at: {}", location);
-            return Ok(location.clone());
-        }
-    }
-
-    // 3. Not found - provide helpful error
-    tracing::error!("Claude CLI not found in PATH or common locations");
-    Err(crate::domain::errors::CoreError::CommandFailed(format!(
-        "Claude CLI not found. Checked:\n\
-             - PATH\n\
-             - {}\n\
-             \n\
-             Please install Claude Code CLI or create a symlink:\n\
-             ln -s /path/to/claude ~/.local/bin/claude\n\
-             \n\
-             Install instructions: https://docs.claude.com/claude-code",
-        common_locations.join("\n - ")
-    )))
-}
 
 /// Extract JSON array from Claude's response
 fn extract_json_from_response(response: &str) -> Result<String> {

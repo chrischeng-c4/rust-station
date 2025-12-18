@@ -11,16 +11,6 @@ use tokio::time::timeout;
 
 use super::{NewFeature, SpecifyConfig, SpecifyError};
 
-/// Check if Claude Code CLI is available
-///
-/// Verifies that the `claude` command exists and is executable.
-pub async fn check_claude_cli_available() -> Result<(), SpecifyError> {
-    match which::which("claude") {
-        Ok(_) => Ok(()),
-        Err(_) => Err(SpecifyError::ClaudeNotFound),
-    }
-}
-
 /// Generate spec content using Claude Code CLI
 ///
 /// Calls Claude Code CLI in headless mode to generate a specification
@@ -40,8 +30,10 @@ pub async fn generate_spec_content(
     workspace_root: &Path,
     config: &SpecifyConfig,
 ) -> Result<String, SpecifyError> {
-    // Check Claude CLI is available
-    check_claude_cli_available().await?;
+    // Find Claude CLI using unified discovery
+    let claude_path = crate::claude_discovery::ClaudeDiscovery::find_claude()
+        .await
+        .map_err(|_| SpecifyError::ClaudeNotFound)?;
 
     // Load template if it exists
     let template = load_spec_template(workspace_root, config.template_path.as_deref())?;
@@ -54,7 +46,7 @@ pub async fn generate_spec_content(
 
     let output = timeout(
         timeout_duration,
-        Command::new("claude")
+        Command::new(&claude_path)
             .arg("--print")
             .arg("--dangerously-skip-permissions")
             .arg(&prompt)
@@ -170,26 +162,5 @@ mod tests {
         assert!(template.contains("## User Stories"));
         assert!(template.contains("## Requirements"));
         assert!(template.contains("## Success Criteria"));
-    }
-
-    #[tokio::test]
-    async fn test_claude_not_found() {
-        // This test will pass if claude is not installed
-        // and fail gracefully if it is installed
-        let result = check_claude_cli_available().await;
-
-        // We just verify it returns a result without panicking
-        // The actual result depends on whether claude is installed
-        match result {
-            Ok(()) => {
-                // Claude is installed, that's fine
-            }
-            Err(SpecifyError::ClaudeNotFound) => {
-                // Claude is not installed, that's also fine for this test
-            }
-            Err(e) => {
-                panic!("Unexpected error: {:?}", e);
-            }
-        }
     }
 }

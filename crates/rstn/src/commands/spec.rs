@@ -27,7 +27,7 @@ struct FeatureCatalog {
 /// Get repository root
 fn get_repo_root() -> Result<PathBuf> {
     let output = std::process::Command::new("git")
-        .args(&["rev-parse", "--show-toplevel"])
+        .args(["rev-parse", "--show-toplevel"])
         .output()?;
 
     if output.status.success() {
@@ -44,7 +44,7 @@ fn get_repo_root() -> Result<PathBuf> {
 /// Get current feature from git branch
 fn get_current_feature() -> Result<Option<String>> {
     let output = std::process::Command::new("git")
-        .args(&["rev-parse", "--abbrev-ref", "HEAD"])
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
         .output()?;
 
     if output.status.success() {

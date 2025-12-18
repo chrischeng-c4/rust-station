@@ -45,7 +45,7 @@ pub async fn list(verbose: bool) -> Result<()> {
             table.add_row(vec![
                 Cell::new(&server.name),
                 Cell::new(&server.command),
-                Cell::new(&server.args.join(" ")),
+                Cell::new(server.args.join(" ")),
                 Cell::new(server.description.as_deref().unwrap_or("-")),
             ]);
         }

@@ -438,13 +438,11 @@ impl Dashboard {
     /// Get only the focused pane content as text
     pub fn get_focused_pane_text(&self) -> String {
         match self.focused_panel {
-            DashboardPanel::ProjectInfo => vec![
-                "=== Project Info ===".to_string(),
+            DashboardPanel::ProjectInfo => ["=== Project Info ===".to_string(),
                 format!("Project: {}", self.project_name),
                 format!("Rust: {}", self.rust_version),
                 String::new(),
-                "rush - A shell in Rust".to_string(),
-            ]
+                "rush - A shell in Rust".to_string()]
             .join("\n"),
             DashboardPanel::GitStatus => {
                 let mut lines = vec![

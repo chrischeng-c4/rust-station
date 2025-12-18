@@ -191,9 +191,6 @@ pub async fn generate_plan(
     )?;
     tracing::debug!("Loaded context for feature: {}", context.feature_name);
 
-    // Check Claude CLI is available
-    generator::check_claude_cli_available()?;
-
     // Create artifact writer for rollback support
     let mut writer = ArtifactWriter::new(feature_dir.clone());
     let mut artifacts = Vec::new();

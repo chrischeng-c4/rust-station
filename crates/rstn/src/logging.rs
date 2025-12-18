@@ -241,7 +241,7 @@ mod tests {
     fn test_log_file_path_returns_valid_path() {
         let path = log_file_path();
         assert!(path.to_string_lossy().contains("rstn.log"));
-        assert!(path.to_string_lossy().contains(".rustation"));
+        assert!(path.to_string_lossy().contains(".rstn"));
     }
 
     #[test]

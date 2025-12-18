@@ -103,10 +103,10 @@ fn parse_test_output(stdout: &str, stderr: &str) -> Result<TestResults> {
     for line in combined.lines() {
         if line.contains("test result:") {
             // Parse the summary
-            let passed = extract_number(&line, "passed");
-            let failed = extract_number(&line, "failed");
-            let ignored = extract_number(&line, "ignored");
-            let filtered_out = extract_number(&line, "filtered out");
+            let passed = extract_number(line, "passed");
+            let failed = extract_number(line, "failed");
+            let ignored = extract_number(line, "ignored");
+            let filtered_out = extract_number(line, "filtered out");
 
             return Ok(TestResults {
                 passed,
@@ -353,6 +353,10 @@ pub struct ClaudeResult {
     pub success: bool,
     /// Accumulated text content from assistant messages
     pub content: String,
+    /// Captured stderr output (for debugging failures)
+    pub stderr: String,
+    /// Process exit code (None if process didn't exit normally)
+    pub exit_code: Option<i32>,
 }
 
 /// Run a Claude Code CLI command in headless mode
@@ -387,10 +391,12 @@ pub async fn run_claude_command_streaming(
 ) -> Result<ClaudeResult> {
     use tokio::io::{AsyncBufReadExt, BufReader};
 
-    // Find claude binary
-    let claude_path = find_claude_path();
+    // Find claude binary using unified discovery
+    let claude_path = crate::claude_discovery::ClaudeDiscovery::find_claude()
+        .await
+        .map_err(|e| RscliError::CommandNotFound(format!("claude: {}", e)))?;
 
-    let mut cmd = Command::new(claude_path.as_deref().unwrap_or("claude"));
+    let mut cmd = Command::new(&claude_path);
 
     // Add options
     if let Some(max) = options.max_turns {
@@ -416,8 +422,10 @@ pub async fn run_claude_command_streaming(
     cmd.arg("--include-partial-messages"); // Show incremental output as Claude types
 
     // Point Claude to rstn's MCP server config
-    if let Some(home) = std::env::var("HOME").ok() {
-        let mcp_config_path = format!("{}/.rstn/mcp-session.json", home);
+    if let Some(mcp_config_path) = crate::domain::paths::mcp_config_path()
+        .ok()
+        .and_then(|p| p.to_str().map(String::from))
+    {
         if std::path::Path::new(&mcp_config_path).exists() {
             cmd.arg("--mcp-config").arg(&mcp_config_path);
         }
@@ -466,6 +474,8 @@ pub async fn run_claude_command_streaming(
         .map_err(|e| RscliError::CommandNotFound(format!("claude: {}", e)))?;
 
     let mut result = ClaudeResult::default();
+    let mut stderr_buffer = String::new(); // Accumulate stderr for error reporting
+    let start_time = std::time::Instant::now(); // Track command duration
 
     // Read stdout line by line (JSONL format)
     if let Some(stdout) = child.stdout.take() {
@@ -503,7 +513,16 @@ pub async fn run_claude_command_streaming(
         let reader = BufReader::new(stderr);
         let mut lines = reader.lines();
         while let Ok(Some(line)) = lines.next_line().await {
-            tracing::warn!(target: "claude_cli", "stderr: {}", line);
+            // Accumulate for error reporting
+            if !stderr_buffer.is_empty() {
+                stderr_buffer.push('\n');
+            }
+            stderr_buffer.push_str(&line);
+
+            // Log each line for real-time debugging
+            tracing::debug!(target: "claude_cli", "stderr: {}", line);
+
+            // Send to UI for display
             if let Some(ref s) = sender {
                 let _ = s.send(Event::CommandOutput(format!("[stderr] {}", line)));
             }
@@ -511,28 +530,126 @@ pub async fn run_claude_command_streaming(
     }
 
     let exit_status = child.wait().await?;
+    let exit_code = exit_status.code();
+    let duration = start_time.elapsed();
+
     result.success = exit_status.success();
+    result.stderr = stderr_buffer.clone();
+    result.exit_code = exit_code;
+
+    // Log completion summary
+    if result.success {
+        tracing::info!(
+            exit_code = exit_code.unwrap_or(-1),
+            duration_ms = duration.as_millis(),
+            stdout_chars = result.content.len(),
+            "Claude CLI completed successfully"
+        );
+    } else {
+        tracing::error!(
+            exit_code = exit_code.unwrap_or(-1),
+            duration_ms = duration.as_millis(),
+            stderr_lines = stderr_buffer.lines().count(),
+            "Claude CLI failed"
+        );
+
+        // Log stderr at ERROR level (first 1000 chars for log visibility)
+        if !stderr_buffer.is_empty() {
+            let stderr_preview = if stderr_buffer.len() > 1000 {
+                format!("{}... (truncated)", &stderr_buffer[..1000])
+            } else {
+                stderr_buffer.clone()
+            };
+            tracing::error!(stderr = %stderr_preview, "Claude CLI error output");
+        }
+
+        // Return Err with detailed error message
+        let error_msg = build_claude_error_message(exit_code, &stderr_buffer, &result.content);
+        return Err(RscliError::CommandFailed(error_msg));
+    }
 
     Ok(result)
 }
 
-/// Find the claude binary path
-fn find_claude_path() -> Option<String> {
-    let claude_paths = [
-        std::env::var("HOME")
-            .map(|h| format!("{}/.claude/local/claude", h))
-            .unwrap_or_default(),
-        "/usr/local/bin/claude".to_string(),
-        "claude".to_string(),
-    ];
+/// Build a detailed error message for Claude CLI failures
+fn build_claude_error_message(
+    exit_code: Option<i32>,
+    stderr: &str,
+    partial_content: &str,
+) -> String {
+    let mut msg = String::new();
 
-    for path in &claude_paths {
-        if !path.is_empty() && (path == "claude" || std::path::Path::new(path).exists()) {
-            return Some(path.clone());
-        }
+    // Header with exit code
+    msg.push_str(&format!(
+        "Claude CLI command failed (exit code: {})\n\n",
+        exit_code
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| "unknown".to_string())
+    ));
+
+    // Error output
+    if !stderr.is_empty() {
+        msg.push_str("Error output:\n");
+        msg.push_str(stderr);
+        msg.push('\n');
+    } else {
+        msg.push_str("No error output captured.\n");
     }
-    None
+
+    // Partial content if any
+    if !partial_content.is_empty() {
+        msg.push_str(&format!(
+            "\nPartial output before failure ({} chars):\n{}\n",
+            partial_content.len(),
+            if partial_content.len() > 200 {
+                format!("{}...", &partial_content[..200])
+            } else {
+                partial_content.to_string()
+            }
+        ));
+    }
+
+    // Pattern detection for common errors
+    if let Some(hint) = detect_error_pattern(stderr) {
+        msg.push_str("\nPossible cause:\n");
+        msg.push_str(hint);
+        msg.push('\n');
+    }
+
+    // Log file reference
+    if let Ok(log_file) = crate::domain::paths::rstn_log_file() {
+        msg.push_str(&format!(
+            "\nSee {} for full details.",
+            log_file.display()
+        ));
+    }
+
+    msg
 }
+
+/// Detect common error patterns and provide hints
+fn detect_error_pattern(stderr: &str) -> Option<&'static str> {
+    let lower = stderr.to_lowercase();
+
+    if lower.contains("mcp server") || lower.contains("mcp config") {
+        Some("MCP server configuration issue. Check that rstn's MCP server is running and the config at ~/.rstn/mcp-session.json is valid.")
+    } else if lower.contains("connection refused") {
+        Some("Connection refused. The MCP server may not be running or the port may be blocked.")
+    } else if lower.contains("api key") || lower.contains("authentication") {
+        Some("API authentication issue. Ensure ANTHROPIC_API_KEY is set correctly.")
+    } else if lower.contains("rate limit") {
+        Some("API rate limit exceeded. Wait a few moments and try again.")
+    } else if lower.contains("permission denied") {
+        Some("File permission error. Check that rstn has write access to the specs/ directory.")
+    } else if lower.contains("timeout") {
+        Some("Operation timed out. This may indicate network issues or a very large request.")
+    } else if lower.contains("command not found") || lower.contains("no such file") {
+        Some("Claude CLI executable not found. Ensure 'claude' is installed and in PATH.")
+    } else {
+        None
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -555,5 +672,90 @@ mod tests {
         let results = parse_test_output(output, "").unwrap();
         assert_eq!(results.passed, 668);
         assert_eq!(results.failed, 2);
+    }
+
+    #[test]
+    fn test_detect_mcp_error() {
+        let stderr = "Error: MCP server not found in config\nFailed to connect";
+        let hint = detect_error_pattern(stderr);
+        assert!(hint.is_some());
+        assert!(hint.unwrap().contains("MCP server"));
+    }
+
+    #[test]
+    fn test_detect_connection_refused_error() {
+        let stderr = "Connection refused on port 12345";
+        let hint = detect_error_pattern(stderr);
+        assert!(hint.is_some());
+        assert!(hint.unwrap().contains("Connection refused"));
+    }
+
+    #[test]
+    fn test_detect_api_key_error() {
+        let stderr = "Error: Invalid API key or authentication failed";
+        let hint = detect_error_pattern(stderr);
+        assert!(hint.is_some());
+        assert!(hint.unwrap().contains("API authentication"));
+    }
+
+    #[test]
+    fn test_detect_rate_limit_error() {
+        let stderr = "API rate limit exceeded, please wait";
+        let hint = detect_error_pattern(stderr);
+        assert!(hint.is_some());
+        assert!(hint.unwrap().contains("rate limit"));
+    }
+
+    #[test]
+    fn test_detect_permission_error() {
+        let stderr = "permission denied: cannot write to file";
+        let hint = detect_error_pattern(stderr);
+        assert!(hint.is_some());
+        assert!(hint.unwrap().contains("permission"));
+    }
+
+    #[test]
+    fn test_detect_no_pattern() {
+        let stderr = "Some random error message";
+        let hint = detect_error_pattern(stderr);
+        assert!(hint.is_none());
+    }
+
+    #[test]
+    fn test_build_error_message_format() {
+        let msg = build_claude_error_message(
+            Some(1),
+            "Connection refused on port 12345",
+            "Partial output...",
+        );
+
+        assert!(msg.contains("exit code: 1"));
+        assert!(msg.contains("Connection refused"));
+        assert!(msg.contains("Partial output"));
+    }
+
+    #[test]
+    fn test_build_error_message_with_hint() {
+        let msg = build_claude_error_message(Some(1), "MCP server configuration is invalid", "");
+
+        assert!(msg.contains("MCP server"));
+        assert!(msg.contains("Possible cause:"));
+    }
+
+    #[test]
+    fn test_build_error_message_no_stderr() {
+        let msg = build_claude_error_message(Some(1), "", "");
+
+        assert!(msg.contains("exit code: 1"));
+        assert!(msg.contains("No error output captured"));
+    }
+
+    #[test]
+    fn test_build_error_message_truncates_long_content() {
+        let long_content = "a".repeat(300);
+        let msg = build_claude_error_message(Some(1), "Error", &long_content);
+
+        assert!(msg.contains("Partial output"));
+        assert!(msg.contains("...")); // Should be truncated
     }
 }

@@ -2,8 +2,6 @@
 
 use rstn::logging;
 use rstn::settings::Settings;
-use std::fs;
-use tempfile::TempDir;
 
 #[test]
 fn test_log_file_path_is_in_rustation_directory() {
@@ -11,8 +9,8 @@ fn test_log_file_path_is_in_rustation_directory() {
     let path_str = path.to_string_lossy();
 
     assert!(
-        path_str.contains(".rustation"),
-        "Log path should be in .rustation directory: {}",
+        path_str.contains(".rstn"),
+        "Log path should be in .rstn directory: {}",
         path_str
     );
     assert!(

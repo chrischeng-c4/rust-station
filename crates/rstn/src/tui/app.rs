@@ -154,11 +154,10 @@ impl App {
         }
 
         // SpecifyInput mode in worktree view
-        if self.current_view == CurrentView::Worktree {
-            if self.worktree_view.is_in_specify_input_mode() {
+        if self.current_view == CurrentView::Worktree
+            && self.worktree_view.is_in_specify_input_mode() {
                 return true;
             }
-        }
 
         false
     }
@@ -383,15 +382,15 @@ impl App {
                 // "[/] Switch Tab  Tab Switch Pane  y Copy Y Copy+Style  s Session  q Quit"
                 // Clickable regions: Copy (31-38), Copy+Style (39-51), Session (52-62), Quit (63+)
                 let click_offset = col.saturating_sub(shortcuts_rect.x);
-                if click_offset >= 31 && click_offset < 39 {
+                if (31..39).contains(&click_offset) {
                     // "y Copy" clicked
                     self.copy_current_pane();
                     return;
-                } else if click_offset >= 39 && click_offset < 52 {
+                } else if (39..52).contains(&click_offset) {
                     // "Y Copy+Style" clicked
                     self.copy_visual_view = true;
                     return;
-                } else if click_offset >= 52 && click_offset < 63 {
+                } else if (52..63).contains(&click_offset) {
                     // "s Session" clicked
                     self.copy_session_id();
                     return;
@@ -614,7 +613,7 @@ impl App {
                 tokio::spawn(async move {
                     // Run rstn worktree list via command
                     let result = tokio::process::Command::new("rstn")
-                        .args(&["--cli", "worktree", "list", "--verbose"])
+                        .args(["--cli", "worktree", "list", "--verbose"])
                         .output()
                         .await;
 
@@ -960,16 +959,34 @@ impl App {
         };
 
         // Call Claude with streaming
-        let result = crate::runners::cargo::run_claude_command_streaming(
+        let result = match crate::runners::cargo::run_claude_command_streaming(
             &user_msg,
             &cli_options,
             sender,
         )
         .await
-        .map_err(|e| format!("Claude CLI error: {}", e))?;
+        {
+            Ok(r) => r,
+            Err(e) => {
+                // Error already contains full context from build_claude_error_message()
+                return Err(format!("Spec generation failed:\n\n{}", e));
+            }
+        };
 
+        // Double-check success flag (should always be true if Ok returned, but defensive)
         if !result.success {
-            return Err("Claude CLI failed to generate spec".to_string());
+            let error_detail = if !result.stderr.is_empty() {
+                format!(
+                    "Exit code: {:?}\nStderr:\n{}",
+                    result.exit_code, result.stderr
+                )
+            } else {
+                format!("Exit code: {:?} (no error output)", result.exit_code)
+            };
+            return Err(format!(
+                "Claude CLI failed to generate spec:\n\n{}",
+                error_detail
+            ));
         }
 
         let spec_content = if result.content.is_empty() {
@@ -2854,16 +2871,16 @@ impl App {
 
                 for (idx, group) in groups.iter().enumerate() {
                     // Unstage all
-                    let _ = Command::new("git").args(&["reset", "HEAD"]).output().await;
+                    let _ = Command::new("git").args(["reset", "HEAD"]).output().await;
 
                     // Stage group files
                     for file in &group.files {
-                        let _ = Command::new("git").args(&["add", file]).output().await;
+                        let _ = Command::new("git").args(["add", file]).output().await;
                     }
 
                     // Commit
                     let result = Command::new("git")
-                        .args(&["commit", "-m", &group.message])
+                        .args(["commit", "-m", &group.message])
                         .output()
                         .await;
 

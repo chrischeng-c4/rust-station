@@ -482,8 +482,7 @@ impl SpecView {
             }
             SpecFocus::Info => {
                 // Return feature info and settings
-                vec![
-                    "=== Feature Info ===".to_string(),
+                ["=== Feature Info ===".to_string(),
                     format!(
                         "Number: {}",
                         self.feature.number.as_deref().unwrap_or("N/A")
@@ -503,8 +502,7 @@ impl SpecView {
                         } else {
                             "No"
                         }
-                    ),
-                ]
+                    )]
                 .join("\n")
             }
             SpecFocus::Wizard => {
@@ -627,7 +625,7 @@ impl View for SpecView {
                 self.auto_flow.active = true;
                 self.focus = SpecFocus::Wizard; // Reuse wizard focus
                                                 // Start first phase immediately
-                return self.get_next_auto_flow_action();
+                self.get_next_auto_flow_action()
             }
             // Start wizard
             KeyCode::Char('w') => {

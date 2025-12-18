@@ -1,6 +1,6 @@
 //! Settings persistence for rstn
 //!
-//! Stores settings in ~/.rustation/settings.json
+//! Stores settings in ~/.rstn/settings.json
 
 use crate::session::get_data_dir;
 use serde::{Deserialize, Serialize};
@@ -32,6 +32,11 @@ pub struct Settings {
     /// Also output logs to console (stderr)
     #[serde(default = "default_log_to_console")]
     pub log_to_console: bool,
+
+    /// Path to Claude CLI executable (auto-discovered or user-specified)
+    /// If None, will be auto-discovered on first use
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub claude_path: Option<String>,
 }
 
 fn default_auto_run() -> bool {
@@ -75,6 +80,7 @@ impl Default for Settings {
             logging_enabled: default_logging_enabled(),
             log_level: default_log_level(),
             log_to_console: default_log_to_console(),
+            claude_path: None,
         }
     }
 }
@@ -111,7 +117,7 @@ impl Settings {
             std::fs::create_dir_all(parent)?;
         }
         let content = serde_json::to_string_pretty(self)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            .map_err(|e| std::io::Error::other(e))?;
         std::fs::write(path, content)
     }
 

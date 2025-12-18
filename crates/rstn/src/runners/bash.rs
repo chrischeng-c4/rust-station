@@ -9,7 +9,7 @@ use tokio::process::Command;
 fn get_repo_root() -> Result<PathBuf> {
     // Try to get git repository root
     let output = std::process::Command::new("git")
-        .args(&["rev-parse", "--show-toplevel"])
+        .args(["rev-parse", "--show-toplevel"])
         .output()?;
 
     if output.status.success() {

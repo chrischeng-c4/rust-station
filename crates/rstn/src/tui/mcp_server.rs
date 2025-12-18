@@ -753,13 +753,14 @@ pub async fn start_server(
 
 /// Write MCP configuration file for Claude Code to discover
 pub fn write_mcp_config(port: u16) -> Result<std::path::PathBuf> {
-    let config_dir = dirs::home_dir()
-        .context("Could not find home directory")?
-        .join(".rstn");
+    let config_path = crate::domain::paths::mcp_config_path()
+        .context("Could not determine MCP config path")?;
 
-    std::fs::create_dir_all(&config_dir)?;
+    let config_dir = config_path.parent()
+        .ok_or_else(|| anyhow::anyhow!("Invalid config path"))?;
 
-    let config_path = config_dir.join("mcp-session.json");
+    std::fs::create_dir_all(config_dir)?;
+
     let config = serde_json::json!({
         "mcpServers": {
             "rstn": {
@@ -777,10 +778,8 @@ pub fn write_mcp_config(port: u16) -> Result<std::path::PathBuf> {
 
 /// Remove MCP configuration file on shutdown
 pub fn cleanup_mcp_config() -> Result<()> {
-    let config_path = dirs::home_dir()
-        .context("Could not find home directory")?
-        .join(".rstn")
-        .join("mcp-session.json");
+    let config_path = crate::domain::paths::mcp_config_path()
+        .context("Could not determine MCP config path")?;
 
     if config_path.exists() {
         std::fs::remove_file(&config_path)?;
