@@ -469,9 +469,58 @@ impl App {
                 });
             }
             ViewAction::RunPromptClaude { prompt } => {
-                // TODO(Task 1.8): Implement Claude CLI execution with streaming
-                debug!("RunPromptClaude triggered with prompt: {}", prompt);
-                // Placeholder: Will spawn Claude CLI and handle streaming in Task 1.8
+                // Task 1.8: Execute Claude CLI with user prompt and streaming output
+                debug!("RunPromptClaude triggered with prompt (length: {})", prompt.len());
+
+                // Switch to PromptRunning content type to show streaming output
+                self.worktree_view.content_type = ContentType::PromptRunning;
+                self.worktree_view.is_running = true;
+                self.status_message = Some("Running Claude CLI with your prompt...".to_string());
+
+                // Log command execution checkpoint (Task 1.9 will add more detailed logging)
+                self.worktree_view.add_output(format!("⚡ Executing Prompt Claude ({} chars)", prompt.len()));
+
+                // Build Claude CLI options (simple: no special options for direct prompts)
+                let cli_options = crate::runners::cargo::ClaudeCliOptions {
+                    max_turns: Some(1), // Single-turn for direct prompts
+                    skip_permissions: false,
+                    continue_session: false,
+                    session_id: None,
+                    allowed_tools: vec![], // Empty = all tools allowed
+                    system_prompt_file: None,
+                };
+
+                // Spawn async task to run Claude CLI with streaming
+                let sender = self.event_sender.clone();
+                tokio::spawn(async move {
+                    let result = crate::runners::cargo::run_claude_command_streaming(
+                        &prompt,
+                        &cli_options,
+                        sender.clone(),
+                    )
+                    .await;
+
+                    // Send completion event
+                    if let Some(sender) = sender {
+                        match result {
+                            Ok(claude_result) => {
+                                let _ = sender.send(Event::ClaudeCompleted {
+                                    phase: "PromptClaude".to_string(),
+                                    success: claude_result.success,
+                                    session_id: claude_result.session_id,
+                                });
+                            }
+                            Err(e) => {
+                                tracing::error!("Claude CLI execution failed: {}", e);
+                                let _ = sender.send(Event::ClaudeCompleted {
+                                    phase: "PromptClaude".to_string(),
+                                    success: false,
+                                    session_id: None,
+                                });
+                            }
+                        }
+                    }
+                });
             }
             ViewAction::RunSpecPhase {
                 phase,
@@ -1835,8 +1884,14 @@ impl App {
         // Display assistant messages in output panel (strip status block)
         if msg.msg_type == "assistant" {
             if let Some(text) = msg.get_display_text() {
-                for line in text.lines() {
-                    self.worktree_view.add_output(line.to_string());
+                // Check if in Prompt Claude mode - append to prompt_output
+                if self.worktree_view.content_type == ContentType::PromptRunning {
+                    self.worktree_view.append_prompt_output(&text);
+                } else {
+                    // Standard mode: add to output panel
+                    for line in text.lines() {
+                        self.worktree_view.add_output(line.to_string());
+                    }
                 }
             }
         }
@@ -1913,6 +1968,20 @@ impl App {
             if let Some(ref info) = self.worktree_view.feature_info {
                 let _ = crate::session::save_session_id(&info.number, &sid);
             }
+        }
+
+        // Handle Prompt Claude completion (Task 1.8)
+        if phase == "PromptClaude" {
+            self.worktree_view.is_running = false;
+            if success {
+                self.status_message = Some("Prompt Claude completed".to_string());
+                self.worktree_view.add_output("✓ Prompt completed".to_string());
+            } else {
+                self.status_message = Some("Prompt Claude failed".to_string());
+                self.worktree_view.add_output("❌ Prompt failed".to_string());
+            }
+            // Stay on PromptRunning to show results
+            return;
         }
 
         // Status changes now come via Event::McpStatus (Feature 061)
