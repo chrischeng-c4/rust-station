@@ -94,6 +94,11 @@ pub struct WorktreeView {
     // Specify workflow state (Feature 051)
     pub specify_state: SpecifyState,
 
+    // Prompt Claude workflow state
+    pub prompt_input: Option<TextInput>,  // Multi-line prompt input
+    pub prompt_edit_mode: bool,           // Track if in edit mode (i/Esc toggle)
+    pub prompt_output: String,            // Accumulated streaming output
+
     // Layout rects for mouse click detection
     pub commands_pane_rect: Option<Rect>,
     pub content_pane_rect: Option<Rect>,
@@ -111,18 +116,22 @@ impl WorktreeView {
         phase_state.select(Some(0));
 
         let mut command_state = ListState::default();
-        command_state.select(Some(1)); // Start on first SDD phase (Specify), not header
+        command_state.select(Some(1)); // Start on "Prompt Claude" (after WORKFLOW header)
 
         let phases = SpecPhase::all()
             .iter()
             .map(|&p| (p, PhaseStatus::NotStarted))
             .collect::<Vec<_>>();
 
-        // Build unified command list (SDD phases + Git commands)
+        // Build unified command list (Workflow + SDD phases + Git commands)
         let mut commands = Vec::new();
+        // WORKFLOW section
+        commands.push(Command::PromptClaude);
+        // SDD section
         for (phase, status) in &phases {
             commands.push(Command::SddPhase(*phase, *status));
         }
+        // GIT section
         for git_cmd in GitCommand::all() {
             commands.push(Command::GitAction(*git_cmd));
         }
@@ -169,6 +178,10 @@ impl WorktreeView {
             commit_validation_error: None,
             // Specify workflow state initialization (Feature 051)
             specify_state: SpecifyState::new(),
+            // Prompt Claude workflow state initialization
+            prompt_input: None,
+            prompt_edit_mode: false,
+            prompt_output: String::new(),
             // Mouse click detection
             commands_pane_rect: None,
             content_pane_rect: None,
@@ -359,30 +372,42 @@ impl WorktreeView {
 
     /// Map display index to command index (accounting for headers and separators)
     fn display_index_to_command_index(&self, display_idx: usize) -> Option<usize> {
-        // Display indices:
-        // 0: "SDD WORKFLOW" header (not selectable)
-        // 1-7: SDD phases (commands 0-6)
-        // 8: separator (not selectable)
-        // 9: "GIT ACTIONS" header (not selectable)
-        // 10+: Git commands (commands 7+)
+        // Display indices for three-section layout:
+        // 0: "WORKFLOW" header (not selectable)
+        // 1: "Prompt Claude" (command 0)
+        // 2: separator (not selectable)
+        // 3: "SDD" header (not selectable)
+        // 4-10: SDD phases (commands 1-7)
+        // 11: separator (not selectable)
+        // 12: "GIT" header (not selectable)
+        // 13+: Git commands (commands 8+)
 
         let num_sdd_phases = self.phases.len();
 
         if display_idx == 0 {
-            // "SDD WORKFLOW" header - not selectable
+            // "WORKFLOW" header - not selectable
             None
-        } else if display_idx <= num_sdd_phases {
-            // SDD phases: display index 1-7 maps to commands 0-6
-            Some(display_idx - 1)
-        } else if display_idx == num_sdd_phases + 1 {
+        } else if display_idx == 1 {
+            // "Prompt Claude" - command 0
+            Some(0)
+        } else if display_idx == 2 {
             // Separator - not selectable
             None
-        } else if display_idx == num_sdd_phases + 2 {
-            // "GIT ACTIONS" header - not selectable
+        } else if display_idx == 3 {
+            // "SDD" header - not selectable
+            None
+        } else if display_idx <= 3 + num_sdd_phases {
+            // SDD phases: display index 4-10 maps to commands 1-7
+            Some(display_idx - 3)
+        } else if display_idx == 4 + num_sdd_phases {
+            // Separator - not selectable
+            None
+        } else if display_idx == 5 + num_sdd_phases {
+            // "GIT" header - not selectable
             None
         } else {
-            // Git commands: display index 10+ maps to commands 7+
-            Some(display_idx - 3)
+            // Git commands: display index 13+ maps to commands 8+
+            Some(display_idx - 6)
         }
     }
 
@@ -811,9 +836,29 @@ impl WorktreeView {
 
         let mut items = Vec::new();
 
-        // SDD WORKFLOW section header
+        // WORKFLOW section header
         items.push(ListItem::new(vec![Line::from(vec![Span::styled(
-            "SDD WORKFLOW",
+            "WORKFLOW",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )])]));
+
+        // Prompt Claude command
+        items.push(ListItem::new(vec![Line::from(vec![
+            Span::raw("✨ "),
+            Span::styled(
+                "Prompt Claude",
+                Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD),
+            ),
+        ])]));
+
+        // Separator
+        items.push(ListItem::new(Line::from("")));
+
+        // SDD section header
+        items.push(ListItem::new(vec![Line::from(vec![Span::styled(
+            "SDD",
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
@@ -833,9 +878,9 @@ impl WorktreeView {
         // Separator
         items.push(ListItem::new(Line::from("")));
 
-        // GIT ACTIONS section header
+        // GIT section header
         items.push(ListItem::new(vec![Line::from(vec![Span::styled(
-            "GIT ACTIONS",
+            "GIT",
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
