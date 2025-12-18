@@ -50,8 +50,37 @@ You MUST write out these 5 steps before writing any code.
 
 <decision-trees>
 
-<tree name="SDD Workflow">
-START: New feature request
+<tree name="Which SDD Workflow">
+START: New work?
+│
+├─► Estimated LOC > 500?
+│   └─ YES → Full SDD (spec + plan + tasks)
+│
+├─► Touches > 5 files?
+│   └─ YES → Full SDD
+│
+├─► Architecture change?
+│   └─ YES → Full SDD
+│
+├─► rush feature (Phase 7-8)?
+│   └─ YES → Full SDD
+│
+├─► Complex algorithm or new domain concept?
+│   └─ YES → Full SDD
+│
+└─► Otherwise → Lightweight SDD (spec only)
+    │
+    ├─ Full SDD path:
+    │  /speckit.specify → /speckit.plan → /speckit.tasks → implement
+    │
+    └─ Lightweight SDD path:
+       /speckit-lite → implement directly (no plan/tasks)
+
+See: kb/04-sdd-workflow/when-to-use-which.md for detailed guide
+</tree>
+
+<tree name="SDD Workflow (Full)">
+START: New feature request (using Full SDD)
 │
 ├─► Does spec.md exist?
 │   ├─ NO → Run /speckit.specify, then /speckit.clarify if needed
@@ -119,7 +148,7 @@ START: rstn needs to call Claude CLI?
 │   └─ Append → `--append-system-prompt "extra instructions"`
 │
 └─► END: Build command with all required flags
-    See: .claude/docs/claude-cli-reference.md
+    See: kb/02-api-reference/claude-cli-reference.md
 </tree>
 
 </decision-trees>
@@ -264,12 +293,28 @@ When dispatching to tui-tester, ALWAYS use this structure:
 
 <claude-cli-docs>
 Reference documentation for Claude CLI integration:
-- `.claude/docs/claude-cli-reference.md` - All CLI flags and options
-- `.claude/docs/claude-headless-mode.md` - Headless mode patterns
+- `kb/02-api-reference/claude-cli-reference.md` - Condensed CLI reference
+- `kb/02-api-reference/claude-code-cli-reference.md` - Complete CLI reference
+- `kb/02-api-reference/claude-headless-mode.md` - Headless mode patterns
 
 Key implementation file:
 - `crates/rstn/src/runners/cargo.rs` - `run_claude_command_streaming()`
 </claude-cli-docs>
+
+<knowledge-base>
+Comprehensive documentation (created 2025-12-18):
+- `kb/00-index.md` - START HERE (navigation hub)
+- `kb/01-architecture/overview.md` - System architecture
+- `kb/01-architecture/rstn-tui-architecture.md` - TUI design (current + target)
+- `kb/03-complexity-analysis/technical-debt.md` - Current issues & metrics
+- `kb/04-sdd-workflow/when-to-use-which.md` - Full vs Lightweight SDD decision guide
+
+Key insights:
+- WorktreeView: 4,118 lines, 54+ fields (needs refactoring)
+- App: 3,404 lines (needs refactoring)
+- SDD effectiveness: 83% success rate (20/24 features with full SDD completed)
+- Target: 5-6 month refactoring roadmap
+</knowledge-base>
 
 </grounding>
 
@@ -683,7 +728,7 @@ Use these MCP tools to communicate status and task progress:
 
 ### Further Reading
 
-- **Tool Schemas**: See `docs/mcp-tools.md` for detailed tool reference
+- **Tool Schemas**: See `kb/02-api-reference/mcp-tools.md` for detailed tool reference
 - **MCP Spec**: [Model Context Protocol](https://modelcontextprotocol.io/)
 - **Claude Code MCP Docs**: [claude.com/docs/claude-code/mcp](https://code.claude.com/docs/en/mcp)
 
