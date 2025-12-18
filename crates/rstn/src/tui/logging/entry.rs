@@ -4,14 +4,20 @@ use std::time::SystemTime;
 /// Category of log entry for styling and filtering
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LogCategory {
-    /// Slash command execution (e.g., /speckit.specify)
-    SlashCommand,
+    /// User actions (command selection, input, focus changes)
+    User,
+    /// Command execution (e.g., Prompt Claude, /speckit.specify)
+    Command,
     /// Claude Code streaming output
     ClaudeStream,
-    /// File change in spec directory
+    /// MCP tool calls and responses
+    Mcp,
+    /// Hook execution and results
+    Hook,
+    /// File operations (read, write, errors)
     FileChange,
-    /// Shell script execution
-    ShellOutput,
+    /// Error conditions (validation, system errors)
+    Error,
     /// System/TUI internal messages
     System,
 }
@@ -20,10 +26,13 @@ impl LogCategory {
     /// Get emoji icon for this category
     pub fn icon(&self) -> &'static str {
         match self {
-            Self::SlashCommand => "⚡",
+            Self::User => "🧑",
+            Self::Command => "⚡",
             Self::ClaudeStream => "🤖",
+            Self::Mcp => "🔌",
+            Self::Hook => "🔧",
             Self::FileChange => "📝",
-            Self::ShellOutput => "🔧",
+            Self::Error => "❌",
             Self::System => "ℹ️",
         }
     }
@@ -31,10 +40,13 @@ impl LogCategory {
     /// Get ratatui Color for this category
     pub fn color(&self) -> Color {
         match self {
-            Self::SlashCommand => Color::Cyan,
+            Self::User => Color::Blue,
+            Self::Command => Color::Cyan,
             Self::ClaudeStream => Color::White,
+            Self::Mcp => Color::Magenta,
+            Self::Hook => Color::Yellow,
             Self::FileChange => Color::Green,
-            Self::ShellOutput => Color::Yellow,
+            Self::Error => Color::Red,
             Self::System => Color::DarkGray,
         }
     }

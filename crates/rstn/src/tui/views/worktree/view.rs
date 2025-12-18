@@ -675,7 +675,7 @@ impl WorktreeView {
 
     /// Log slash command execution
     pub fn log_slash_command(&mut self, command: &str) {
-        self.log(LogCategory::SlashCommand, command.to_string());
+        self.log(LogCategory::Command, command.to_string());
         self.log(LogCategory::System, "─".repeat(60)); // Separator
     }
 
@@ -694,7 +694,7 @@ impl WorktreeView {
     /// Log shell command
     pub fn log_shell_command(&mut self, script: &str, exit_code: i32) {
         self.log(
-            LogCategory::ShellOutput,
+            LogCategory::Hook,
             format!("{} completed (exit: {})", script, exit_code),
         );
     }

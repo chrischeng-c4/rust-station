@@ -27,7 +27,7 @@ fn test_log_buffer_entries_iterator() {
     let mut buffer = LogBuffer::new();
 
     buffer.push(LogEntry::new(
-        LogCategory::SlashCommand,
+        LogCategory::Command,
         "Command 1".to_string(),
     ));
     buffer.push(LogEntry::new(
@@ -70,30 +70,47 @@ fn test_log_buffer_circular_eviction() {
 fn test_log_buffer_categories() {
     let mut buffer = LogBuffer::new();
 
-    buffer.push(LogEntry::new(LogCategory::SlashCommand, "cmd".to_string()));
+    buffer.push(LogEntry::new(LogCategory::Command, "cmd".to_string()));
     buffer.push(LogEntry::new(
         LogCategory::ClaudeStream,
         "stream".to_string(),
     ));
     buffer.push(LogEntry::new(LogCategory::FileChange, "file".to_string()));
-    buffer.push(LogEntry::new(LogCategory::ShellOutput, "shell".to_string()));
+    buffer.push(LogEntry::new(LogCategory::Hook, "shell".to_string()));
     buffer.push(LogEntry::new(LogCategory::System, "system".to_string()));
 
     let entries: Vec<_> = buffer.entries().collect();
-    assert_eq!(entries[0].category, LogCategory::SlashCommand);
+    assert_eq!(entries[0].category, LogCategory::Command);
     assert_eq!(entries[1].category, LogCategory::ClaudeStream);
     assert_eq!(entries[2].category, LogCategory::FileChange);
-    assert_eq!(entries[3].category, LogCategory::ShellOutput);
+    assert_eq!(entries[3].category, LogCategory::Hook);
     assert_eq!(entries[4].category, LogCategory::System);
 }
 
 #[test]
 fn test_log_entry_category_icons() {
-    assert_eq!(LogCategory::SlashCommand.icon(), "⚡");
+    assert_eq!(LogCategory::User.icon(), "🧑");
+    assert_eq!(LogCategory::Command.icon(), "⚡");
     assert_eq!(LogCategory::ClaudeStream.icon(), "🤖");
+    assert_eq!(LogCategory::Mcp.icon(), "🔌");
+    assert_eq!(LogCategory::Hook.icon(), "🔧");
     assert_eq!(LogCategory::FileChange.icon(), "📝");
-    assert_eq!(LogCategory::ShellOutput.icon(), "🔧");
+    assert_eq!(LogCategory::Error.icon(), "❌");
     assert_eq!(LogCategory::System.icon(), "ℹ️");
+}
+
+#[test]
+fn test_log_entry_category_colors() {
+    use ratatui::style::Color;
+
+    assert_eq!(LogCategory::User.color(), Color::Blue);
+    assert_eq!(LogCategory::Command.color(), Color::Cyan);
+    assert_eq!(LogCategory::ClaudeStream.color(), Color::White);
+    assert_eq!(LogCategory::Mcp.color(), Color::Magenta);
+    assert_eq!(LogCategory::Hook.color(), Color::Yellow);
+    assert_eq!(LogCategory::FileChange.color(), Color::Green);
+    assert_eq!(LogCategory::Error.color(), Color::Red);
+    assert_eq!(LogCategory::System.color(), Color::DarkGray);
 }
 
 #[test]
@@ -218,7 +235,7 @@ fn test_file_tracker_nonexistent_file() {
 
 #[test]
 fn test_log_entry_category_icon_method() {
-    let entry = LogEntry::new(LogCategory::SlashCommand, "test".to_string());
+    let entry = LogEntry::new(LogCategory::Command, "test".to_string());
     assert_eq!(entry.category_icon(), "⚡");
 
     let entry2 = LogEntry::new(LogCategory::FileChange, "test".to_string());
