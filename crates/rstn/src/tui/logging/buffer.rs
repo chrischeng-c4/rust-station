@@ -40,6 +40,15 @@ impl LogBuffer {
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
+
+    /// Create buffer from existing entries (for state restoration)
+    pub fn from_entries(entries: impl IntoIterator<Item = LogEntry>) -> Self {
+        let mut buffer = Self::new();
+        for entry in entries {
+            buffer.push(entry);
+        }
+        buffer
+    }
 }
 
 impl Default for LogBuffer {

@@ -14,7 +14,7 @@ use std::path::PathBuf;
 const GIT_REFRESH_INTERVAL: u64 = 30;
 
 /// Dashboard panel types
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DashboardPanel {
     ProjectInfo,
     RecentTests,
@@ -48,7 +48,7 @@ pub struct Dashboard {
 }
 
 /// Test results summary
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TestResults {
     pub passed: u32,
     pub failed: u32,
@@ -73,6 +73,47 @@ impl Dashboard {
             rust_version: "1.75+".to_string(),
             tick_count: 0,
             quick_action_index: 0,
+        }
+    }
+
+    /// Extract persistent state (for session persistence)
+    pub fn to_state(&self) -> crate::tui::state::dashboard::DashboardState {
+        crate::tui::state::dashboard::DashboardState {
+            focused_panel: self.focused_panel,
+            git_branch: self.git_branch.clone(),
+            git_status: self.git_status.clone(),
+            worktree_count: self.worktree_count,
+            worktree_path: self.worktree_path.clone(),
+            is_git_repo: self.is_git_repo,
+            worktree_type: self.worktree_type.clone(),
+            git_error: self.git_error.clone(),
+            test_results: self.test_results.clone(),
+            project_name: self.project_name.clone(),
+            rust_version: self.rust_version.clone(),
+            quick_action_index: self.quick_action_index,
+        }
+    }
+
+    /// Restore from persistent state (for session restoration)
+    pub fn from_state(state: crate::tui::state::dashboard::DashboardState) -> Self {
+        Self {
+            // Persistent state (from saved state)
+            focused_panel: state.focused_panel,
+            git_branch: state.git_branch,
+            git_status: state.git_status,
+            worktree_count: state.worktree_count,
+            worktree_path: state.worktree_path,
+            is_git_repo: state.is_git_repo,
+            worktree_type: state.worktree_type,
+            git_error: state.git_error,
+            test_results: state.test_results,
+            project_name: state.project_name,
+            rust_version: state.rust_version,
+            quick_action_index: state.quick_action_index,
+
+            // Ephemeral state (initialized to defaults)
+            tick_count: 0,
+            last_git_refresh: 0,
         }
     }
 

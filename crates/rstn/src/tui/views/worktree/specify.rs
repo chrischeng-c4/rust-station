@@ -11,7 +11,7 @@ use super::{ParsedTask, TaskListState};
 
 /// State for the Specify/Plan/Tasks workflow (Feature 051)
 /// Represents the current SDD phase and any generated content
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SpecifyState {
     // Phase tracking (Feature 053-058)
     /// Current SDD phase being executed

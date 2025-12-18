@@ -3036,6 +3036,187 @@ impl WorktreeView {
 
         frame.render_widget(footer, sections[2]);
     }
+
+    // ========================================
+    // State Serialization (Phase 3A)
+    // ========================================
+
+    /// Extract current state into WorktreeViewState
+    ///
+    /// This converts the WorktreeView's current state into a serializable
+    /// WorktreeViewState struct, preserving all P1+P2 fields.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// let state = worktree_view.to_state();
+    /// // Save state to file
+    /// state.save_to_file(&path)?;
+    /// ```
+    pub fn to_state(&self) -> crate::tui::state::worktree::WorktreeViewState {
+        use crate::tui::state::worktree::WorktreeViewState;
+
+        WorktreeViewState {
+            // P1: Feature Context (2 fields)
+            feature_info: self.feature_info.clone(),
+            worktree_type: self.worktree_type.clone(),
+
+            // P1: Content Cache (3 fields)
+            spec_content: self.spec_content.clone(),
+            plan_content: self.plan_content.clone(),
+            tasks_content: self.tasks_content.clone(),
+
+            // P1: Phase Tracking (2 fields)
+            phases: self.phases.clone(),
+            current_phase: self.current_phase,
+
+            // P1: UI State (3 fields)
+            focus: self.focus,
+            content_type: self.content_type,
+            content_scroll: self.content_scroll,
+
+            // P2: Commands Subsystem (2 fields)
+            commands: self.commands.clone(),
+            command_state_index: self.command_state.selected(),
+
+            // P2: Logging/Output Subsystem (7 fields)
+            log_entries: self.log_buffer.entries().cloned().collect(),
+            output_scroll: self.output_scroll,
+            is_running: self.is_running,
+            running_phase: self.running_phase.clone(),
+            pending_git_command: self.pending_git_command,
+            active_session_id: self.active_session_id.clone(),
+            pending_follow_up: self.pending_follow_up,
+
+            // P3: Input Subsystem (3 fields)
+            pending_input_phase: self.pending_input_phase,
+            prompt_input: self.prompt_input.clone(),
+            inline_input: self.inline_input.clone(),
+
+            // P3: Progress Subsystem (3 fields)
+            progress_step: self.progress_step,
+            progress_total: self.progress_total,
+            progress_message: self.progress_message.clone(),
+
+            // P4: Commit Workflow (8 fields)
+            pending_commit_message: self.pending_commit_message.clone(),
+            commit_warnings: self.commit_warnings.clone(),
+            commit_groups: self.commit_groups.clone(),
+            current_commit_index: self.current_commit_index,
+            commit_message_input: self.commit_message_input.clone(),
+            commit_message_cursor: self.commit_message_cursor,
+            commit_sensitive_files: self.commit_sensitive_files.clone(),
+            commit_validation_error: self.commit_validation_error.clone(),
+
+            // P5: Specify Workflow (1 field)
+            specify_state: self.specify_state.clone(),
+
+            // P5: Prompt Workflow (2 fields)
+            prompt_edit_mode: self.prompt_edit_mode,
+            prompt_output: self.prompt_output.clone(),
+        }
+    }
+
+    /// Reconstruct WorktreeView from WorktreeViewState
+    ///
+    /// This creates a new WorktreeView instance from a serialized state,
+    /// reconstructing ephemeral fields (LogBuffer, FileChangeTracker, etc.)
+    /// from the persistent state.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// let state = WorktreeViewState::load_from_file(&path)?;
+    /// let worktree_view = WorktreeView::from_state(state)?;
+    /// ```
+    pub fn from_state(
+        state: crate::tui::state::worktree::WorktreeViewState,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        use ratatui::widgets::ListState;
+
+        // Reconstruct ListState for phase navigation
+        let mut phase_state = ListState::default();
+        phase_state.select(Some(0));
+
+        // Reconstruct ListState for command navigation from saved index
+        let mut command_state = ListState::default();
+        command_state.select(state.command_state_index);
+
+        // Reconstruct LogBuffer from log entries
+        let log_buffer = LogBuffer::from_entries(state.log_entries);
+
+        Ok(Self {
+            // P1: Feature Context
+            feature_info: state.feature_info,
+            worktree_type: state.worktree_type,
+
+            // P1: Content Cache
+            spec_content: state.spec_content,
+            plan_content: state.plan_content,
+            tasks_content: state.tasks_content,
+
+            // P1: Phase Tracking
+            phases: state.phases,
+            current_phase: state.current_phase,
+
+            // P1: UI State
+            focus: state.focus,
+            phase_state,
+            command_state,
+            content_scroll: state.content_scroll,
+            content_type: state.content_type,
+
+            // P2: Commands Subsystem
+            commands: state.commands,
+            pending_git_command: state.pending_git_command,
+
+            // P2: Logging/Output Subsystem
+            log_buffer,
+            output_scroll: state.output_scroll,
+            is_running: state.is_running,
+            running_phase: state.running_phase,
+            active_session_id: state.active_session_id,
+            pending_follow_up: state.pending_follow_up,
+
+            // P3: Input Subsystem
+            pending_input_phase: state.pending_input_phase,
+            prompt_input: state.prompt_input,
+            inline_input: state.inline_input,
+
+            // P3: Progress Subsystem
+            progress_step: state.progress_step,
+            progress_total: state.progress_total,
+            progress_message: state.progress_message,
+
+            // P4: Commit Workflow
+            pending_commit_message: state.pending_commit_message,
+            commit_warnings: state.commit_warnings,
+            commit_groups: state.commit_groups,
+            current_commit_index: state.current_commit_index,
+            commit_message_input: state.commit_message_input,
+            commit_message_cursor: state.commit_message_cursor,
+            commit_sensitive_files: state.commit_sensitive_files,
+            commit_validation_error: state.commit_validation_error,
+
+            // P5: Specify Workflow
+            specify_state: state.specify_state,
+
+            // P5: Prompt Workflow
+            prompt_edit_mode: state.prompt_edit_mode,
+            prompt_output: state.prompt_output,
+
+            // Ephemeral fields (initialized to defaults, not serialized)
+            tick_count: 0,
+            last_refresh: 0,
+            auto_flow: AutoFlowState::new(),
+            file_tracker: FileChangeTracker::new(),
+            last_file_check_tick: 0,
+            spinner_frame: 0,
+            commands_pane_rect: None,
+            content_pane_rect: None,
+            output_pane_rect: None,
+        })
+    }
 }
 
 impl Default for WorktreeView {

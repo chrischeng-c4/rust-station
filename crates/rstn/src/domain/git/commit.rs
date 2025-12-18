@@ -7,7 +7,7 @@ use crate::domain::errors::Result;
 use tokio::process::Command;
 
 /// A logical group of related file changes
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CommitGroup {
     pub files: Vec<String>,
     pub message: String,

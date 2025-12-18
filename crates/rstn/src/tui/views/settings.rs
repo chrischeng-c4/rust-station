@@ -84,6 +84,26 @@ impl SettingsView {
         &self.settings
     }
 
+    /// Extract persistent state (for session persistence)
+    pub fn to_state(&self) -> crate::tui::state::settings::SettingsState {
+        crate::tui::state::settings::SettingsState {
+            settings: self.settings.clone(),
+            selected_index: self.selected_index,
+            current_feature: self.current_feature.clone(),
+            status_message: self.status_message.clone(),
+        }
+    }
+
+    /// Restore from persistent state (for session restoration)
+    pub fn from_state(state: crate::tui::state::settings::SettingsState) -> Self {
+        Self {
+            settings: state.settings,
+            selected_index: state.selected_index,
+            current_feature: state.current_feature,
+            status_message: state.status_message,
+        }
+    }
+
     fn items() -> Vec<SettingsItem> {
         SettingsItem::all()
     }

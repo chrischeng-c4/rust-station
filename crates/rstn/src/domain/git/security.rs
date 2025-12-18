@@ -10,7 +10,7 @@ use tokio::process::Command;
 use crate::domain::errors::Result;
 
 /// Security scan result for staged changes
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SecurityScanResult {
     pub blocked: bool,
     pub warnings: Vec<SecurityWarning>,
@@ -18,7 +18,7 @@ pub struct SecurityScanResult {
 }
 
 /// A security warning found during scanning
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SecurityWarning {
     pub file_path: String,
     pub line_number: usize,
@@ -28,7 +28,7 @@ pub struct SecurityWarning {
 }
 
 /// Severity level of a security issue
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Severity {
     /// Definite secret - BLOCKS commit (private keys, etc.)
     Critical,
@@ -39,7 +39,7 @@ pub enum Severity {
 }
 
 /// A sensitive file found in staged changes
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SensitiveFile {
     pub path: String,
     pub reason: String,
