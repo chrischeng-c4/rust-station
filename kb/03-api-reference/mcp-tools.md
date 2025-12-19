@@ -359,18 +359,27 @@ Use this tool to mark tasks complete in `tasks.md` during implementation.
 
 ## Tool Discovery
 
-Claude Code auto-discovers rstn's MCP tools via `~/.config/claude-code/mcp_servers.json`:
+Claude Code discovers rstn's MCP tools via `~/.rstn/mcp-session.json`:
 
 ```json
 {
-  "rstn": {
-    "transport": "sse",
-    "url": "http://127.0.0.1:19560"
+  "mcpServers": {
+    "rstn": {
+      "type": "http",
+      "url": "http://127.0.0.1:{dynamic_port}/mcp"
+    }
   }
 }
 ```
 
-This file is automatically created when rstn starts.
+**Important**:
+- **Protocol**: `"type": "http"` (NOT `"transport": "sse"`)
+- **Port**: Dynamically assigned (port 0 → auto-assign), NOT hard-coded 19560
+- **Endpoint**: `/mcp` path required
+- **Location**: `~/.rstn/mcp-session.json` (NOT `~/.config/claude-code/`)
+- **Usage**: Pass to Claude CLI via `--mcp-config ~/.rstn/mcp-session.json`
+
+This file is automatically created when rstn's MCP server starts.
 
 ---
 

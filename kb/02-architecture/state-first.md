@@ -1,8 +1,49 @@
-# State Serializability - Core Architecture Principle
+# 🎯 State Serializability - Core Architecture Principle
 
-**Status**: Core Principle (Feature 079)
+**Status**: 🎯 Core Principle (Feature 079)
 **Created**: 2025-12-18
-**Last Updated**: 2025-12-18
+**Last Updated**: 2025-12-19
+
+---
+
+## TL;DR - For Claude Code
+
+**Core Principle:** At any time, rstn's entire state MUST be JSON/YAML serializable.
+
+**Why:**
+- **Testability**: State-based tests are observable, deterministic, and stable
+- **Reproducibility**: Save state → load state → exact bug reproduction
+- **Clarity**: State is the single source of truth, UI is derived
+
+**Testing Requirements (MANDATORY):**
+1. Every feature MUST include state serialization round-trip test
+2. Every feature MUST include state transition tests
+3. State structs MUST derive `Serialize + Deserialize + Debug + Clone`
+4. NO hidden state (closures, thread-locals, unserializable fields)
+
+**Enforcement:**
+- CI checks: All state structs derive required traits
+- Code review: State tests required for PR approval
+- Test coverage: State tests are NOT optional
+
+**Quick Example:**
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AppState {
+    pub version: String,
+    pub worktree_view: WorktreeViewState,
+    pub dashboard_view: DashboardState,
+    pub settings_view: SettingsState,
+}
+
+#[test]
+fn test_state_round_trip() {
+    let state = AppState::default();
+    let json = serde_json::to_string(&state).unwrap();
+    let loaded: AppState = serde_json::from_str(&json).unwrap();
+    assert_eq!(state, loaded); // MUST pass
+}
+```
 
 ---
 
@@ -181,6 +222,134 @@ impl App {
     }
 }
 ```
+
+### State Transition Diagram
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle: App starts
+
+    Idle --> LoadingState: --load-state flag
+    LoadingState --> Idle: State loaded
+    LoadingState --> Error: Load failed
+
+    Idle --> Running: User action
+
+    state Running {
+        [*] --> Processing: handle_action()
+        Processing --> ValidateAction: Check preconditions
+        ValidateAction --> MutateState: Valid
+        ValidateAction --> Error: Invalid
+        MutateState --> LogTransition: State changed
+        LogTransition --> [*]: Done
+    }
+
+    Running --> Idle: Action complete
+
+    Idle --> SavingState: --save-state flag / Exit
+    SavingState --> [*]: State saved
+    SavingState --> Error: Save failed
+
+    Error --> Idle: Error handled
+
+    note right of Running
+        All state mutations happen here
+        Old state → Action → New state
+        Logged for debugging
+    end note
+
+    note right of SavingState
+        Serialize to JSON/YAML
+        Can be loaded later
+        Perfect reproduction
+    end note
+```
+
+---
+
+## Common Pitfalls
+
+### ❌ Antipattern: Hidden State
+
+**Problem**: State not in the state tree
+```rust
+// ❌ BAD: State in closure (not serializable)
+let counter = Rc::new(RefCell::new(0));
+button.on_click(move || {
+    *counter.borrow_mut() += 1; // Hidden state!
+});
+
+// ✅ GOOD: State in AppState
+pub struct AppState {
+    pub click_count: usize, // Serializable
+}
+app.handle_action(ViewAction::ButtonClick); // Explicit transition
+```
+
+### ❌ Antipattern: Non-Serializable Types
+
+**Problem**: Fields that can't be serialized
+```rust
+// ❌ BAD: Function pointer (not serializable)
+pub struct AppState {
+    pub callback: fn() -> (), // Can't serialize!
+}
+
+// ❌ BAD: Thread handle (not serializable)
+pub struct AppState {
+    pub worker: JoinHandle<()>, // Can't serialize!
+}
+
+// ✅ GOOD: Only data, no behavior
+pub struct AppState {
+    pub callback_name: String, // Serializable ID
+    pub worker_id: Option<String>, // Serializable reference
+}
+```
+
+### ❌ Antipattern: Implicit State
+
+**Problem**: State derived but not stored
+```rust
+// ❌ BAD: Computed on-the-fly (inconsistent)
+impl App {
+    pub fn is_ready(&self) -> bool {
+        self.feature.is_some() && !self.is_running // Not stored!
+    }
+}
+
+// ✅ GOOD: Explicit state field
+pub struct AppState {
+    pub is_ready: bool, // Stored in state
+}
+
+impl App {
+    pub fn compute_ready(&mut self) {
+        self.is_ready = self.feature.is_some() && !self.is_running;
+    }
+}
+```
+
+### ❌ Antipattern: Mutable Global State
+
+**Problem**: State outside the state tree
+```rust
+// ❌ BAD: Global mutable state
+static mut CURRENT_SESSION: Option<String> = None;
+
+// ✅ GOOD: State in AppState
+pub struct AppState {
+    pub current_session: Option<String>,
+}
+```
+
+### ✅ Best Practices
+
+1. **Everything in the state tree**: If it affects behavior, it's in `AppState`
+2. **Derive required traits**: `Serialize + Deserialize + Debug + Clone + PartialEq`
+3. **Use `#[serde(skip)]` sparingly**: Only for true caches (recomputable from other state)
+4. **Store IDs, not objects**: `session_id: String`, not `session: Session`
+5. **Test round-trips**: Every state struct has a serialization test
 
 ---
 

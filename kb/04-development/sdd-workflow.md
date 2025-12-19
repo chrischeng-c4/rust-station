@@ -1,8 +1,11 @@
 # SDD Workflow: When to Use Which Approach
 
-**Last updated**: 2025-12-18
+**Last updated**: 2025-12-19
+**Version**: v2 (state-first architecture)
 
 This guide helps you choose the right Specification-Driven Development (SDD) workflow for your task.
+
+**🎯 v2 Requirement**: ALL features MUST include state serialization and transition tests (see [State-First Architecture](../02-architecture/state-first.md)).
 
 ---
 
@@ -20,13 +23,15 @@ START: New work?
 ├─► Architecture change?
 │   └─► YES → Full SDD
 │
-├─► rush shell feature?
-│   └─► YES → Full SDD
+├─► New state structs or state transitions?
+│   └─► YES → Full SDD (design state first)
 │
 ├─► Complex algorithm or logic?
 │   └─► YES → Full SDD
 │
 └─► Otherwise → Lightweight SDD
+
+NOTE: Regardless of workflow, state tests are MANDATORY.
 ```
 
 ---
@@ -103,17 +108,65 @@ START: New work?
 5. /speckit.implement
    ↓
    Executes tasks from tasks.md
-   - Reads task list
-   - Implements sequentially
-   - Marks tasks complete
-   - Runs tests
+   - **FIRST**: Write state tests (round-trip + transitions)
+   - Define state structs (derive Serialize + Deserialize)
+   - Implement business logic
+   - Implement UI layer (CLI/TUI)
+   - Verify all state tests pass
 
 6. /speckit.review (for PR)
    ↓
    Validates implementation
-   - Checks spec alignment
-   - Verifies all tasks done
-   - Reviews tests
+   - ✅ State tests included (MANDATORY)
+   - ✅ Checks spec alignment
+   - ✅ Verifies all tasks done
+   - ✅ Cargo clippy clean
+```
+
+### 🎯 v2 State-First Testing Requirements
+
+**MANDATORY for ALL features** (enforced in code review):
+
+```rust
+// 1. Round-trip serialization test
+#[test]
+fn test_state_serialization_round_trip() {
+    let state = AppState::default();
+    let json = serde_json::to_string(&state).unwrap();
+    let loaded: AppState = serde_json::from_str(&json).unwrap();
+    assert_eq!(state, loaded); // MUST pass
+}
+
+// 2. State transition test
+#[test]
+fn test_state_transition() {
+    let mut app = App::from_state(AppState::default()).unwrap();
+
+    app.handle_action(ViewAction::YourFeature);
+
+    let final_state = app.to_state();
+    assert_eq!(final_state.your_field, expected_value);
+}
+
+// 3. State invariant test
+#[test]
+fn test_state_invariants() {
+    let state = app.to_state();
+
+    // Invariants that MUST always hold
+    if state.feature_active {
+        assert!(state.feature_data.is_some());
+    }
+}
+```
+
+**Why state tests are mandatory:**
+- Testability: Observable, deterministic, stable
+- Reproducibility: Save state → load state → exact bug reproduction
+- Refactoring safety: Tests don't break on UI changes
+- Documentation: Tests show intended behavior
+
+See: [State-First Architecture](../02-architecture/state-first.md) for details.
 ```
 
 ### Artifacts Produced

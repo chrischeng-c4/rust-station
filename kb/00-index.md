@@ -23,19 +23,20 @@ Welcome to the rustation knowledge base! This is your central hub for understand
 ## Quick Links
 
 **For Contributors**:
-- [State Serializability](01-architecture/state-serializability.md) - **🎯 Core principle**: State as JSON/YAML
-- [SDD Workflow Guide](04-sdd-workflow/when-to-use-which.md) - When to use full vs lightweight SDD
-- [MCP Tools Reference](02-api-reference/mcp-tools.md) - Available MCP tools
+- [🎯 State-First Architecture](02-architecture/state-first.md) - **Core principle**: State as JSON/YAML
+- [Core Principles](02-architecture/core-principles.md) - v2 architectural pillars
+- [SDD Workflow Guide](04-development/sdd-workflow.md) - When to use full vs lightweight SDD
+- [MCP Tools Reference](03-api-reference/mcp-tools.md) - Available MCP tools
 
 **For Users**:
-- [MCP Tools Reference](02-api-reference/mcp-tools.md) - Available MCP tools
+- [MCP Tools Reference](03-api-reference/mcp-tools.md) - Available MCP tools
 - Installation guide (coming soon)
 
 **For Claude Code Integration**:
-- [MCP Tools Reference](02-api-reference/mcp-tools.md) - MCP tool schemas
-- [Claude CLI Reference](02-api-reference/claude-cli-reference.md) - Condensed CLI flags
-- [Claude Code CLI Reference](02-api-reference/claude-code-cli-reference.md) - Complete reference
-- [Claude Headless Mode](02-api-reference/claude-headless-mode.md) - Headless patterns
+- [MCP Tools Reference](03-api-reference/mcp-tools.md) - MCP tool schemas
+- [Claude CLI Reference](03-api-reference/claude-cli.md) - Condensed CLI flags
+- [Claude CLI (Full)](03-api-reference/claude-cli-full.md) - Complete reference
+- [Claude Headless Mode](03-api-reference/claude-headless.md) - Headless patterns
 
 **v1 Archive** (historical reference only):
 - [Archive README](99-archive/) - What's archived and why
@@ -48,18 +49,21 @@ Welcome to the rustation knowledge base! This is your central hub for understand
 ```
 kb/
 ├── 00-index.md (this file)           - START HERE
-├── 01-architecture/                  - System architecture
-│   └── state-serializability.md      - **🎯 Core principle**: State as JSON/YAML
-├── 02-api-reference/                 - API documentation
+│
+├── 02-architecture/                  - Core Principles (v2)
+│   ├── state-first.md                - **🎯 Core principle**: State as JSON/YAML
+│   └── core-principles.md            - v2 architectural pillars
+│
+├── 03-api-reference/                 - API Documentation
 │   ├── mcp-tools.md                  - MCP tool schemas
-│   ├── claude-cli-reference.md       - Condensed CLI reference
-│   ├── claude-code-cli-reference.md  - Complete CLI reference
-│   └── claude-headless-mode.md       - Headless mode patterns
-├── 04-sdd-workflow/                  - Development workflow
-│   ├── full-sdd-template.md          - For complex features
-│   ├── lightweight-sdd-template.md   - For simple changes
-│   └── when-to-use-which.md          - Decision flowchart
-└── 99-archive/                       - v1 documentation (archived)
+│   ├── claude-cli.md                 - Condensed CLI reference
+│   ├── claude-cli-full.md            - Complete CLI reference
+│   └── claude-headless.md            - Headless mode patterns
+│
+├── 04-development/                   - Development Workflow (v2)
+│   └── sdd-workflow.md               - Full vs lightweight SDD + state testing
+│
+└── 99-archive/                       - v1 Archive (historical)
     ├── README.md                     - What's archived and why
     ├── v1-analysis/                  - v1 complexity analysis
     │   ├── technical-debt.md         - v1 God Classes, state explosion
@@ -71,7 +75,7 @@ kb/
         └── logging-specification.md
 ```
 
-**Note**: v2 docs will be created as needed. Start simple, avoid over-documentation.
+**Note**: v2 focuses on core principles. Additional docs created only when needed.
 
 ---
 
@@ -79,33 +83,34 @@ kb/
 
 ### I'm a new contributor (v2)
 
-1. Read [State Serializability](01-architecture/state-serializability.md) - **The v2 core principle**
-2. Read [SDD Workflow Guide](04-sdd-workflow/when-to-use-which.md) - Development process
-3. Look at recent commits to see v2 patterns
-4. Check `specs/` for active features (v1 archived)
+1. Read [State-First Architecture](02-architecture/state-first.md) - **The v2 core principle**
+2. Read [Core Principles](02-architecture/core-principles.md) - v2 architectural pillars
+3. Read [SDD Workflow Guide](04-development/sdd-workflow.md) - Development process
+4. Look at recent commits to see v2 patterns
 
 ### I'm debugging an issue (v2)
 
 1. Check logs at `~/.rustation/logs/rstn.log` or `~/.rstn/logs/`
-2. Review [MCP Tools Reference](02-api-reference/mcp-tools.md) if MCP-related
+2. Review [MCP Tools Reference](03-api-reference/mcp-tools.md) if MCP-related
 3. Use `--save-state` / `--load-state` to reproduce issues
 4. Review recent code in `crates/rstn/src/`
 
 ### I'm implementing a feature (v2)
 
 1. **State-first**: Define state structs FIRST (must be serializable)
-2. Write state tests BEFORE implementation
-3. Use [SDD Workflow](04-sdd-workflow/when-to-use-which.md) for planning
+2. Write state tests BEFORE implementation (MANDATORY)
+3. Use [SDD Workflow](04-development/sdd-workflow.md) for planning
 4. For SDD: Run `/speckit.specify` → `/speckit.plan` → `/speckit.tasks`
-5. Ensure all state tests pass
+5. Ensure all state tests pass (enforced in code review)
 
 ### I want to understand the codebase (v2)
 
-1. Start with [State Serializability](01-architecture/state-serializability.md) - Core principle
-2. Read `CLAUDE.md` for CLI/TUI architecture pattern
-3. Explore `crates/rstn/src/tui/state/` for state management
-4. Check `crates/rstn/tests/` for testing patterns
-5. (Optional) Read [v1 Archive](99-archive/) for historical context
+1. Start with [State-First Architecture](02-architecture/state-first.md) - Core principle
+2. Read [Core Principles](02-architecture/core-principles.md) - Full architectural overview
+3. Read `CLAUDE.md` for CLI/TUI architecture pattern
+4. Explore `crates/rstn/src/tui/state/` for state management
+5. Check `crates/rstn/tests/` for testing patterns
+6. (Optional) Read [v1 Archive](99-archive/) for historical context
 
 ---
 
@@ -182,7 +187,14 @@ Questions or suggestions for the knowledge base?
 
 ## Changelog
 
-- 2025-12-19: **v2 Restart** - Archived all v1 content (6 docs, ~3,556 lines) to `99-archive/`
+- 2025-12-19: **Phase 2 (Core Foundation)** - Established state-first as north star
+  - **CRITICAL FIX**: Corrected MCP protocol in mcp-tools.md (SSE→HTTP, dynamic port)
+  - Enhanced state-serializability.md → state-first.md with TL;DR, Mermaid diagram, common pitfalls
+  - Created core-principles.md - v2 architectural overview
+  - Reorganized API reference (02→03, consistent naming)
+  - Updated SDD workflow with mandatory state testing requirements
+  - All cross-references updated
+- 2025-12-19: **Phase 1 (Clean Up)** - Archived all v1 content (6 docs, ~3,556 lines) to `99-archive/`
   - Removed broken references from index
   - Updated Quick Links to reflect v2 focus
   - Simplified documentation structure
