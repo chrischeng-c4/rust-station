@@ -9,6 +9,7 @@ pub mod commands;
 pub mod logging;
 pub mod runners;
 pub mod session;
+pub mod session_manager;
 pub mod settings;
 pub mod tui;
 pub mod ui;

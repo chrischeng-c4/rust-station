@@ -28,7 +28,7 @@ Use these tools instead of text-based status output.
 "#;
 
 /// Result from a Claude streaming command
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct ClaudeResult {
     /// Session ID for resuming conversation
     pub session_id: Option<String>,
@@ -51,7 +51,7 @@ pub async fn run(
     session_id: Option<String>,
     allowed_tools: Vec<String>,
     verbose: bool,
-) -> Result<()> {
+) -> Result<ClaudeResult> {
     // Print initial status
     if verbose {
         eprintln!("{}", "🤖 Sending prompt to Claude...".bright_blue());
@@ -92,7 +92,7 @@ pub async fn run(
         ));
     }
 
-    Ok(())
+    Ok(result)
 }
 
 /// CLI-specific streaming handler (prints directly to stdout)

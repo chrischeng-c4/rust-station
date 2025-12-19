@@ -5,8 +5,8 @@
 use clap::Parser;
 use rstn::cli::{Commands, McpCommands, ServiceCommands, SpecCommands, WorktreeCommands};
 use rstn::settings::Settings;
-use rstn::tui::App;
 use rstn::tui::state::StateInvariants;
+use rstn::tui::App;
 use rstn::version;
 use rstn::{commands, logging, Result};
 use tracing::{debug, info};
@@ -78,7 +78,8 @@ async fn main() -> Result<()> {
         debug!(path = ?save_path, "saving state to file");
 
         let state = AppState::default();
-        state.save_to_file(save_path)
+        state
+            .save_to_file(save_path)
             .map_err(|e| anyhow::anyhow!("Failed to save state: {}", e))?;
 
         println!("State saved to: {}", save_path.display());
@@ -164,20 +165,21 @@ async fn run_tui_mode(session_id: String) -> Result<()> {
     debug!("starting MCP server");
     let (mcp_event_tx, _mcp_event_rx) = mpsc::channel(100);
     let mcp_config = McpServerConfig::default();
-    let mcp_handle = match mcp_server::start_server(mcp_config, mcp_event_tx, mcp_state.clone()).await {
-        Ok(handle) => {
-            info!("MCP server started on {}", handle.url());
-            // Write MCP config for Claude Code discovery
-            if let Err(e) = mcp_server::write_mcp_config(handle.port()) {
-                tracing::warn!("Failed to write MCP config: {}", e);
+    let mcp_handle =
+        match mcp_server::start_server(mcp_config, mcp_event_tx, mcp_state.clone()).await {
+            Ok(handle) => {
+                info!("MCP server started on {}", handle.url());
+                // Write MCP config for Claude Code discovery
+                if let Err(e) = mcp_server::write_mcp_config(handle.port()) {
+                    tracing::warn!("Failed to write MCP config: {}", e);
+                }
+                Some(handle)
             }
-            Some(handle)
-        }
-        Err(e) => {
-            tracing::warn!("Failed to start MCP server (continuing without it): {}", e);
-            None
-        }
-    };
+            Err(e) => {
+                tracing::warn!("Failed to start MCP server (continuing without it): {}", e);
+                None
+            }
+        };
 
     debug!("creating App instance with session_id: {}", session_id);
     let mut app = App::new_with_session(mcp_state.clone(), Some(session_id));
@@ -311,7 +313,7 @@ async fn run_cli_mode(args: Args) -> Result<()> {
             session_id,
             allowed_tools,
         } => {
-            commands::prompt::run(
+            let result = commands::prompt::run(
                 &message,
                 max_turns,
                 skip_permissions,
@@ -321,6 +323,31 @@ async fn run_cli_mode(args: Args) -> Result<()> {
                 args.verbose,
             )
             .await?;
+
+            // Save session metadata to database
+            if let Some(ref sess_id) = result.session_id {
+                use rstn::session_manager::{SessionManager, SessionRecord};
+                use std::time::{SystemTime, UNIX_EPOCH};
+
+                if let Ok(manager) = SessionManager::open() {
+                    let log_file = rstn::domain::paths::rstn_logs_dir()
+                        .ok()
+                        .and_then(|dir| dir.join(format!("rstn.{}.log", sess_id)).to_str().map(String::from));
+
+                    let record = SessionRecord {
+                        session_id: sess_id.clone(),
+                        command_type: "prompt".to_string(),
+                        created_at: SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs() as i64,
+                        status: if result.success { "completed" } else { "failed" }.to_string(),
+                        log_file,
+                    };
+
+                    let _ = manager.save_session(&record);
+                }
+            }
         }
     }
 
