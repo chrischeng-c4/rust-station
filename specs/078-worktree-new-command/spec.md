@@ -1,1 +1,0 @@
-I'll help you create a specification for the "worktree-new-command" feature. Let me work through the chain-of-thought process first.
