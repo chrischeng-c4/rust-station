@@ -1,9 +1,9 @@
 //! Test command implementation
 
+use crate::domain::test;
 use crate::ui::table;
 use crate::{Result, RscliError};
 use colored::Colorize;
-use crate::domain::test;
 
 pub async fn run(
     filter: Option<&str>,

@@ -278,7 +278,8 @@ fn test_transition_load_spec_content() {
     assert_eq!(state.content_type, ContentType::Spec);
 
     // Transition: Load spec content
-    state.spec_content = Some("# Feature 042: Click Function\n\nImplement click support.".to_string());
+    state.spec_content =
+        Some("# Feature 042: Click Function\n\nImplement click support.".to_string());
     state.content_type = ContentType::Spec;
 
     // Verify transition

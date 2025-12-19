@@ -5,8 +5,8 @@
 //! - T061-T064: Integration tests for full workflow
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use rstn::tui::views::{ContentType, WorktreeFocus, WorktreeView};
 use rstn::tui::views::ViewAction;
+use rstn::tui::views::{ContentType, WorktreeFocus, WorktreeView};
 use rstn::CommitGroup;
 
 /// Helper function to create a test WorktreeView instance
@@ -549,7 +549,8 @@ fn test_warning_for_many_files() {
         category: Some("large".to_string()),
     };
 
-    let warnings = vec!["Warning: This group contains 60 files. Consider splitting it.".to_string()];
+    let warnings =
+        vec!["Warning: This group contains 60 files. Consider splitting it.".to_string()];
 
     // Also create a security warning to test that warnings are stored
     let security_warnings = vec![rstn::SecurityWarning {
@@ -590,7 +591,11 @@ fn test_cancel_commit_review_clears_state() {
     let mut view = create_test_view();
     let groups = create_test_commit_groups(2);
 
-    view.start_commit_review(groups, vec!["warning".to_string()], vec!["secret".to_string()]);
+    view.start_commit_review(
+        groups,
+        vec!["warning".to_string()],
+        vec!["secret".to_string()],
+    );
 
     // Modify state
     view.next_commit_group();

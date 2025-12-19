@@ -243,7 +243,11 @@ mod tests {
             SpecPhase::Review,
         ] {
             let prompt = manager.get_prompt(phase);
-            assert!(!prompt.is_empty(), "Prompt for {:?} should not be empty", phase);
+            assert!(
+                !prompt.is_empty(),
+                "Prompt for {:?} should not be empty",
+                phase
+            );
         }
     }
 }

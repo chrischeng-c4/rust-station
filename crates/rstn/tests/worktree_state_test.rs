@@ -275,14 +275,16 @@ fn test_p2_commands_serialization() {
         .build();
 
     // Verify default command list is populated
-    assert!(!state.commands.is_empty(), "Commands list should not be empty");
+    assert!(
+        !state.commands.is_empty(),
+        "Commands list should not be empty"
+    );
     assert!(state.commands.contains(&Command::PromptClaude));
     assert_eq!(state.command_state_index, Some(1)); // Prompt Claude is at index 1
 
     // Test round-trip
     let json = serde_json::to_string(&state).expect("Failed to serialize");
-    let loaded: WorktreeViewState =
-        serde_json::from_str(&json).expect("Failed to deserialize");
+    let loaded: WorktreeViewState = serde_json::from_str(&json).expect("Failed to deserialize");
 
     assert_eq!(state.commands, loaded.commands);
     assert_eq!(state.command_state_index, loaded.command_state_index);
@@ -298,15 +300,17 @@ fn test_p2_logging_output_serialization() {
     // Add log entries manually
     state.log_entries = vec![
         LogEntry::new(LogCategory::Command, "Running /speckit.specify".to_string()),
-        LogEntry::new(LogCategory::ClaudeStream, "Analyzing feature...".to_string()),
+        LogEntry::new(
+            LogCategory::ClaudeStream,
+            "Analyzing feature...".to_string(),
+        ),
         LogEntry::new(LogCategory::System, "Command completed".to_string()),
     ];
     state.output_scroll = 10;
 
     // Test round-trip
     let json = serde_json::to_string(&state).expect("Failed to serialize");
-    let loaded: WorktreeViewState =
-        serde_json::from_str(&json).expect("Failed to deserialize");
+    let loaded: WorktreeViewState = serde_json::from_str(&json).expect("Failed to deserialize");
 
     assert_eq!(state.log_entries.len(), loaded.log_entries.len());
     assert_eq!(state.output_scroll, loaded.output_scroll);
@@ -328,8 +332,7 @@ fn test_p2_running_state_serialization() {
 
     // Test round-trip
     let json = serde_json::to_string(&state).expect("Failed to serialize");
-    let loaded: WorktreeViewState =
-        serde_json::from_str(&json).expect("Failed to deserialize");
+    let loaded: WorktreeViewState = serde_json::from_str(&json).expect("Failed to deserialize");
 
     assert_eq!(state.is_running, loaded.is_running);
     assert_eq!(state.running_phase, loaded.running_phase);
@@ -345,8 +348,7 @@ fn test_p2_session_state_serialization() {
 
     // Test round-trip
     let json = serde_json::to_string(&state).expect("Failed to serialize");
-    let loaded: WorktreeViewState =
-        serde_json::from_str(&json).expect("Failed to deserialize");
+    let loaded: WorktreeViewState = serde_json::from_str(&json).expect("Failed to deserialize");
 
     assert_eq!(state.active_session_id, loaded.active_session_id);
     assert_eq!(state.pending_follow_up, loaded.pending_follow_up);
@@ -363,8 +365,7 @@ fn test_p2_pending_git_command_serialization() {
 
     // Test round-trip
     let json = serde_json::to_string(&state).expect("Failed to serialize");
-    let loaded: WorktreeViewState =
-        serde_json::from_str(&json).expect("Failed to deserialize");
+    let loaded: WorktreeViewState = serde_json::from_str(&json).expect("Failed to deserialize");
 
     assert_eq!(state.pending_git_command, loaded.pending_git_command);
 }
@@ -384,7 +385,10 @@ fn test_p2_invariant_command_state_index_in_bounds() {
         state.assert_invariants();
     });
 
-    assert!(result.is_err(), "Should panic for out-of-bounds command index");
+    assert!(
+        result.is_err(),
+        "Should panic for out-of-bounds command index"
+    );
 }
 
 #[test]
@@ -435,8 +439,7 @@ fn test_p2_full_state_with_all_fields() {
 
     // Test round-trip
     let json = serde_json::to_string(&state).expect("Failed to serialize");
-    let loaded: WorktreeViewState =
-        serde_json::from_str(&json).expect("Failed to deserialize");
+    let loaded: WorktreeViewState = serde_json::from_str(&json).expect("Failed to deserialize");
 
     // Verify P2 fields preserved (compare individually to handle timestamp precision)
     assert_eq!(state.commands, loaded.commands);
@@ -460,9 +463,9 @@ fn test_p2_full_state_with_all_fields() {
 
 #[test]
 fn test_p3_input_subsystem_serialization() {
+    use rstn::tui::views::InlineInput;
     use rstn::tui::views::SpecPhase;
     use rstn::tui::widgets::TextInput;
-    use rstn::tui::views::InlineInput;
 
     // Create state with input subsystem fields
     let mut state = WorktreeViewStateBuilder::new()
@@ -476,8 +479,7 @@ fn test_p3_input_subsystem_serialization() {
 
     // Test round-trip
     let json = serde_json::to_string(&state).expect("Failed to serialize");
-    let loaded: WorktreeViewState =
-        serde_json::from_str(&json).expect("Failed to deserialize");
+    let loaded: WorktreeViewState = serde_json::from_str(&json).expect("Failed to deserialize");
 
     assert_eq!(state.pending_input_phase, loaded.pending_input_phase);
     assert_eq!(state.prompt_input, loaded.prompt_input);
@@ -498,8 +500,7 @@ fn test_p3_progress_subsystem_serialization() {
 
     // Test round-trip
     let json = serde_json::to_string(&state).expect("Failed to serialize");
-    let loaded: WorktreeViewState =
-        serde_json::from_str(&json).expect("Failed to deserialize");
+    let loaded: WorktreeViewState = serde_json::from_str(&json).expect("Failed to deserialize");
 
     assert_eq!(state.progress_step, loaded.progress_step);
     assert_eq!(state.progress_total, loaded.progress_total);
@@ -525,8 +526,7 @@ fn test_p3_full_subsystems_round_trip() {
 
     // Test JSON round-trip
     let json = serde_json::to_string(&state).expect("Failed to serialize");
-    let loaded: WorktreeViewState =
-        serde_json::from_str(&json).expect("Failed to deserialize");
+    let loaded: WorktreeViewState = serde_json::from_str(&json).expect("Failed to deserialize");
 
     assert_eq!(state, loaded);
 }
@@ -546,23 +546,19 @@ fn test_p4_commit_workflow_serialization() {
 
     // Set P4 commit fields
     state.pending_commit_message = Some("Initial commit message".to_string());
-    state.commit_warnings = vec![
-        SecurityWarning {
-            file_path: "src/main.rs".to_string(),
-            line_number: 42,
-            pattern_matched: "api_key".to_string(),
-            severity: Severity::High,
-            message: "Possible API key detected".to_string(),
-        },
-    ];
-    state.commit_groups = Some(vec![
-        CommitGroup {
-            files: vec!["src/file1.rs".to_string(), "src/file2.rs".to_string()],
-            message: "feat: add new feature".to_string(),
-            description: "Implements feature X".to_string(),
-            category: Some("feature".to_string()),
-        },
-    ]);
+    state.commit_warnings = vec![SecurityWarning {
+        file_path: "src/main.rs".to_string(),
+        line_number: 42,
+        pattern_matched: "api_key".to_string(),
+        severity: Severity::High,
+        message: "Possible API key detected".to_string(),
+    }];
+    state.commit_groups = Some(vec![CommitGroup {
+        files: vec!["src/file1.rs".to_string(), "src/file2.rs".to_string()],
+        message: "feat: add new feature".to_string(),
+        description: "Implements feature X".to_string(),
+        category: Some("feature".to_string()),
+    }]);
     state.current_commit_index = 1;
     state.commit_message_input = "Work in progress".to_string();
     state.commit_message_cursor = 15;
@@ -571,8 +567,7 @@ fn test_p4_commit_workflow_serialization() {
 
     // Test round-trip
     let json = serde_json::to_string(&state).expect("Failed to serialize");
-    let loaded: WorktreeViewState =
-        serde_json::from_str(&json).expect("Failed to deserialize");
+    let loaded: WorktreeViewState = serde_json::from_str(&json).expect("Failed to deserialize");
 
     assert_eq!(state.pending_commit_message, loaded.pending_commit_message);
     assert_eq!(state.commit_warnings.len(), loaded.commit_warnings.len());
@@ -581,7 +576,10 @@ fn test_p4_commit_workflow_serialization() {
     assert_eq!(state.commit_message_input, loaded.commit_message_input);
     assert_eq!(state.commit_message_cursor, loaded.commit_message_cursor);
     assert_eq!(state.commit_sensitive_files, loaded.commit_sensitive_files);
-    assert_eq!(state.commit_validation_error, loaded.commit_validation_error);
+    assert_eq!(
+        state.commit_validation_error,
+        loaded.commit_validation_error
+    );
 }
 
 #[test]
@@ -617,13 +615,16 @@ fn test_p4_security_warnings_serialization() {
 
     // Test round-trip
     let json = serde_json::to_string(&state).expect("Failed to serialize");
-    let loaded: WorktreeViewState =
-        serde_json::from_str(&json).expect("Failed to deserialize");
+    let loaded: WorktreeViewState = serde_json::from_str(&json).expect("Failed to deserialize");
 
     assert_eq!(state.commit_warnings.len(), 3);
     assert_eq!(loaded.commit_warnings.len(), 3);
-    
-    for (orig, load) in state.commit_warnings.iter().zip(loaded.commit_warnings.iter()) {
+
+    for (orig, load) in state
+        .commit_warnings
+        .iter()
+        .zip(loaded.commit_warnings.iter())
+    {
         assert_eq!(orig.file_path, load.file_path);
         assert_eq!(orig.line_number, load.line_number);
         assert_eq!(orig.pattern_matched, load.pattern_matched);
@@ -662,11 +663,10 @@ fn test_p4_commit_groups_serialization() {
 
     // Test round-trip
     let json = serde_json::to_string(&state).expect("Failed to serialize");
-    let loaded: WorktreeViewState =
-        serde_json::from_str(&json).expect("Failed to deserialize");
+    let loaded: WorktreeViewState = serde_json::from_str(&json).expect("Failed to deserialize");
 
     assert_eq!(state.commit_groups, loaded.commit_groups);
-    
+
     let groups = loaded.commit_groups.unwrap();
     assert_eq!(groups.len(), 3);
     assert_eq!(groups[0].category, Some("models".to_string()));
@@ -698,16 +698,36 @@ fn test_p5_specify_state_serialization() {
 
     // Test round-trip
     let json = serde_json::to_string(&state).expect("Failed to serialize");
-    let loaded: WorktreeViewState =
-        serde_json::from_str(&json).expect("Failed to deserialize");
+    let loaded: WorktreeViewState = serde_json::from_str(&json).expect("Failed to deserialize");
 
-    assert_eq!(state.specify_state.current_phase, loaded.specify_state.current_phase);
-    assert_eq!(state.specify_state.input_buffer, loaded.specify_state.input_buffer);
-    assert_eq!(state.specify_state.input_cursor, loaded.specify_state.input_cursor);
-    assert_eq!(state.specify_state.is_generating, loaded.specify_state.is_generating);
-    assert_eq!(state.specify_state.generated_spec, loaded.specify_state.generated_spec);
-    assert_eq!(state.specify_state.feature_number, loaded.specify_state.feature_number);
-    assert_eq!(state.specify_state.feature_name, loaded.specify_state.feature_name);
+    assert_eq!(
+        state.specify_state.current_phase,
+        loaded.specify_state.current_phase
+    );
+    assert_eq!(
+        state.specify_state.input_buffer,
+        loaded.specify_state.input_buffer
+    );
+    assert_eq!(
+        state.specify_state.input_cursor,
+        loaded.specify_state.input_cursor
+    );
+    assert_eq!(
+        state.specify_state.is_generating,
+        loaded.specify_state.is_generating
+    );
+    assert_eq!(
+        state.specify_state.generated_spec,
+        loaded.specify_state.generated_spec
+    );
+    assert_eq!(
+        state.specify_state.feature_number,
+        loaded.specify_state.feature_number
+    );
+    assert_eq!(
+        state.specify_state.feature_name,
+        loaded.specify_state.feature_name
+    );
 }
 
 #[test]
@@ -723,8 +743,7 @@ fn test_p5_prompt_workflow_serialization() {
 
     // Test round-trip
     let json = serde_json::to_string(&state).expect("Failed to serialize");
-    let loaded: WorktreeViewState =
-        serde_json::from_str(&json).expect("Failed to deserialize");
+    let loaded: WorktreeViewState = serde_json::from_str(&json).expect("Failed to deserialize");
 
     assert_eq!(state.prompt_edit_mode, loaded.prompt_edit_mode);
     assert_eq!(state.prompt_output, loaded.prompt_output);
@@ -748,8 +767,7 @@ fn test_p5_full_subsystems_round_trip() {
 
     // Test JSON round-trip
     let json = serde_json::to_string(&state).expect("Failed to serialize");
-    let loaded: WorktreeViewState =
-        serde_json::from_str(&json).expect("Failed to deserialize");
+    let loaded: WorktreeViewState = serde_json::from_str(&json).expect("Failed to deserialize");
 
     assert_eq!(state, loaded);
 }
@@ -793,23 +811,19 @@ fn test_full_p1_to_p5_state_serialization() {
 
     // P4 fields
     state.pending_commit_message = Some("WIP commit".to_string());
-    state.commit_warnings = vec![
-        SecurityWarning {
-            file_path: "src/test.rs".to_string(),
-            line_number: 10,
-            pattern_matched: "key".to_string(),
-            severity: Severity::High,
-            message: "Possible secret".to_string(),
-        },
-    ];
-    state.commit_groups = Some(vec![
-        CommitGroup {
-            files: vec!["src/main.rs".to_string()],
-            message: "feat: add feature".to_string(),
-            description: "Feature implementation".to_string(),
-            category: Some("feat".to_string()),
-        },
-    ]);
+    state.commit_warnings = vec![SecurityWarning {
+        file_path: "src/test.rs".to_string(),
+        line_number: 10,
+        pattern_matched: "key".to_string(),
+        severity: Severity::High,
+        message: "Possible secret".to_string(),
+    }];
+    state.commit_groups = Some(vec![CommitGroup {
+        files: vec!["src/main.rs".to_string()],
+        message: "feat: add feature".to_string(),
+        description: "Feature implementation".to_string(),
+        category: Some("feat".to_string()),
+    }]);
     state.current_commit_index = 0;
     state.commit_message_input = "Initial message".to_string();
     state.commit_message_cursor = 10;
@@ -824,8 +838,7 @@ fn test_full_p1_to_p5_state_serialization() {
 
     // Test JSON round-trip
     let json = serde_json::to_string(&state).expect("Failed to serialize");
-    let loaded: WorktreeViewState =
-        serde_json::from_str(&json).expect("Failed to deserialize");
+    let loaded: WorktreeViewState = serde_json::from_str(&json).expect("Failed to deserialize");
 
     // Verify all subsystems preserved
     assert_eq!(state.feature_info, loaded.feature_info); // P1
@@ -833,7 +846,10 @@ fn test_full_p1_to_p5_state_serialization() {
     assert_eq!(state.pending_input_phase, loaded.pending_input_phase); // P3
     assert_eq!(state.progress_step, loaded.progress_step); // P3
     assert_eq!(state.commit_warnings.len(), loaded.commit_warnings.len()); // P4
-    assert_eq!(state.specify_state.input_buffer, loaded.specify_state.input_buffer); // P5
+    assert_eq!(
+        state.specify_state.input_buffer,
+        loaded.specify_state.input_buffer
+    ); // P5
     assert_eq!(state.prompt_edit_mode, loaded.prompt_edit_mode); // P5
 }
 
@@ -848,14 +864,12 @@ fn test_yaml_round_trip_with_p3_p5_fields() {
         .build();
 
     state.progress_message = Some("Processing...".to_string());
-    state.commit_groups = Some(vec![
-        CommitGroup {
-            files: vec!["file.rs".to_string()],
-            message: "commit msg".to_string(),
-            description: "desc".to_string(),
-            category: None,
-        },
-    ]);
+    state.commit_groups = Some(vec![CommitGroup {
+        files: vec!["file.rs".to_string()],
+        message: "commit msg".to_string(),
+        description: "desc".to_string(),
+        category: None,
+    }]);
     state.prompt_output = "Claude output".to_string();
 
     // Test YAML round-trip
@@ -878,8 +892,7 @@ fn test_empty_collections_serialization() {
 
     // Test round-trip
     let json = serde_json::to_string(&state).expect("Failed to serialize");
-    let loaded: WorktreeViewState =
-        serde_json::from_str(&json).expect("Failed to deserialize");
+    let loaded: WorktreeViewState = serde_json::from_str(&json).expect("Failed to deserialize");
 
     assert_eq!(state, loaded);
 }
@@ -902,8 +915,7 @@ fn test_option_fields_none_serialization() {
 
     // Test round-trip
     let json = serde_json::to_string(&state).expect("Failed to serialize");
-    let loaded: WorktreeViewState =
-        serde_json::from_str(&json).expect("Failed to deserialize");
+    let loaded: WorktreeViewState = serde_json::from_str(&json).expect("Failed to deserialize");
 
     assert_eq!(state, loaded);
 }

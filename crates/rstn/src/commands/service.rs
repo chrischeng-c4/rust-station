@@ -1,9 +1,9 @@
 //! Service command implementation (simplified)
 
+use crate::domain::service;
 use crate::{Result, RscliError};
 use colored::Colorize;
 use comfy_table::{presets::UTF8_FULL, Cell, Color, ContentArrangement, Table};
-use crate::domain::service;
 
 pub async fn list() -> Result<()> {
     println!("{}", "Checking development services...".bright_blue());

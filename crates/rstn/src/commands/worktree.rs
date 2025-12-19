@@ -1,9 +1,9 @@
 //! Worktree command implementation
 
+use crate::domain::git::worktree;
 use crate::{Result, RscliError};
 use colored::Colorize;
 use comfy_table::{presets::UTF8_FULL, Cell, Color, ContentArrangement, Table};
-use crate::domain::git::worktree;
 use std::path::PathBuf;
 
 pub async fn list(verbose: bool) -> Result<()> {

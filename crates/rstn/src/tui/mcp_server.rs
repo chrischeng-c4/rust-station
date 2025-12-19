@@ -146,7 +146,10 @@ impl McpState {
 
     /// Record a tool call for metrics
     fn record_tool_call(&mut self, tool_name: &str, details: &str, event_type: &str) {
-        *self.tool_call_counts.entry(tool_name.to_string()).or_insert(0) += 1;
+        *self
+            .tool_call_counts
+            .entry(tool_name.to_string())
+            .or_insert(0) += 1;
         self.last_tool_call = Some((tool_name.to_string(), std::time::Instant::now()));
         self.recent_events.push_back(McpEvent {
             timestamp: std::time::Instant::now(),
@@ -251,14 +254,18 @@ pub struct ToolResult {
 impl ToolResult {
     fn text(message: &str) -> Self {
         Self {
-            content: vec![ContentBlock::Text { text: message.to_string() }],
+            content: vec![ContentBlock::Text {
+                text: message.to_string(),
+            }],
             is_error: Some(false),
         }
     }
 
     fn error(message: &str) -> Self {
         Self {
-            content: vec![ContentBlock::Text { text: message.to_string() }],
+            content: vec![ContentBlock::Text {
+                text: message.to_string(),
+            }],
             is_error: Some(true),
         }
     }
@@ -487,8 +494,14 @@ async fn handle_report_status(
         return ToolResult::error("status must be 'needs_input', 'completed', or 'error'");
     }
 
-    let prompt = arguments.get("prompt").and_then(|v| v.as_str()).map(String::from);
-    let message = arguments.get("message").and_then(|v| v.as_str()).map(String::from);
+    let prompt = arguments
+        .get("prompt")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let message = arguments
+        .get("message")
+        .and_then(|v| v.as_str())
+        .map(String::from);
 
     info!("rstn_report_status: status={}", status);
 
@@ -574,7 +587,11 @@ async fn handle_read_spec(
 
     match std::fs::read_to_string(&file_path) {
         Ok(content) => {
-            info!("rstn_read_spec: artifact={}, path={}", artifact, file_path.display());
+            info!(
+                "rstn_read_spec: artifact={}, path={}",
+                artifact,
+                file_path.display()
+            );
             ToolResult::text(&content)
         }
         Err(e) => ToolResult::error(&format!(
@@ -625,22 +642,33 @@ async fn handle_complete_task(
     // Record metrics
     {
         let mut mcp_state = state.mcp_state.lock().await;
-        mcp_state.record_tool_call("rstn_complete_task", &format!("{} completed", task_id), "TASK");
+        mcp_state.record_tool_call(
+            "rstn_complete_task",
+            &format!("{} completed", task_id),
+            "TASK",
+        );
     }
 
     // Send event to TUI
-    if let Err(e) = state.event_tx.send(Event::McpTaskCompleted {
-        task_id: task_id.clone(),
-        success: true,
-        message: format!("Task {} completion requested", task_id),
-    }).await {
+    if let Err(e) = state
+        .event_tx
+        .send(Event::McpTaskCompleted {
+            task_id: task_id.clone(),
+            success: true,
+            message: format!("Task {} completion requested", task_id),
+        })
+        .await
+    {
         error!("Failed to send task completion event: {}", e);
         return ToolResult::error(&format!("Failed to send event: {}", e));
     }
 
     info!("rstn_complete_task: task_id={}", task_id);
 
-    ToolResult::text(&format!("Task {} marked for completion. Processing...", task_id))
+    ToolResult::text(&format!(
+        "Task {} marked for completion. Processing...",
+        task_id
+    ))
 }
 
 // ============================================================================
@@ -705,7 +733,9 @@ pub async fn start_server(
 
     // Bind to port (0 = auto-assign)
     let addr = SocketAddr::from(([127, 0, 0, 1], config.port));
-    let listener = TcpListener::bind(addr).await.context("Failed to bind MCP server")?;
+    let listener = TcpListener::bind(addr)
+        .await
+        .context("Failed to bind MCP server")?;
     let actual_port = listener.local_addr()?.port();
 
     info!("MCP server binding to port {}", actual_port);
@@ -722,7 +752,12 @@ pub async fn start_server(
     let app = Router::new()
         .route("/health", get(health_check))
         .route("/mcp", post(mcp_handler))
-        .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
+        .layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods(Any)
+                .allow_headers(Any),
+        )
         .with_state(app_state);
 
     // Spawn server task
@@ -753,10 +788,11 @@ pub async fn start_server(
 
 /// Write MCP configuration file for Claude Code to discover
 pub fn write_mcp_config(port: u16) -> Result<std::path::PathBuf> {
-    let config_path = crate::domain::paths::mcp_config_path()
-        .context("Could not determine MCP config path")?;
+    let config_path =
+        crate::domain::paths::mcp_config_path().context("Could not determine MCP config path")?;
 
-    let config_dir = config_path.parent()
+    let config_dir = config_path
+        .parent()
         .ok_or_else(|| anyhow::anyhow!("Invalid config path"))?;
 
     std::fs::create_dir_all(config_dir)?;
@@ -778,8 +814,8 @@ pub fn write_mcp_config(port: u16) -> Result<std::path::PathBuf> {
 
 /// Remove MCP configuration file on shutdown
 pub fn cleanup_mcp_config() -> Result<()> {
-    let config_path = crate::domain::paths::mcp_config_path()
-        .context("Could not determine MCP config path")?;
+    let config_path =
+        crate::domain::paths::mcp_config_path().context("Could not determine MCP config path")?;
 
     if config_path.exists() {
         std::fs::remove_file(&config_path)?;
@@ -850,7 +886,8 @@ mod tests {
 
     #[test]
     fn test_json_rpc_response_error() {
-        let response = JsonRpcResponse::error(Some(serde_json::json!(1)), -32600, "Invalid Request");
+        let response =
+            JsonRpcResponse::error(Some(serde_json::json!(1)), -32600, "Invalid Request");
         assert_eq!(response.jsonrpc, "2.0");
         assert!(response.result.is_none());
         assert!(response.error.is_some());

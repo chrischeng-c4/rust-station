@@ -68,10 +68,10 @@ pub enum ContentType {
     Plan,
     Tasks,
     CommitReview,
-    SpecifyInput,    // Feature 051: Input feature description
-    SpecifyReview,   // Feature 051: Review/edit generated spec
-    PromptInput,     // Prompt Claude: Multi-line prompt input
-    PromptRunning,   // Prompt Claude: Streaming output display
+    SpecifyInput,  // Feature 051: Input feature description
+    SpecifyReview, // Feature 051: Review/edit generated spec
+    PromptInput,   // Prompt Claude: Multi-line prompt input
+    PromptRunning, // Prompt Claude: Streaming output display
 }
 
 impl ContentType {

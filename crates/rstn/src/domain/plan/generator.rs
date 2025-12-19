@@ -258,5 +258,4 @@ mod tests {
         assert!(prompt.contains("Prerequisites"));
         assert!(prompt.contains("Implementation steps"));
     }
-
 }

@@ -62,8 +62,7 @@ fn test_session_save_load_cycle() {
     );
 
     // Load from file
-    let loaded_state =
-        AppState::load_from_file(&session_file).expect("Failed to load session");
+    let loaded_state = AppState::load_from_file(&session_file).expect("Failed to load session");
 
     // Verify all fields are preserved
     assert_eq!(
@@ -173,14 +172,29 @@ fn test_session_file_format() {
 
     // Verify YAML structure
     assert!(content.starts_with("version:"), "Should start with version");
-    assert!(content.contains("worktree_view:"), "Should have worktree_view");
-    assert!(content.contains("dashboard_view:"), "Should have dashboard_view");
-    assert!(content.contains("settings_view:"), "Should have settings_view");
+    assert!(
+        content.contains("worktree_view:"),
+        "Should have worktree_view"
+    );
+    assert!(
+        content.contains("dashboard_view:"),
+        "Should have dashboard_view"
+    );
+    assert!(
+        content.contains("settings_view:"),
+        "Should have settings_view"
+    );
 
     // Verify some nested fields
-    assert!(content.contains("content_scroll:"), "Should have scroll fields");
+    assert!(
+        content.contains("content_scroll:"),
+        "Should have scroll fields"
+    );
     assert!(content.contains("git_branch:"), "Should have git fields");
-    assert!(content.contains("max_turns:"), "Should have settings fields");
+    assert!(
+        content.contains("max_turns:"),
+        "Should have settings fields"
+    );
 
     // Clean up
     std::fs::remove_file(&session_file).expect("Failed to clean up");

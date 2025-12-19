@@ -101,10 +101,7 @@ impl McpServerView {
             )),
             Line::from(format!(
                 "• rstn_get_context:      {} calls",
-                state
-                    .tool_call_counts
-                    .get("rstn_get_context")
-                    .unwrap_or(&0)
+                state.tool_call_counts.get("rstn_get_context").unwrap_or(&0)
             )),
             Line::from(format!(
                 "• rstn_complete_task:    {} calls",
@@ -123,9 +120,7 @@ impl McpServerView {
             )));
         }
 
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(" Tool Usage ");
+        let block = Block::default().borders(Borders::ALL).title(" Tool Usage ");
         let paragraph = Paragraph::new(lines).block(block);
         frame.render_widget(paragraph, area);
     }
@@ -140,10 +135,7 @@ impl McpServerView {
             .map(|event| {
                 let elapsed = event.timestamp.elapsed().as_secs();
                 let time_str = format!("{}s ago", elapsed);
-                let line = format!(
-                    "{:<8} [{}] {}",
-                    time_str, event.event_type, event.details
-                );
+                let line = format!("{:<8} [{}] {}", time_str, event.event_type, event.details);
                 ListItem::new(line)
             })
             .collect();
@@ -176,10 +168,10 @@ impl View for McpServerView {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(8),  // Server Status
-                Constraint::Length(7),  // Feature Context
-                Constraint::Length(8),  // Tool Usage
-                Constraint::Min(8),     // Recent Events
+                Constraint::Length(8), // Server Status
+                Constraint::Length(7), // Feature Context
+                Constraint::Length(8), // Tool Usage
+                Constraint::Min(8),    // Recent Events
             ])
             .split(area);
 

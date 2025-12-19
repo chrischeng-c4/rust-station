@@ -110,7 +110,10 @@ async fn call_claude_for_message(prompt: &str) -> Result<String> {
         .output()
         .await
         .map_err(|e| {
-            crate::domain::errors::CoreError::CommandFailed(format!("Failed to run Claude CLI: {}", e))
+            crate::domain::errors::CoreError::CommandFailed(format!(
+                "Failed to run Claude CLI: {}",
+                e
+            ))
         })?;
 
     if !output.status.success() {
@@ -314,7 +317,12 @@ Expected format:
     // Try to find Claude CLI executable using unified discovery
     let claude_path = crate::claude_discovery::ClaudeDiscovery::find_claude()
         .await
-        .map_err(|e| crate::domain::errors::CoreError::CommandFailed(format!("Failed to find Claude CLI: {}", e)))?;
+        .map_err(|e| {
+            crate::domain::errors::CoreError::CommandFailed(format!(
+                "Failed to find Claude CLI: {}",
+                e
+            ))
+        })?;
     tracing::debug!("Found Claude CLI at: {}", claude_path.display());
 
     // Log the prompt being sent
@@ -424,7 +432,6 @@ Expected format:
         sensitive_files: scan.sensitive_files,
     })
 }
-
 
 /// Extract JSON array from Claude's response
 fn extract_json_from_response(response: &str) -> Result<String> {

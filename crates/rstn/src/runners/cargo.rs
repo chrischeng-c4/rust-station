@@ -618,10 +618,7 @@ fn build_claude_error_message(
 
     // Log file reference
     if let Ok(log_file) = crate::domain::paths::rstn_log_file() {
-        msg.push_str(&format!(
-            "\nSee {} for full details.",
-            log_file.display()
-        ));
+        msg.push_str(&format!("\nSee {} for full details.", log_file.display()));
     }
 
     msg
@@ -649,7 +646,6 @@ fn detect_error_pattern(stderr: &str) -> Option<&'static str> {
         None
     }
 }
-
 
 #[cfg(test)]
 mod tests {

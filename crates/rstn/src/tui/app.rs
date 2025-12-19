@@ -1,5 +1,6 @@
 //! Application state and main loop for the TUI
 
+use crate::domain::prompts::PromptManager;
 use crate::session::get_data_dir;
 use crate::tui::claude_stream::ClaudeStreamMessage;
 use crate::tui::event::{Event, EventHandler};
@@ -11,7 +12,6 @@ use crate::tui::views::{
     ViewAction, ViewType, WorktreeView,
 };
 use crate::tui::widgets::{InputDialog, OptionPicker, TextInput};
-use crate::domain::prompts::PromptManager;
 use crossterm::event::{
     DisableMouseCapture, EnableMouseCapture, KeyCode, KeyEvent, KeyModifiers,
     KeyboardEnhancementFlags, MouseEvent, PopKeyboardEnhancementFlags,
@@ -98,10 +98,7 @@ pub struct App {
 
 /// Check if a point (column, row) is within a rectangle
 fn point_in_rect(col: u16, row: u16, rect: &Rect) -> bool {
-    col >= rect.x
-        && col < rect.x + rect.width
-        && row >= rect.y
-        && row < rect.y + rect.height
+    col >= rect.x && col < rect.x + rect.width && row >= rect.y && row < rect.y + rect.height
 }
 
 impl App {
@@ -110,7 +107,10 @@ impl App {
         let session_path = get_data_dir().join("session.yaml");
 
         if !session_path.exists() {
-            debug!("No session file found at {:?}, using defaults", session_path);
+            debug!(
+                "No session file found at {:?}, using defaults",
+                session_path
+            );
             return None;
         }
 
@@ -143,7 +143,10 @@ impl App {
             // Restore from saved state
             (
                 WorktreeView::from_state(state.worktree_view).unwrap_or_else(|e| {
-                    eprintln!("Warning: Failed to restore worktree view: {}, using defaults", e);
+                    eprintln!(
+                        "Warning: Failed to restore worktree view: {}, using defaults",
+                        e
+                    );
                     WorktreeView::new()
                 }),
                 Dashboard::from_state(state.dashboard_view),
@@ -151,11 +154,7 @@ impl App {
             )
         } else {
             // Use default initialization
-            (
-                WorktreeView::new(),
-                Dashboard::new(),
-                SettingsView::new(),
-            )
+            (WorktreeView::new(), Dashboard::new(), SettingsView::new())
         };
 
         Self {
@@ -203,9 +202,10 @@ impl App {
 
         // SpecifyInput mode in worktree view
         if self.current_view == CurrentView::Worktree
-            && self.worktree_view.is_in_specify_input_mode() {
-                return true;
-            }
+            && self.worktree_view.is_in_specify_input_mode()
+        {
+            return true;
+        }
 
         false
     }
@@ -518,7 +518,10 @@ impl App {
             }
             ViewAction::RunPromptClaude { prompt } => {
                 // Task 1.8: Execute Claude CLI with user prompt and streaming output
-                debug!("RunPromptClaude triggered with prompt (length: {})", prompt.len());
+                debug!(
+                    "RunPromptClaude triggered with prompt (length: {})",
+                    prompt.len()
+                );
 
                 // Switch to PromptRunning content type to show streaming output
                 self.worktree_view.content_type = ContentType::PromptRunning;
@@ -526,7 +529,10 @@ impl App {
                 self.status_message = Some("Running Claude CLI with your prompt...".to_string());
 
                 // Log command execution checkpoint (Task 1.9 will add more detailed logging)
-                self.worktree_view.add_output(format!("⚡ Executing Prompt Claude ({} chars)", prompt.len()));
+                self.worktree_view.add_output(format!(
+                    "⚡ Executing Prompt Claude ({} chars)",
+                    prompt.len()
+                ));
 
                 // Build Claude CLI options (simple: no special options for direct prompts)
                 let cli_options = crate::runners::cargo::ClaudeCliOptions {
@@ -852,7 +858,9 @@ impl App {
                 let desc = description.clone();
                 let phase_name = phase.name().to_string();
                 tokio::spawn(async move {
-                    match App::execute_phase_generation(phase_name.as_str(), desc, sender.clone()).await {
+                    match App::execute_phase_generation(phase_name.as_str(), desc, sender.clone())
+                        .await
+                    {
                         Ok((content, number, name)) => {
                             tracing::info!("Generation completed: {}-{}", number, name);
                             if let Some(sender) = sender {
@@ -874,10 +882,21 @@ impl App {
                     }
                 });
             }
-            ViewAction::SaveSpec { phase, content, number, name } => {
+            ViewAction::SaveSpec {
+                phase,
+                content,
+                number,
+                name,
+            } => {
                 // Save generated content to file (Features 051, 053-058)
                 let target_file = Self::get_phase_target_file(&phase);
-                tracing::info!("Saving {} to {}-{}/{}", phase.name(), number, name, target_file);
+                tracing::info!(
+                    "Saving {} to {}-{}/{}",
+                    phase.name(),
+                    number,
+                    name,
+                    target_file
+                );
 
                 let spec_dir = std::path::PathBuf::from(format!("specs/{}-{}", number, name));
                 let output_file = spec_dir.join(target_file);
@@ -891,7 +910,11 @@ impl App {
                 // Write file
                 match std::fs::write(&output_file, content) {
                     Ok(_) => {
-                        self.status_message = Some(format!("{} saved: {}", phase.display_name(), output_file.display()));
+                        self.status_message = Some(format!(
+                            "{} saved: {}",
+                            phase.display_name(),
+                            output_file.display()
+                        ));
                         if let Some(sender) = &self.event_sender {
                             let _ = sender.send(Event::SpecifySaved {
                                 path: output_file.display().to_string(),
@@ -899,14 +922,28 @@ impl App {
                         }
                     }
                     Err(e) => {
-                        self.status_message = Some(format!("Failed to save {}: {}", phase.name(), e));
+                        self.status_message =
+                            Some(format!("Failed to save {}: {}", phase.name(), e));
                     }
                 }
             }
-            ViewAction::ExecuteTask { task_id, task_description, feature_number, feature_name } => {
+            ViewAction::ExecuteTask {
+                task_id,
+                task_description,
+                feature_number,
+                feature_name,
+            } => {
                 // Feature 056: Execute task with Claude CLI
-                tracing::info!("Executing task {} for feature {}-{}", task_id, feature_number, feature_name);
-                self.status_message = Some(format!("Executing task {}: {}...", task_id, task_description));
+                tracing::info!(
+                    "Executing task {} for feature {}-{}",
+                    task_id,
+                    feature_number,
+                    feature_name
+                );
+                self.status_message = Some(format!(
+                    "Executing task {}: {}...",
+                    task_id, task_description
+                ));
 
                 // Spawn task execution
                 let sender = self.event_sender.clone();
@@ -916,7 +953,8 @@ impl App {
                 let name = feature_name.clone();
 
                 tokio::spawn(async move {
-                    let result = Self::execute_task_implementation(tid.clone(), desc, num, name).await;
+                    let result =
+                        Self::execute_task_implementation(tid.clone(), desc, num, name).await;
                     if let Some(sender) = sender {
                         match result {
                             Ok(output) => {
@@ -1030,11 +1068,7 @@ impl App {
             .ok_or("Missing BRANCH_NAME in output")?;
 
         // Extract feature name from branch (e.g., "051-feature-name" -> "feature-name")
-        let feature_name = branch_name
-            .split('-')
-            .skip(1)
-            .collect::<Vec<_>>()
-            .join("-");
+        let feature_name = branch_name.split('-').skip(1).collect::<Vec<_>>().join("-");
 
         // Step 2: Call Claude with streaming to generate spec content
         let workspace = std::env::current_dir().map_err(|e| e.to_string())?;
@@ -1171,7 +1205,10 @@ impl App {
             }
         }
 
-        Err(format!("No spec directory found for feature {}", feature_num))
+        Err(format!(
+            "No spec directory found for feature {}",
+            feature_num
+        ))
     }
 
     /// Execute a Claude CLI command with a system prompt from PromptManager
@@ -1328,7 +1365,9 @@ impl App {
     /// Execute implement tracking (Feature 056)
     ///
     /// Guides implementation based on spec artifacts.
-    async fn execute_implement_generation(notes: String) -> Result<(String, String, String), String> {
+    async fn execute_implement_generation(
+        notes: String,
+    ) -> Result<(String, String, String), String> {
         let (feature_num, feature_name) = Self::detect_current_feature().await?;
         let spec_dir = Self::find_spec_dir(&feature_num).await?;
 
@@ -1349,9 +1388,11 @@ impl App {
             feature_num, feature_name, spec_content, plan_content, tasks_content, notes
         );
 
-        let content =
-            Self::execute_claude_with_prompt(crate::domain::prompts::SpecPhase::Implement, &user_msg)
-                .await?;
+        let content = Self::execute_claude_with_prompt(
+            crate::domain::prompts::SpecPhase::Implement,
+            &user_msg,
+        )
+        .await?;
 
         Ok((content, feature_num, feature_name))
     }
@@ -1958,41 +1999,61 @@ impl App {
             // Process each event
             for event in events {
                 match event {
-                    Event::McpStatus { status, prompt, message } => {
+                    Event::McpStatus {
+                        status,
+                        prompt,
+                        message,
+                    } => {
                         tracing::info!("Polling MCP status: {}", status);
                         match status.as_str() {
                             "needs_input" => {
-                                let prompt_text = prompt.unwrap_or_else(|| "Enter your response:".to_string());
+                                let prompt_text =
+                                    prompt.unwrap_or_else(|| "Enter your response:".to_string());
                                 self.worktree_view.pending_follow_up = true;
                                 // Use inline input in content area instead of popup dialog
                                 self.worktree_view.set_inline_input(prompt_text);
                                 self.input_mode = true;
-                                self.status_message = Some("Waiting for your response...".to_string());
+                                self.status_message =
+                                    Some("Waiting for your response...".to_string());
                             }
                             "error" => {
-                                let error_msg = message.unwrap_or_else(|| "Unknown error".to_string());
+                                let error_msg =
+                                    message.unwrap_or_else(|| "Unknown error".to_string());
                                 self.worktree_view.command_done();
                                 self.status_message = Some(format!("Error: {}", error_msg));
-                                self.worktree_view.add_output(format!("❌ Error: {}", error_msg));
+                                self.worktree_view
+                                    .add_output(format!("❌ Error: {}", error_msg));
                             }
                             "completed" => {
                                 self.worktree_view.command_done();
-                                self.status_message = Some("Task completed successfully".to_string());
-                                self.worktree_view.add_output("✓ Task completed".to_string());
+                                self.status_message =
+                                    Some("Task completed successfully".to_string());
+                                self.worktree_view
+                                    .add_output("✓ Task completed".to_string());
                             }
                             _ => {
                                 tracing::warn!("Unknown MCP status: {}", status);
                             }
                         }
                     }
-                    Event::McpTaskCompleted { task_id, success, message } => {
+                    Event::McpTaskCompleted {
+                        task_id,
+                        success,
+                        message,
+                    } => {
                         tracing::info!("Polling MCP task completion: {}", task_id);
                         if success {
-                            if let Ok((completed, total)) = self.worktree_view.complete_task_by_id(&task_id) {
-                                self.status_message = Some(format!("Task {} completed. Progress: {}/{}", task_id, completed, total));
+                            if let Ok((completed, total)) =
+                                self.worktree_view.complete_task_by_id(&task_id)
+                            {
+                                self.status_message = Some(format!(
+                                    "Task {} completed. Progress: {}/{}",
+                                    task_id, completed, total
+                                ));
                             }
                         } else {
-                            self.status_message = Some(format!("Task {} failed: {}", task_id, message));
+                            self.status_message =
+                                Some(format!("Task {} failed: {}", task_id, message));
                         }
                     }
                     _ => {
@@ -2023,10 +2084,12 @@ impl App {
             self.worktree_view.is_running = false;
             if success {
                 self.status_message = Some("Prompt Claude completed".to_string());
-                self.worktree_view.add_output("✓ Prompt completed".to_string());
+                self.worktree_view
+                    .add_output("✓ Prompt completed".to_string());
             } else {
                 self.status_message = Some("Prompt Claude failed".to_string());
-                self.worktree_view.add_output("❌ Prompt failed".to_string());
+                self.worktree_view
+                    .add_output("❌ Prompt failed".to_string());
             }
             // Stay on PromptRunning to show results
             return;
@@ -2044,8 +2107,8 @@ impl App {
 
     /// Refresh git worktree information
     fn refresh_git_info(&mut self) {
-        use crate::tui::event::{Event, WorktreeType};
         use crate::domain::git::worktree;
+        use crate::tui::event::{Event, WorktreeType};
         use tokio::time::{timeout, Duration};
 
         let sender = self.event_sender.clone();
@@ -2063,7 +2126,9 @@ impl App {
             }
 
             // Try to get current worktree path
-            let path = with_timeout(async { worktree::get_current_worktree().await.map_err(Into::into) }).await;
+            let path =
+                with_timeout(async { worktree::get_current_worktree().await.map_err(Into::into) })
+                    .await;
 
             // If we got a path, we're in a git repo
             let is_git_repo = path.is_some();
@@ -2084,10 +2149,14 @@ impl App {
             }
 
             // Get branch name
-            let branch = with_timeout(async { worktree::get_current_branch().await.map_err(Into::into) }).await.flatten();
+            let branch =
+                with_timeout(async { worktree::get_current_branch().await.map_err(Into::into) })
+                    .await
+                    .flatten();
 
             // List all worktrees
-            let worktrees = with_timeout(async { worktree::list_worktrees().await.map_err(Into::into) }).await;
+            let worktrees =
+                with_timeout(async { worktree::list_worktrees().await.map_err(Into::into) }).await;
             let count = worktrees.as_ref().map(|w| w.len()).unwrap_or(1);
 
             // Determine worktree type
@@ -2524,14 +2593,12 @@ impl App {
                             self.worktree_view.pending_follow_up = true;
                             self.worktree_view.set_inline_input(prompt_text);
                             self.input_mode = true;
-                            self.status_message =
-                                Some("Waiting for your response...".to_string());
+                            self.status_message = Some("Waiting for your response...".to_string());
                             tracing::info!("Showing inline input in content area");
                         }
                         "error" => {
                             // Same logic as handle_claude_completed Line 1712-1718
-                            let error_msg =
-                                message.unwrap_or_else(|| "Unknown error".to_string());
+                            let error_msg = message.unwrap_or_else(|| "Unknown error".to_string());
                             self.worktree_view.command_done();
                             self.status_message = Some(format!("Error: {}", error_msg));
                             self.worktree_view
@@ -2542,7 +2609,8 @@ impl App {
                             // Same logic as handle_claude_completed Line 1719-1722
                             self.worktree_view.command_done();
                             self.status_message = Some("Task completed successfully".to_string());
-                            self.worktree_view.add_output("✓ Task completed".to_string());
+                            self.worktree_view
+                                .add_output("✓ Task completed".to_string());
                             tracing::info!("Task completed successfully");
                         }
                         _ => {
@@ -2556,7 +2624,11 @@ impl App {
                     success,
                     message,
                 } => {
-                    tracing::info!("Handling MCP task completion: task_id={}, success={}", task_id, success);
+                    tracing::info!(
+                        "Handling MCP task completion: task_id={}, success={}",
+                        task_id,
+                        success
+                    );
 
                     if success {
                         // Mark task complete in worktree view
@@ -2573,7 +2645,8 @@ impl App {
                                 tracing::info!("Task {} marked complete successfully", task_id);
                             }
                             Err(e) => {
-                                self.status_message = Some(format!("Failed to complete task {}: {}", task_id, e));
+                                self.status_message =
+                                    Some(format!("Failed to complete task {}: {}", task_id, e));
                                 self.worktree_view.add_output(format!(
                                     "❌ Failed to complete task {}: {}",
                                     task_id, e
@@ -2583,7 +2656,8 @@ impl App {
                         }
                     } else {
                         // Task completion failed
-                        self.status_message = Some(format!("Task {} completion failed: {}", task_id, message));
+                        self.status_message =
+                            Some(format!("Task {} completion failed: {}", task_id, message));
                         self.worktree_view.add_output(format!(
                             "❌ Task {} completion failed: {}",
                             task_id, message
@@ -2730,17 +2804,9 @@ impl App {
                         .add_output("🤖 Generating spec...".to_string());
                     self.status_message = Some("Generating spec...".to_string());
                 }
-                Event::SpecifyGenerationCompleted {
-                    spec,
-                    number,
-                    name,
-                } => {
+                Event::SpecifyGenerationCompleted { spec, number, name } => {
                     // Feature 051: Spec generation completed successfully (T027)
-                    tracing::info!(
-                        "Spec generation completed: feature {} ({})",
-                        number,
-                        name
-                    );
+                    tracing::info!("Spec generation completed: feature {} ({})", number, name);
                     self.worktree_view.specify_state.is_generating = false;
                     self.worktree_view.specify_state.generated_spec = Some(spec);
                     self.worktree_view.specify_state.feature_number = Some(number.clone());
@@ -2793,16 +2859,22 @@ impl App {
                     // T047: Clean up specify workflow state
                     self.worktree_view.cancel_specify();
                 }
-                Event::TaskExecutionCompleted { task_id, success, output } => {
+                Event::TaskExecutionCompleted {
+                    task_id,
+                    success,
+                    output,
+                } => {
                     // Feature 056: Task execution completed
                     if success {
                         tracing::info!("Task {} completed successfully", task_id);
-                        self.worktree_view.add_output(format!("✓ Task {} completed", task_id));
+                        self.worktree_view
+                            .add_output(format!("✓ Task {} completed", task_id));
                         self.worktree_view.complete_task_execution();
                         self.status_message = Some(format!("Task {} completed!", task_id));
                     } else {
                         tracing::error!("Task {} failed: {}", task_id, output);
-                        self.worktree_view.add_output(format!("❌ Task {} failed: {}", task_id, output));
+                        self.worktree_view
+                            .add_output(format!("❌ Task {} failed: {}", task_id, output));
                         self.worktree_view.specify_state.executing_task_index = None;
                         self.status_message = Some(format!("Task {} failed", task_id));
                     }
@@ -3379,7 +3451,10 @@ mod tests {
         );
 
         // Verify tab_bar_rect is populated
-        assert!(app.tab_bar_rect.is_some(), "tab_bar_rect should be set after render");
+        assert!(
+            app.tab_bar_rect.is_some(),
+            "tab_bar_rect should be set after render"
+        );
 
         let tab_rect = app.tab_bar_rect.unwrap();
         // Tab bar layout: "[1] Worktree", "[2] Settings", "[3] Dashboard"
@@ -3398,10 +3473,7 @@ mod tests {
             matches!(app.current_view, CurrentView::Settings),
             "Should switch to Settings view after clicking Settings tab"
         );
-        assert_eq!(
-            app.status_message,
-            Some("Switched to Settings".to_string())
-        );
+        assert_eq!(app.status_message, Some("Switched to Settings".to_string()));
     }
 
     // E2E: Click on Dashboard tab switches to Dashboard view

@@ -32,7 +32,10 @@ pub enum Event {
     /// Command output line
     CommandOutput(String),
     /// Command completed with all output
-    CommandDone { success: bool, lines: Vec<String> },
+    CommandDone {
+        success: bool,
+        lines: Vec<String>,
+    },
     /// Spec phase completed, awaiting user review
     SpecPhaseCompleted {
         phase: String,
@@ -71,7 +74,9 @@ pub enum Event {
     /// Commit workflow started
     CommitStarted,
     /// Security scan blocked commit
-    CommitBlocked { scan: crate::SecurityScanResult },
+    CommitBlocked {
+        scan: crate::SecurityScanResult,
+    },
     /// Ready to commit with generated message
     CommitReady {
         message: String,
@@ -87,13 +92,22 @@ pub enum Event {
     /// Single commit group completed successfully (Feature 050)
     CommitGroupCompleted,
     /// Single commit group failed (Feature 050)
-    CommitGroupFailed { error: String },
+    CommitGroupFailed {
+        error: String,
+    },
     /// Intelligent commit failed before entering review mode (Feature 050)
-    IntelligentCommitFailed { error: String },
+    IntelligentCommitFailed {
+        error: String,
+    },
     /// Commit execution completed
-    CommitCompleted { success: bool, output: String },
+    CommitCompleted {
+        success: bool,
+        output: String,
+    },
     /// Commit workflow error
-    CommitError { error: String },
+    CommitError {
+        error: String,
+    },
     /// Specify workflow events (Feature 051)
     SpecifyGenerationStarted,
     SpecifyGenerationCompleted {

@@ -8,7 +8,10 @@
 use crate::domain::git::{CommitGroup, SecurityWarning};
 use crate::tui::event::WorktreeType;
 use crate::tui::logging::LogEntry;
-use crate::tui::views::{Command, ContentType, FeatureInfo, GitCommand, InlineInput, PhaseStatus, SpecPhase, SpecifyState, WorktreeFocus};
+use crate::tui::views::{
+    Command, ContentType, FeatureInfo, GitCommand, InlineInput, PhaseStatus, SpecPhase,
+    SpecifyState, WorktreeFocus,
+};
 use crate::tui::widgets::TextInput;
 use serde::{Deserialize, Serialize};
 
@@ -35,7 +38,6 @@ pub struct WorktreeViewState {
     // ========================================
     // Feature Context (2 fields)
     // ========================================
-
     /// Current feature information (if in feature worktree)
     pub feature_info: Option<FeatureInfo>,
 
@@ -45,7 +47,6 @@ pub struct WorktreeViewState {
     // ========================================
     // Content Cache (3 fields)
     // ========================================
-
     /// Cached spec.md content
     pub spec_content: Option<String>,
 
@@ -58,7 +59,6 @@ pub struct WorktreeViewState {
     // ========================================
     // Phase Tracking (2 fields)
     // ========================================
-
     /// SDD workflow phases with status
     pub phases: Vec<(SpecPhase, PhaseStatus)>,
 
@@ -68,7 +68,6 @@ pub struct WorktreeViewState {
     // ========================================
     // UI State (3 fields)
     // ========================================
-
     /// Current focus area
     pub focus: WorktreeFocus,
 
@@ -81,7 +80,6 @@ pub struct WorktreeViewState {
     // ========================================
     // Commands Subsystem - P2 (2 fields)
     // ========================================
-
     /// Unified command list (SDD phases + Git actions)
     pub commands: Vec<Command>,
 
@@ -91,7 +89,6 @@ pub struct WorktreeViewState {
     // ========================================
     // Logging/Output Subsystem - P2 (7 fields)
     // ========================================
-
     /// Log entries (serializable form of LogBuffer)
     pub log_entries: Vec<LogEntry>,
 
@@ -116,7 +113,6 @@ pub struct WorktreeViewState {
     // ========================================
     // Input Subsystem - P3 (3 fields)
     // ========================================
-
     /// Pending input request for a specific phase
     pub pending_input_phase: Option<SpecPhase>,
 
@@ -129,7 +125,6 @@ pub struct WorktreeViewState {
     // ========================================
     // Progress Subsystem - P3 (3 fields)
     // ========================================
-
     /// Current progress step
     pub progress_step: Option<u32>,
 
@@ -142,7 +137,6 @@ pub struct WorktreeViewState {
     // ========================================
     // Commit Workflow Subsystem - P4 (8 fields)
     // ========================================
-
     /// Pending commit message from intelligent commit workflow
     pub pending_commit_message: Option<String>,
 
@@ -170,14 +164,12 @@ pub struct WorktreeViewState {
     // ========================================
     // Specify Workflow Subsystem - P5 (1 field)
     // ========================================
-
     /// SDD workflow state (Specify/Plan/Tasks phases)
     pub specify_state: SpecifyState,
 
     // ========================================
     // Prompt Workflow Subsystem - P5 (2 fields)
     // ========================================
-
     /// Prompt edit mode flag (toggle with i/Esc)
     pub prompt_edit_mode: bool,
 

@@ -482,7 +482,8 @@ impl SpecView {
             }
             SpecFocus::Info => {
                 // Return feature info and settings
-                ["=== Feature Info ===".to_string(),
+                [
+                    "=== Feature Info ===".to_string(),
                     format!(
                         "Number: {}",
                         self.feature.number.as_deref().unwrap_or("N/A")
@@ -502,7 +503,8 @@ impl SpecView {
                         } else {
                             "No"
                         }
-                    )]
+                    ),
+                ]
                 .join("\n")
             }
             SpecFocus::Wizard => {

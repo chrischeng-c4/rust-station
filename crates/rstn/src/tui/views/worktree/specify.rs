@@ -5,9 +5,9 @@
 //! - Feature 055: Structured task list with interactive editing
 //! - Feature 056: Implement mode for task execution
 
+use super::{ParsedTask, TaskListState};
 use crate::tui::views::SpecPhase;
 use crate::tui::widgets::TextInput;
-use super::{ParsedTask, TaskListState};
 
 /// State for the Specify/Plan/Tasks workflow (Feature 051)
 /// Represents the current SDD phase and any generated content
@@ -88,9 +88,7 @@ impl SpecifyState {
     }
 
     pub fn is_active(&self) -> bool {
-        !self.input_buffer.is_empty()
-            || self.is_generating
-            || self.generated_spec.is_some()
+        !self.input_buffer.is_empty() || self.is_generating || self.generated_spec.is_some()
     }
 
     /// Get the target filename for the current phase
@@ -155,7 +153,9 @@ impl SpecifyState {
 
     /// Check if in task list mode (Feature 055)
     pub fn is_task_list_mode(&self) -> bool {
-        self.task_list_state.as_ref().is_some_and(|t| t.list_mode && !t.is_empty())
+        self.task_list_state
+            .as_ref()
+            .is_some_and(|t| t.list_mode && !t.is_empty())
     }
 
     /// Get current content (from task list if in list mode, otherwise raw)
@@ -202,7 +202,9 @@ impl SpecifyState {
 
     /// Get the currently selected task (if any)
     pub fn get_selected_task(&self) -> Option<&ParsedTask> {
-        self.task_list_state.as_ref().and_then(|tl| tl.tasks.get(tl.selected))
+        self.task_list_state
+            .as_ref()
+            .and_then(|tl| tl.tasks.get(tl.selected))
     }
 
     /// Get count of completed vs total tasks

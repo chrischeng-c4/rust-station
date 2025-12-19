@@ -65,15 +65,15 @@ async fn test_mcp_server_http_reachability() {
     let url = handle.url();
 
     // Make request with timeout to prevent hanging
-    let result = timeout(
-        Duration::from_secs(5),
-        client.get(&url).send()
-    ).await;
+    let result = timeout(Duration::from_secs(5), client.get(&url).send()).await;
 
     // The important thing is that we get SOME response from the server
     // (not a connection refused error), even if it's 404 or other status.
     // This proves the HTTP server is running and listening.
-    assert!(result.is_ok(), "Request timed out - server may not be listening");
+    assert!(
+        result.is_ok(),
+        "Request timed out - server may not be listening"
+    );
     let response = result.unwrap();
     assert!(
         response.is_ok(),
@@ -108,13 +108,15 @@ async fn test_mcp_state_update() {
         .expect("Failed to start MCP server");
 
     // Update state
-    handle.update_state(
-        Some("060".to_string()),
-        Some("mcp-server-infrastructure".to_string()),
-        Some("060-mcp-server-infrastructure".to_string()),
-        Some("implement".to_string()),
-        Some("specs/060-mcp-server-infrastructure".to_string()),
-    ).await;
+    handle
+        .update_state(
+            Some("060".to_string()),
+            Some("mcp-server-infrastructure".to_string()),
+            Some("060-mcp-server-infrastructure".to_string()),
+            Some("implement".to_string()),
+            Some("specs/060-mcp-server-infrastructure".to_string()),
+        )
+        .await;
 
     // State is updated internally - we can't directly verify it here
     // but the test ensures the update_state method works without errors
@@ -126,23 +128,20 @@ async fn test_mcp_state_update() {
 #[tokio::test]
 async fn test_mcp_config_lifecycle() {
     // Write config
-    let config_path = mcp_server::write_mcp_config(19560)
-        .expect("Failed to write MCP config");
+    let config_path = mcp_server::write_mcp_config(19560).expect("Failed to write MCP config");
 
     // Verify config file exists
     assert!(config_path.exists(), "Config file was not created");
 
     // Read and verify config content
-    let content = std::fs::read_to_string(&config_path)
-        .expect("Failed to read config file");
+    let content = std::fs::read_to_string(&config_path).expect("Failed to read config file");
 
     assert!(content.contains("rstn"), "Config missing rstn server entry");
     assert!(content.contains("http"), "Config missing HTTP transport");
     assert!(content.contains("19560"), "Config missing port");
 
     // Cleanup config
-    mcp_server::cleanup_mcp_config()
-        .expect("Failed to cleanup MCP config");
+    mcp_server::cleanup_mcp_config().expect("Failed to cleanup MCP config");
 
     // Verify config file is removed
     assert!(!config_path.exists(), "Config file was not removed");

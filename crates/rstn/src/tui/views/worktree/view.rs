@@ -95,9 +95,9 @@ pub struct WorktreeView {
     pub specify_state: SpecifyState,
 
     // Prompt Claude workflow state
-    pub prompt_input: Option<TextInput>,  // Multi-line prompt input
-    pub prompt_edit_mode: bool,           // Track if in edit mode (i/Esc toggle)
-    pub prompt_output: String,            // Accumulated streaming output
+    pub prompt_input: Option<TextInput>, // Multi-line prompt input
+    pub prompt_edit_mode: bool,          // Track if in edit mode (i/Esc toggle)
+    pub prompt_output: String,           // Accumulated streaming output
 
     // Layout rects for mouse click detection
     pub commands_pane_rect: Option<Rect>,
@@ -851,7 +851,9 @@ impl WorktreeView {
             Span::raw("✨ "),
             Span::styled(
                 "Prompt Claude",
-                Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Magenta)
+                    .add_modifier(Modifier::BOLD),
             ),
         ])]));
 
@@ -1543,10 +1545,7 @@ impl WorktreeView {
         };
 
         let footer_lines = vec![
-            Line::from(vec![
-                Span::raw("Edit mode: "),
-                edit_mode_status,
-            ]),
+            Line::from(vec![Span::raw("Edit mode: "), edit_mode_status]),
             Line::from(""),
             Line::from(vec![
                 Span::styled("[i]", Style::default().fg(Color::Green)),
@@ -1659,10 +1658,7 @@ impl WorktreeView {
             Line::from(""),
             Line::from(vec![
                 Span::raw(" Streaming...  "),
-                Span::styled(
-                    "[Esc]",
-                    Style::default().fg(Color::DarkGray),
-                ),
+                Span::styled("[Esc]", Style::default().fg(Color::DarkGray)),
                 Span::styled(
                     " Cancel (not yet implemented)",
                     Style::default().fg(Color::DarkGray),
@@ -1692,7 +1688,11 @@ impl WorktreeView {
     pub fn start_implement_mode(&mut self) -> ViewAction {
         // Get feature info
         let (spec_dir, number, name) = if let Some(ref info) = self.feature_info {
-            (info.spec_dir.clone(), info.number.clone(), info.name.clone())
+            (
+                info.spec_dir.clone(),
+                info.number.clone(),
+                info.name.clone(),
+            )
         } else {
             return ViewAction::DisplayMessage("No feature context".to_string());
         };
@@ -1700,14 +1700,17 @@ impl WorktreeView {
         // Check if tasks.md exists
         let tasks_path = spec_dir.join("tasks.md");
         if !tasks_path.exists() {
-            return ViewAction::DisplayMessage("No tasks.md found. Run Tasks phase first.".to_string());
+            return ViewAction::DisplayMessage(
+                "No tasks.md found. Run Tasks phase first.".to_string(),
+            );
         }
 
         // Read and parse tasks
         match std::fs::read_to_string(&tasks_path) {
             Ok(content) => {
                 self.specify_state = SpecifyState::for_phase(SpecPhase::Implement);
-                self.specify_state.load_tasks_from_file(&content, number, name);
+                self.specify_state
+                    .load_tasks_from_file(&content, number, name);
 
                 if self.specify_state.task_list_state.is_none() {
                     return ViewAction::DisplayMessage("No tasks found in tasks.md".to_string());
@@ -1723,8 +1726,14 @@ impl WorktreeView {
 
                 let entry = LogEntry::new(
                     LogCategory::System,
-                    format!("Implement mode started with {} tasks",
-                        self.specify_state.task_list_state.as_ref().map(|t| t.len()).unwrap_or(0)),
+                    format!(
+                        "Implement mode started with {} tasks",
+                        self.specify_state
+                            .task_list_state
+                            .as_ref()
+                            .map(|t| t.len())
+                            .unwrap_or(0)
+                    ),
                 );
                 self.log_buffer.push(entry);
 
@@ -1771,7 +1780,8 @@ impl WorktreeView {
     /// Returns a ViewAction::ExecuteTask with the task details.
     pub fn execute_selected_task(&mut self) -> ViewAction {
         // Get task info
-        let (task_id, task_description) = if let Some(task) = self.specify_state.get_selected_task() {
+        let (task_id, task_description) = if let Some(task) = self.specify_state.get_selected_task()
+        {
             (task.id.clone(), task.description.clone())
         } else {
             return ViewAction::DisplayMessage("No task selected".to_string());
@@ -1856,7 +1866,10 @@ impl WorktreeView {
                 // Log completion
                 let entry = LogEntry::new(
                     LogCategory::System,
-                    format!("Task {} complete via MCP. Progress: {}/{}", task_id, completed, total),
+                    format!(
+                        "Task {} complete via MCP. Progress: {}/{}",
+                        task_id, completed, total
+                    ),
                 );
                 self.log_buffer.push(entry);
 
@@ -1904,7 +1917,9 @@ impl WorktreeView {
         match key.code {
             KeyCode::Char(c) => {
                 // Insert character at cursor position
-                self.specify_state.input_buffer.insert(self.specify_state.input_cursor, c);
+                self.specify_state
+                    .input_buffer
+                    .insert(self.specify_state.input_cursor, c);
                 self.specify_state.input_cursor += 1;
                 self.specify_state.validation_error = None; // Clear error on input
                 ViewAction::None
@@ -1912,14 +1927,18 @@ impl WorktreeView {
             KeyCode::Backspace => {
                 if self.specify_state.input_cursor > 0 {
                     self.specify_state.input_cursor -= 1;
-                    self.specify_state.input_buffer.remove(self.specify_state.input_cursor);
+                    self.specify_state
+                        .input_buffer
+                        .remove(self.specify_state.input_cursor);
                     self.specify_state.validation_error = None;
                 }
                 ViewAction::None
             }
             KeyCode::Delete => {
                 if self.specify_state.input_cursor < self.specify_state.input_buffer.len() {
-                    self.specify_state.input_buffer.remove(self.specify_state.input_cursor);
+                    self.specify_state
+                        .input_buffer
+                        .remove(self.specify_state.input_cursor);
                 }
                 ViewAction::None
             }
@@ -1945,7 +1964,9 @@ impl WorktreeView {
             }
             KeyCode::Enter if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 // Ctrl+Enter: Insert newline
-                self.specify_state.input_buffer.insert(self.specify_state.input_cursor, '\n');
+                self.specify_state
+                    .input_buffer
+                    .insert(self.specify_state.input_cursor, '\n');
                 self.specify_state.input_cursor += 1;
                 self.specify_state.validation_error = None;
                 ViewAction::None
@@ -2227,7 +2248,14 @@ impl WorktreeView {
                     self.specify_state.auto_advance = !self.specify_state.auto_advance;
                     let entry = LogEntry::new(
                         LogCategory::System,
-                        format!("Auto-advance: {}", if self.specify_state.auto_advance { "ON" } else { "OFF" }),
+                        format!(
+                            "Auto-advance: {}",
+                            if self.specify_state.auto_advance {
+                                "ON"
+                            } else {
+                                "OFF"
+                            }
+                        ),
                     );
                     self.log_buffer.push(entry);
                     return ViewAction::None;
@@ -2835,14 +2863,20 @@ impl WorktreeView {
                     let checkbox = if task.completed { "[X]" } else { "[ ]" };
                     spans.push(Span::styled(
                         checkbox,
-                        Style::default().fg(if task.completed { Color::Green } else { Color::Gray }),
+                        Style::default().fg(if task.completed {
+                            Color::Green
+                        } else {
+                            Color::Gray
+                        }),
                     ));
                     spans.push(Span::raw(" "));
 
                     // Task ID
                     spans.push(Span::styled(
                         &task.id,
-                        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
                     ));
                     spans.push(Span::raw(" "));
 
@@ -2892,7 +2926,11 @@ impl WorktreeView {
                     Span::styled("[Enter]", Style::default().fg(Color::Green)),
                     Span::raw(" Execute  "),
                     Span::styled("[a]", Style::default().fg(Color::Magenta)),
-                    Span::raw(if self.specify_state.auto_advance { " Auto:ON  " } else { " Auto:OFF " }),
+                    Span::raw(if self.specify_state.auto_advance {
+                        " Auto:ON  "
+                    } else {
+                        " Auto:OFF "
+                    }),
                     Span::styled("[Esc]", Style::default().fg(Color::Red)),
                     Span::raw(" Exit"),
                 ]));
@@ -3262,8 +3300,7 @@ impl View for WorktreeView {
         }
 
         // Route to specify review/edit input handler when in SpecifyReview mode (Feature 051)
-        if self.content_type == ContentType::SpecifyReview && self.focus == WorktreeFocus::Content
-        {
+        if self.content_type == ContentType::SpecifyReview && self.focus == WorktreeFocus::Content {
             // T054-T067: Route to edit handler if in edit mode (User Story 3)
             if self.specify_state.edit_mode {
                 return self.handle_specify_edit_input(key);
@@ -3607,7 +3644,9 @@ mod tests {
         view.scroll_up();
         let expected_last_phase = 3 + num_phases;
         assert_eq!(view.command_state.selected(), Some(expected_last_phase));
-        assert!(view.display_index_to_command_index(expected_last_phase).is_some());
+        assert!(view
+            .display_index_to_command_index(expected_last_phase)
+            .is_some());
 
         // Verify it's an SDD phase
         if let Some(cmd_idx) = view.display_index_to_command_index(expected_last_phase) {
@@ -4075,10 +4114,7 @@ mod tests {
         assert!(!view.specify_state.is_generating);
         assert_eq!(view.content_type, ContentType::SpecifyReview);
         assert!(view.specify_state.generated_spec.is_some());
-        assert_eq!(
-            view.specify_state.feature_number.as_deref(),
-            Some("052")
-        );
+        assert_eq!(view.specify_state.feature_number.as_deref(), Some("052"));
         assert_eq!(
             view.specify_state.feature_name.as_deref(),
             Some("test-feature")
@@ -4209,10 +4245,7 @@ mod tests {
         // Verify state
         assert_eq!(view.content_type, ContentType::SpecifyReview);
         assert!(view.specify_state.generated_spec.is_some());
-        assert_eq!(
-            view.specify_state.feature_number.as_deref(),
-            Some("052")
-        );
+        assert_eq!(view.specify_state.feature_number.as_deref(), Some("052"));
         assert_eq!(
             view.specify_state.feature_name.as_deref(),
             Some("test-feature")
@@ -4354,7 +4387,12 @@ mod tests {
 
         // Should return SaveSpec action
         match action {
-            ViewAction::SaveSpec { phase, content, number, name } => {
+            ViewAction::SaveSpec {
+                phase,
+                content,
+                number,
+                name,
+            } => {
                 assert_eq!(phase, SpecPhase::Specify);
                 assert!(content.contains("# Edited Spec"));
                 assert_eq!(number, "051");
@@ -4562,7 +4600,10 @@ mod tests {
             raw_line: String::new(),
         };
 
-        assert_eq!(task_parallel.to_markdown(), "- [X] T002 [P] [US1] Parallel task");
+        assert_eq!(
+            task_parallel.to_markdown(),
+            "- [X] T002 [P] [US1] Parallel task"
+        );
     }
 
     #[test]
@@ -4677,8 +4718,8 @@ Some other content
         // Reorder: move T003 to top
         state.select_next();
         state.select_next(); // Select T003
-        state.reorder_up();  // T003 is now second
-        state.reorder_up();  // T003 is now first
+        state.reorder_up(); // T003 is now second
+        state.reorder_up(); // T003 is now first
 
         let markdown = state.to_markdown();
         let lines: Vec<&str> = markdown.lines().collect();

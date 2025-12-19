@@ -33,7 +33,10 @@ impl ClaudeDiscovery {
                 debug!("Using cached Claude path: {}", path.display());
                 return Ok(path);
             } else {
-                warn!("Cached Claude path is invalid, re-searching: {}", path.display());
+                warn!(
+                    "Cached Claude path is invalid, re-searching: {}",
+                    path.display()
+                );
             }
         }
 

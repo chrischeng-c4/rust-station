@@ -19,7 +19,10 @@ use super::worktree::WorktreeViewState;
 use crate::domain::git::{CommitGroup, SecurityWarning};
 use crate::tui::event::WorktreeType;
 use crate::tui::logging::LogEntry;
-use crate::tui::views::{Command, ContentType, FeatureInfo, GitCommand, InlineInput, PhaseStatus, SpecPhase, SpecifyState, WorktreeFocus};
+use crate::tui::views::{
+    Command, ContentType, FeatureInfo, GitCommand, InlineInput, PhaseStatus, SpecPhase,
+    SpecifyState, WorktreeFocus,
+};
 use crate::tui::widgets::TextInput;
 use std::path::PathBuf;
 
@@ -208,16 +211,17 @@ impl WorktreeViewStateBuilder {
 
     /// Build the final WorktreeViewState
     pub fn build(self) -> WorktreeViewState {
-        let feature_info = if let (Some(number), Some(name)) = (self.feature_number, self.feature_name) {
-            Some(FeatureInfo {
-                number: number.clone(),
-                name: name.clone(),
-                branch: format!("{}-{}", number, name),
-                spec_dir: PathBuf::from(format!("specs/{}-{}", number, name)),
-            })
-        } else {
-            None
-        };
+        let feature_info =
+            if let (Some(number), Some(name)) = (self.feature_number, self.feature_name) {
+                Some(FeatureInfo {
+                    number: number.clone(),
+                    name: name.clone(),
+                    branch: format!("{}-{}", number, name),
+                    spec_dir: PathBuf::from(format!("specs/{}-{}", number, name)),
+                })
+            } else {
+                None
+            };
 
         WorktreeViewState {
             feature_info,
@@ -338,7 +342,10 @@ mod tests {
     fn test_builder_preset_specify_in_progress() {
         let state = WorktreeViewStateBuilder::specify_in_progress("042");
 
-        assert_eq!(state.get_phase_status(SpecPhase::Specify), PhaseStatus::InProgress);
+        assert_eq!(
+            state.get_phase_status(SpecPhase::Specify),
+            PhaseStatus::InProgress
+        );
         assert_eq!(state.current_phase, Some(SpecPhase::Specify));
         assert_eq!(state.focus, WorktreeFocus::Output);
     }
@@ -347,7 +354,10 @@ mod tests {
     fn test_builder_preset_specify_completed() {
         let state = WorktreeViewStateBuilder::specify_completed("042");
 
-        assert_eq!(state.get_phase_status(SpecPhase::Specify), PhaseStatus::Completed);
+        assert_eq!(
+            state.get_phase_status(SpecPhase::Specify),
+            PhaseStatus::Completed
+        );
         assert!(state.spec_content.is_some());
         assert_eq!(state.content_type, ContentType::Spec);
     }

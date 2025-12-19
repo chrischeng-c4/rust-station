@@ -264,7 +264,10 @@ fn test_complex_app_state_serialization() {
     assert_eq!(loaded.dashboard_view.worktree_count, 3);
 
     assert_eq!(loaded.settings_view.selected_index, 1);
-    assert_eq!(loaded.settings_view.current_feature, Some("079".to_string()));
+    assert_eq!(
+        loaded.settings_view.current_feature,
+        Some("079".to_string())
+    );
     assert_eq!(loaded.settings_view.settings.auto_run, false);
     assert_eq!(loaded.settings_view.settings.max_turns, 100);
 }

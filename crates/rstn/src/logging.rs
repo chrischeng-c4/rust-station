@@ -40,7 +40,10 @@ pub fn generate_session_id() -> String {
     let timestamp = now.format("%Y-%m-%d-%H%M%S");
     let uuid = Uuid::new_v4();
     let bytes = uuid.as_bytes();
-    let random = format!("{:02x}{:02x}{:02x}{:02x}", bytes[0], bytes[1], bytes[2], bytes[3]);
+    let random = format!(
+        "{:02x}{:02x}{:02x}{:02x}",
+        bytes[0], bytes[1], bytes[2], bytes[3]
+    );
 
     format!("{}-{}", timestamp, random)
 }
@@ -425,8 +428,7 @@ mod tests {
 
         // Should match: YYYY-MM-DD HH:MM:SS.mmm
         // Example: 2025-12-18 14:23:45.123
-        let pattern =
-            regex::Regex::new(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}$").unwrap();
+        let pattern = regex::Regex::new(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}$").unwrap();
         assert!(
             pattern.is_match(&writer),
             "Timestamp '{}' does not match expected format YYYY-MM-DD HH:MM:SS.mmm",

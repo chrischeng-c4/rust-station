@@ -26,10 +26,7 @@ fn test_log_buffer_push_and_len() {
 fn test_log_buffer_entries_iterator() {
     let mut buffer = LogBuffer::new();
 
-    buffer.push(LogEntry::new(
-        LogCategory::Command,
-        "Command 1".to_string(),
-    ));
+    buffer.push(LogEntry::new(LogCategory::Command, "Command 1".to_string()));
     buffer.push(LogEntry::new(
         LogCategory::ClaudeStream,
         "Output 1".to_string(),

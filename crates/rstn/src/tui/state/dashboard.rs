@@ -61,9 +61,6 @@ impl Default for DashboardState {
 impl StateInvariants for DashboardState {
     fn assert_invariants(&self) {
         // Invariant: worktree_count should be at least 1
-        assert!(
-            self.worktree_count > 0,
-            "Worktree count must be at least 1"
-        );
+        assert!(self.worktree_count > 0, "Worktree count must be at least 1");
     }
 }

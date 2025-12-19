@@ -108,7 +108,10 @@ impl AppState {
     }
 
     /// Save state to a file in YAML format
-    pub fn save_to_yaml_file(&self, path: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn save_to_yaml_file(
+        &self,
+        path: &std::path::Path,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let yaml = serde_yaml::to_string(self)?;
         std::fs::write(path, yaml)?;
         Ok(())
