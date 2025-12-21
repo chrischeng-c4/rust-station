@@ -39,5 +39,5 @@ When migrating code from v1 to v2:
 
 ## Before/After Examples
 
-See [archive/v1-analysis/technical-debt.md](../../../99-archive/v1-analysis/technical-debt.md) for detailed v1 problems and v2 solutions.
+This guide summarizes the key differences between v1 and v2. The full v1 analysis has been archived and removed from the active documentation.
 

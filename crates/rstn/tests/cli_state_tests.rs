@@ -115,6 +115,7 @@ fn test_cli_load_state_success() {
             .build(),
         dashboard_view: Default::default(),
         settings_view: Default::default(),
+        session_history_view: Default::default(),
     };
     state.save_to_file(&state_file).unwrap();
 
@@ -187,6 +188,7 @@ fn test_cli_save_load_round_trip_with_feature() {
             .build(),
         dashboard_view: Default::default(),
         settings_view: Default::default(),
+        session_history_view: Default::default(),
     };
     state.save_to_file(&state_file).unwrap();
 
@@ -220,6 +222,7 @@ fn test_cli_state_restoration_preserves_all_fields() {
             .build(),
         dashboard_view: Default::default(),
         settings_view: Default::default(),
+        session_history_view: Default::default(),
     };
     original_state.save_to_file(&state_file).unwrap();
 
@@ -247,6 +250,7 @@ fn test_cli_load_state_version_mismatch_warning() {
         worktree_view: WorktreeViewStateBuilder::new().build(),
         dashboard_view: Default::default(),
         settings_view: Default::default(),
+        session_history_view: Default::default(),
     };
     state.save_to_file(&state_file).unwrap();
 
@@ -281,6 +285,7 @@ fn test_cli_load_state_yaml_format() {
             .build(),
         dashboard_view: Default::default(),
         settings_view: Default::default(),
+        session_history_view: Default::default(),
     };
     state.save_to_yaml_file(&state_file).unwrap();
 

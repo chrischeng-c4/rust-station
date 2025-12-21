@@ -2,10 +2,24 @@
 
 use crate::runners::cargo::ClaudeCliOptions;
 use crate::tui::claude_stream::ClaudeStreamMessage;
+use crate::tui::event::Event;
+use crate::tui::mcp_server::McpState;
 use crate::{Result, RscliError};
 use colored::Colorize;
+use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::process::Command;
+use tokio::sync::Mutex;
+
+/// CLI execution mode
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InputMode {
+    /// Pure CLI mode (stdout streaming)
+    CLI,
+    /// Temporary TUI mode for input dialog (currently active but not used for logic)
+    #[allow(dead_code)]
+    MiniTUI,
+}
 
 /// System prompt for RSCLI MCP integration
 const RSCLI_SYSTEM_PROMPT: &str = r#"
@@ -50,11 +64,19 @@ pub async fn run(
     continue_session: bool,
     session_id: Option<String>,
     allowed_tools: Vec<String>,
+    context: Vec<std::path::PathBuf>,
     verbose: bool,
 ) -> Result<ClaudeResult> {
     // Print initial status
     if verbose {
         eprintln!("{}", "🤖 Sending prompt to Claude...".bright_blue());
+        if !context.is_empty() {
+            eprintln!(
+                "   {} context file(s): {}",
+                "📎".bright_yellow(),
+                context.len()
+            );
+        }
         eprintln!();
     }
 
@@ -66,10 +88,16 @@ pub async fn run(
         session_id,
         allowed_tools,
         system_prompt_file: None,
+        add_dirs: vec![],
+        permission_mode: None,
+        context_files: context,
     };
 
+    // Get MCP state if available (from global accessor)
+    let mcp_state = crate::tui::mcp_server::get_global_mcp_state();
+
     // Run Claude command with custom streaming handler
-    let result = run_claude_with_cli_streaming(message, &options).await?;
+    let result = run_claude_with_cli_streaming(message, &options, mcp_state).await?;
 
     // Print completion message
     eprintln!();
@@ -96,9 +124,12 @@ pub async fn run(
 }
 
 /// CLI-specific streaming handler (prints directly to stdout)
+///
+/// Optionally accepts MCP state for interactive prompts via Mini TUI mode.
 async fn run_claude_with_cli_streaming(
     message: &str,
     options: &ClaudeCliOptions,
+    mcp_state: Option<Arc<Mutex<McpState>>>,
 ) -> Result<ClaudeResult> {
     // Find claude binary
     let claude_path = crate::claude_discovery::ClaudeDiscovery::find_claude()
@@ -169,6 +200,46 @@ async fn run_claude_with_cli_streaming(
     let mut lines = reader.lines();
 
     while let Ok(Some(line)) = lines.next_line().await {
+        // Poll for MCP events if MCP server is active
+        if let Some(ref state) = mcp_state {
+            if let Ok(mut state_guard) = state.try_lock() {
+                // Drain TUI events (MCP sends events here)
+                let events: Vec<Event> = state_guard.drain_tui_events();
+                for event in events {
+                    if let Event::McpStatus { status, prompt, .. } = event {
+                        if status == "needs_input" {
+                            // Show mini dialog to collect user input
+                            let prompt_text = prompt.unwrap_or_else(|| "Enter input:".to_string());
+
+                            eprintln!(); // Add newline before dialog
+                            eprintln!("{}", "📥 MCP Input Request".bright_blue());
+
+                            let dialog = crate::tui::mini_dialog::MiniTUIDialog::new(prompt_text);
+                            match dialog.run() {
+                                Ok(Some(input)) => {
+                                    // User provided input - send to MCP
+                                    state_guard.send_input_response(input.clone());
+                                    eprintln!("{}", format!("✓ Response sent: {}", input).green());
+                                }
+                                Ok(None) => {
+                                    // User cancelled - send empty response
+                                    state_guard.send_input_response(String::new());
+                                    eprintln!("{}", "⚠ Cancelled - empty response sent".yellow());
+                                }
+                                Err(e) => {
+                                    eprintln!("{}", format!("✗ Dialog error: {}", e).red());
+                                    state_guard.send_input_response(String::new());
+                                }
+                            }
+
+                            eprintln!(); // Add newline after dialog
+                            eprintln!("{}", "Resuming Claude output...".bright_blue());
+                        }
+                    }
+                }
+            }
+        }
+
         // Parse JSONL message
         if let Ok(msg) = serde_json::from_str::<ClaudeStreamMessage>(&line) {
             // Track session ID

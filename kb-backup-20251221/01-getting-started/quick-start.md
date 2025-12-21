@@ -33,14 +33,14 @@ You should see the rstn TUI (Text User Interface) appear:
 
 ```
 ┌─ rstn v0.x.x ──────────────────────────────────────────────────┐
-│  Commands          │  Content                                  │
-│                    │                                           │
-│ ▶ Prompt Claude    │  [Dynamic Workflow Area]                  │
-│   Specify          │                                           │
-│   Git Status       │  (Visualizes active node)                 │
-│                    │                                           │
-│                    │                                           │
-└────────────────────┴───────────────────────────────────────────┘
+│  Worktree  │  Settings  │  Dashboard                           │
+│═══════════════════════════════════════════════════════════════│
+│                                                                 │
+│  Welcome to rustation v2!                                      │
+│                                                                 │
+│  [Your worktree content appears here]                          │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 **Tip**: If you see errors, check the [Troubleshooting](#troubleshooting) section.
@@ -49,51 +49,62 @@ You should see the rstn TUI (Text User Interface) appear:
 
 ## Basic Navigation
 
-### Workflow Selection
+### Tab Switching
 
-Use vertical navigation to select a workflow from the left panel:
-
-| Key | Action |
-|-----|--------|
-| `j` or `↓` | Move selection down |
-| `k` or `↑` | Move selection up |
-
-**Try it**: Press `j` and `k` to move through the Command list.
-
-### Starting a Workflow
+Use these keys to switch between views:
 
 | Key | Action |
 |-----|--------|
-| `Enter` | Start selected workflow |
+| `Tab` | Next view (Worktree → Settings → Dashboard) |
+| `Shift+Tab` | Previous view |
+| Mouse click | Click on tab name to switch |
 
-**Try it**: Select "Prompt Claude" and press `Enter`. The right panel will update to show the Input Dialog.
+**Try it**: Press `Tab` to switch to Settings, then `Tab` again to reach Dashboard.
+
+### Vertical Navigation
+
+Within each view, use:
+
+| Key | Action |
+|-----|--------|
+| `j` or `↓` | Move down |
+| `k` or `↑` | Move up |
+| `g` | Jump to top |
+| `G` | Jump to bottom |
+| `Ctrl+d` | Page down |
+| `Ctrl+u` | Page up |
+
+**Try it**: Press `j` and `k` to move through items in the current view.
 
 ### Common Actions
 
 | Key | Action |
 |-----|--------|
+| `Enter` | Execute selected item / Confirm |
 | `Esc` | Cancel / Close dialog |
 | `q` | Quit rstn |
+| `?` | Show help (future feature) |
 
 ---
 
 ## Understanding the Interface
 
-### Two-Panel Layout
+### Three Main Views
 
-**1. Commands (Left Panel)**
-- **Role**: Workflow Trigger
-- **Description**: A list of available actions (e.g., "Prompt Claude", "Git Status"). Think of these as "Start Nodes" for your workflows.
+**1. Worktree View** (Default)
+- Shows your current git worktree
+- Lists recent sessions
+- Main workspace for development tasks
 
-**2. Content (Right Panel)**
-- **Role**: Dynamic Visualization
-- **Description**: This area changes based on the active workflow node.
-    - *Idle*: Shows introductory text.
-    - *Prompting*: Shows input dialog.
-    - *Streaming*: Shows live token stream.
-    - *Reviewing*: Shows file diffs.
+**2. Settings View**
+- Configuration options
+- Claude CLI integration settings
+- MCP server status
 
-**Note**: There are no tabs. The interface is focused purely on the current task.
+**3. Dashboard View**
+- Project overview
+- Statistics and metrics
+- Quick actions
 
 ### Status Bar
 
@@ -115,23 +126,23 @@ The bottom status bar shows:
 
 Let's try a simple workflow:
 
-### 1. Select "Prompt Claude"
+### 1. Navigate to Settings
 
 ```
-Use j/k to highlight "Prompt Claude"
+Press Tab to switch to Settings view
 ```
 
-### 2. Activate
+### 2. Explore Options
 
 ```
-Press Enter
+Use j/k to browse settings
+Press Enter on an option to toggle it
 ```
 
-### 3. Observe
+### 3. Return to Worktree
 
 ```
-Notice the right panel changes to show the input dialog.
-Press Esc to cancel.
+Press Tab until you're back at Worktree view
 ```
 
 ### 4. Exit
@@ -253,8 +264,9 @@ rstn supports multiple concurrent sessions:
 
 ```
 1. Launch rstn
-2. Select "Prompt Claude"
-3. Press Enter to start the workflow
+2. Navigate to Worktree view (Tab if needed)
+3. Press 'p' to prompt Claude (future feature)
+4. Follow the interactive workflow
 ```
 
 ### Review Previous Sessions
@@ -280,6 +292,8 @@ rstn supports multiple concurrent sessions:
 
 | Key | Action | Context |
 |-----|--------|---------|
+| `Tab` | Next view | Global |
+| `Shift+Tab` | Previous view | Global |
 | `j` / `↓` | Move down | Navigation |
 | `k` / `↑` | Move up | Navigation |
 | `g` | Jump to top | Navigation |

@@ -135,6 +135,10 @@ pub enum Commands {
         /// Allowed tools (comma-separated, empty = all)
         #[arg(long, value_delimiter = ',')]
         allowed_tools: Vec<String>,
+
+        /// Additional files for context (comma-separated paths)
+        #[arg(long, value_delimiter = ',')]
+        context: Vec<std::path::PathBuf>,
     },
 }
 

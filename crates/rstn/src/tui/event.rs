@@ -29,6 +29,8 @@ pub enum Event {
     Mouse(MouseEvent),
     /// Terminal resize
     Resize(u16, u16),
+    /// Paste event (clipboard content)
+    Paste(String),
     /// Command output line
     CommandOutput(String),
     /// Command completed with all output
@@ -167,6 +169,11 @@ impl EventHandler {
                         }
                         CrosstermEvent::Resize(w, h) => {
                             if handler_sender.send(Event::Resize(w, h)).is_err() {
+                                break;
+                            }
+                        }
+                        CrosstermEvent::Paste(text) => {
+                            if handler_sender.send(Event::Paste(text)).is_err() {
                                 break;
                             }
                         }

@@ -17,6 +17,7 @@
 
 pub mod builders;
 pub mod dashboard;
+pub mod session_history;
 pub mod settings;
 pub mod worktree;
 
@@ -53,7 +54,7 @@ pub trait StateInvariants {
 /// Application-wide state
 ///
 /// This wraps all view states and provides session persistence.
-/// Phase 4: Complete with all view states (Worktree, Dashboard, Settings)
+/// Phase 4: Complete with all view states (Worktree, Dashboard, Settings, SessionHistory)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppState {
     /// State schema version (e.g., "0.3.0")
@@ -67,6 +68,9 @@ pub struct AppState {
 
     /// Settings view state
     pub settings_view: settings::SettingsState,
+
+    /// Session history view state
+    pub session_history_view: session_history::SessionHistoryState,
 }
 
 impl Default for AppState {
@@ -76,6 +80,7 @@ impl Default for AppState {
             worktree_view: worktree::WorktreeViewState::default(),
             dashboard_view: dashboard::DashboardState::default(),
             settings_view: settings::SettingsState::default(),
+            session_history_view: session_history::SessionHistoryState::default(),
         }
     }
 }
@@ -86,6 +91,7 @@ impl StateInvariants for AppState {
         self.worktree_view.assert_invariants();
         self.dashboard_view.assert_invariants();
         self.settings_view.assert_invariants();
+        self.session_history_view.assert_invariants();
     }
 }
 

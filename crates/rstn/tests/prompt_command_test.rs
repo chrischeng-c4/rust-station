@@ -181,6 +181,7 @@ async fn test_real_prompt_execution() {
         false,  // continue_session
         None,   // session_id
         vec![], // allowed_tools
+        vec![], // context
         false,  // verbose
     )
     .await;
@@ -207,6 +208,7 @@ async fn test_session_continuation() {
         false,  // continue_session
         None,   // session_id
         vec![], // allowed_tools
+        vec![], // context
         false,  // verbose
     )
     .await;
@@ -224,12 +226,13 @@ async fn test_session_continuation() {
     // Second prompt - resume the session
     let result2 = prompt::run(
         "What number did I ask you to remember?",
-        1,                     // max_turns
-        true,                  // skip_permissions
-        false,                 // continue_session
+        1,                        // max_turns
+        true,                     // skip_permissions
+        false,                    // continue_session
         Some(session_id.clone()), // session_id - resume previous session
-        vec![],                // allowed_tools
-        false,                 // verbose
+        vec![],                   // allowed_tools
+        vec![],                   // context
+        false,                    // verbose
     )
     .await;
 

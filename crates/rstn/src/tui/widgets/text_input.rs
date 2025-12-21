@@ -35,6 +35,36 @@ pub struct TextInput {
     pub scroll_offset: usize,
 }
 
+/// Strip ANSI escape codes from text
+///
+/// Removes sequences like:
+/// - `\x1b[32m` (color codes)
+/// - `\x1b[1m` (bold)
+/// - `\x1b[0m` (reset)
+fn strip_ansi_codes(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' {
+            // Skip escape sequence
+            if chars.peek() == Some(&'[') {
+                chars.next(); // Skip '['
+                              // Skip until 'm' (end of color code) or other terminator
+                while let Some(c) = chars.next() {
+                    if c.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+
+    result
+}
+
 impl TextInput {
     /// Create a new text input with a prompt
     pub fn new(prompt: String) -> Self {
@@ -83,13 +113,58 @@ impl TextInput {
         if self.multiline {
             // Insert into current line at cursor column
             let line = &mut self.lines[self.cursor_line];
+
+            // Validate cursor is at valid UTF-8 boundary
+            if !line.is_char_boundary(self.cursor_column) {
+                // Find next valid boundary
+                self.cursor_column = (0..=line.len())
+                    .find(|&pos| line.is_char_boundary(pos) && pos >= self.cursor_column)
+                    .unwrap_or(line.len());
+            }
+
             line.insert(self.cursor_column, c);
-            self.cursor_column += 1;
+            self.cursor_column += c.len_utf8();
         } else {
             // Ensure cursor is within bounds
             let insert_pos = self.cursor_position.min(self.value.len());
             self.value.insert(insert_pos, c);
             self.cursor_position = insert_pos + 1;
+        }
+    }
+
+    /// Insert text at cursor position, stripping ANSI codes
+    ///
+    /// This method safely inserts multi-character text by:
+    /// 1. Stripping ANSI escape codes from the input
+    /// 2. Validating UTF-8 boundaries before insertion
+    /// 3. Updating cursor position correctly
+    ///
+    /// Use this for pasting text or inserting strings, especially when
+    /// the text may contain ANSI color codes or other escape sequences.
+    pub fn insert_text(&mut self, text: &str) {
+        // Strip ANSI escape codes
+        let clean_text = strip_ansi_codes(text);
+
+        if self.multiline {
+            // Insert into current line at cursor
+            let line = &mut self.lines[self.cursor_line];
+
+            // Validate cursor is at char boundary
+            if !line.is_char_boundary(self.cursor_column) {
+                // Find next valid boundary
+                self.cursor_column = (0..=line.len())
+                    .find(|&pos| line.is_char_boundary(pos) && pos >= self.cursor_column)
+                    .unwrap_or(line.len());
+            }
+
+            // Insert text
+            line.insert_str(self.cursor_column, &clean_text);
+            self.cursor_column += clean_text.len();
+        } else {
+            // Single-line mode
+            let insert_pos = self.cursor_position.min(self.value.len());
+            self.value.insert_str(insert_pos, &clean_text);
+            self.cursor_position = insert_pos + clean_text.chars().count();
         }
     }
 

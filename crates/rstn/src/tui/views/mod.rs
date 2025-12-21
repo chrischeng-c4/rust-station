@@ -3,6 +3,8 @@
 mod command_runner;
 mod dashboard;
 mod mcp_server;
+mod session_history;
+mod session_output;
 mod settings;
 mod spec;
 mod worktree;
@@ -10,6 +12,8 @@ mod worktree;
 pub use command_runner::{CommandRunner, OutputLine, OutputLineType};
 pub use dashboard::{Dashboard, DashboardPanel, TestResults};
 pub use mcp_server::McpServerView;
+pub use session_history::SessionHistoryView;
+pub use session_output::{CompletionStatus, SessionOutputView};
 pub use settings::SettingsView;
 pub use spec::{AutoFlowState, ClaudeOptions, PhaseStatus, SpecPhase, SpecView};
 pub use worktree::{

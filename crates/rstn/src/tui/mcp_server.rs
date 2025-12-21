@@ -163,6 +163,39 @@ impl McpState {
 }
 
 // ============================================================================
+// Global MCP State (shared between TUI and CLI modes)
+// ============================================================================
+
+use once_cell::sync::Lazy;
+
+/// Global MCP state storage (shared between TUI and CLI modes)
+///
+/// This allows CLI mode to access the same MCP state that TUI mode uses,
+/// enabling interactive prompts via Mini TUI mode.
+///
+/// Note: Wraps tokio::sync::Mutex in std::sync::Mutex for static storage
+static GLOBAL_MCP_STATE_MUT: Lazy<std::sync::Mutex<Option<Arc<Mutex<McpState>>>>> =
+    Lazy::new(|| std::sync::Mutex::new(None));
+
+/// Get the global MCP state (for CLI mode integration)
+///
+/// Returns None if MCP server hasn't been initialized yet.
+pub fn get_global_mcp_state() -> Option<Arc<Mutex<McpState>>> {
+    let guard = GLOBAL_MCP_STATE_MUT.lock().ok()?;
+    guard.as_ref().cloned()
+}
+
+/// Initialize the global MCP state (called from main.rs)
+///
+/// This should be called after creating the MCP state in main.rs,
+/// so both TUI and CLI modes can access the same state.
+pub fn init_global_mcp_state(state: Arc<Mutex<McpState>>) {
+    if let Ok(mut guard) = GLOBAL_MCP_STATE_MUT.lock() {
+        *guard = Some(state);
+    }
+}
+
+// ============================================================================
 // JSON-RPC Types for MCP Protocol
 // ============================================================================
 
@@ -265,6 +298,17 @@ impl ToolResult {
         Self {
             content: vec![ContentBlock::Text {
                 text: message.to_string(),
+            }],
+            is_error: Some(true),
+        }
+    }
+
+    /// Create an error result with a suggestion
+    /// Format: "Error: {message} | Suggestion: {suggestion}"
+    fn error_with_suggestion(message: &str, suggestion: &str) -> Self {
+        Self {
+            content: vec![ContentBlock::Text {
+                text: format!("{} | Suggestion: {}", message, suggestion),
             }],
             is_error: Some(true),
         }
@@ -569,7 +613,12 @@ async fn handle_read_spec(
         "tasks" => "tasks.md",
         "checklist" => "checklist.md",
         "analysis" => "analysis.md",
-        _ => return ToolResult::error(&format!("Invalid artifact: {}", artifact)),
+        _ => {
+            return ToolResult::error_with_suggestion(
+                &format!("Invalid artifact: {}", artifact),
+                "Valid artifacts: spec, plan, tasks, checklist, analysis",
+            )
+        }
     };
 
     let spec_dir = {
@@ -580,7 +629,12 @@ async fn handle_read_spec(
 
     let spec_dir = match spec_dir {
         Some(d) => d,
-        None => return ToolResult::error("No active feature. Run a spec phase first."),
+        None => {
+            return ToolResult::error_with_suggestion(
+                "No active feature",
+                "Select a feature from the worktree list first",
+            )
+        }
     };
 
     let file_path = std::path::PathBuf::from(&spec_dir).join(filename);
@@ -594,10 +648,31 @@ async fn handle_read_spec(
             );
             ToolResult::text(&content)
         }
-        Err(e) => ToolResult::error(&format!(
-            "Could not read {}: {}. File may not exist yet.",
-            artifact, e
-        )),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // Provide specific suggestion based on artifact type
+            let suggestion = match artifact {
+                "spec" => "Run /speckit.specify to generate spec first",
+                "plan" => "Run /speckit.plan to generate plan first",
+                "tasks" => "Run /speckit.tasks to generate tasks first",
+                "checklist" => "Run /speckit.specify to create a feature with checklist",
+                "analysis" => "Run /speckit.clarify to generate analysis first",
+                _ => "Check if the file exists in the spec directory",
+            };
+
+            ToolResult::error_with_suggestion(
+                &format!("{} not found", filename),
+                suggestion,
+            )
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+            ToolResult::error_with_suggestion(
+                &format!("Permission denied reading {}", filename),
+                "Check file permissions or run with appropriate access rights",
+            )
+        }
+        Err(e) => {
+            ToolResult::error(&format!("Could not read {}: {}", artifact, e))
+        }
     }
 }
 
@@ -905,6 +980,33 @@ mod tests {
     fn test_tool_result_error() {
         let result = ToolResult::error("Oops");
         assert_eq!(result.is_error, Some(true));
+    }
+
+    #[test]
+    fn test_tool_result_error_with_suggestion() {
+        let result = ToolResult::error_with_suggestion(
+            "spec.md not found",
+            "Run /speckit.specify to generate spec first",
+        );
+        assert_eq!(result.is_error, Some(true));
+        assert_eq!(result.content.len(), 1);
+
+        if let ContentBlock::Text { text } = &result.content[0] {
+            assert!(
+                text.contains(" | Suggestion: "),
+                "Should contain suggestion separator"
+            );
+            assert!(
+                text.contains("spec.md not found"),
+                "Should contain error message"
+            );
+            assert!(
+                text.contains("Run /speckit.specify"),
+                "Should contain suggestion"
+            );
+        } else {
+            panic!("Expected text content block");
+        }
     }
 
     #[test]

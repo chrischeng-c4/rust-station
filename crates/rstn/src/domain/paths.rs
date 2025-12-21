@@ -103,6 +103,11 @@ pub fn rstn_log_file() -> Result<PathBuf> {
     Ok(rstn_logs_dir()?.join("rstn.log"))
 }
 
+/// Get paste temp directory (~/.rstn/tmp/pastes)
+pub fn paste_temp_dir() -> Result<PathBuf> {
+    Ok(rstn_home()?.join("tmp/pastes"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

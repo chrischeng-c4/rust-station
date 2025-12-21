@@ -1,15 +1,3 @@
----
-title: "Architecture Principles"
-description: "Four pillars: state-first, CLI/TUI separation, testing-first, workflow-driven UI"
-category: concept
-status: evergreen
-last_updated: 2025-12-21
-version: 0.2.0
-tags: []
-weight: 2
-aliases: ["/02-architecture/core-principles.md"]
----
-
 # Core Principles - rustation v2
 
 **Last Updated**: 2025-12-19
@@ -177,33 +165,6 @@ fn test_prompt_ui() {
 }
 ```
 
-### 4. Workflow-Driven UI
-
-**Principle**: The TUI is a **Workflow Launcher**, not just a static viewer.
-
-**Why**: Focuses user attention on task execution, reduces visual clutter.
-
-**Architecture**:
-```
-┌─────────────────────────────────────────────┐
-│              TUI Layout                     │
-│   ┌──────────────┐   ┌──────────────────┐   │
-│   │ Commands     │   │ Dynamic Content  │   │
-│   │ (Triggers)   │   │ (Active Node)    │   │
-│   │              │   │                  │   │
-│   │ ▶ Prompt     │   │  [Input Dialog]  │   │
-│   │   Commit     │   │       OR         │   │
-│   │   ...        │   │  [Stream View]   │   │
-│   └──────────────┘   └──────────────────┘   │
-└─────────────────────────────────────────────┘
-```
-
-**Key Rules**:
-- ✅ **Command as Trigger**: Left panel lists workflows (e.g., "Prompt Claude"), not navigation menus.
-- ✅ **Dynamic Content**: Right panel visualizes the *current node* of the active workflow.
-- ✅ **Minimalism**: No permanent "Log Panel" (logs go to file). No "Tab Bar" (focus on current worktree).
-- ✅ **Agent Integration**: AI agents are invoked only when the workflow reaches a specific node (e.g., `Node::CallAgent`).
-
 ---
 
 ## Design Philosophy
@@ -252,6 +213,8 @@ fn test_prompt_ui() {
 **v1 Problem**: 40% coverage, fragile UI tests
 **v2 Solution**: State-first testing, 70%+ target
 
+**See Archive**: `kb/99-archive/v1-analysis/technical-debt.md` for full v1 analysis
+
 ---
 
 ## Enforcement
@@ -290,6 +253,7 @@ fn test_prompt_ui() {
 ## Related Documents
 
 - [State-First Architecture](state-first.md) - Deep dive into principle #1
+- [v1 Archive](../99-archive/) - What we learned from v1
 - [SDD Workflow](../04-sdd-workflow/when-to-use-which.md) - Development process
 - [CLAUDE.md](../../CLAUDE.md) - CLI/TUI architecture pattern
 

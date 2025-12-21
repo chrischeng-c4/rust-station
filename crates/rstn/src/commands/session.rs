@@ -118,19 +118,12 @@ pub async fn list(
     // Apply filters (in-memory for MVP)
     let filtered: Vec<_> = sessions
         .into_iter()
-        .filter(|s| {
-            filter_type
-                .as_ref()
-                .is_none_or(|t| &s.command_type == t)
-        })
+        .filter(|s| filter_type.as_ref().is_none_or(|t| &s.command_type == t))
         .filter(|s| filter_status.as_ref().is_none_or(|st| &s.status == st))
         .collect();
 
     if filtered.is_empty() {
-        println!(
-            "{}",
-            "No sessions found matching filters.".bright_yellow()
-        );
+        println!("{}", "No sessions found matching filters.".bright_yellow());
         return Ok(());
     }
 
@@ -177,9 +170,9 @@ pub async fn list(
 pub async fn info(session_id: String) -> Result<()> {
     let manager = SessionManager::open()?;
     let full_id = resolve_session_id(&manager, &session_id)?;
-    let session = manager.get_session(&full_id)?.ok_or_else(|| {
-        RscliError::Other(anyhow::anyhow!("Session not found: {}", full_id))
-    })?;
+    let session = manager
+        .get_session(&full_id)?
+        .ok_or_else(|| RscliError::Other(anyhow::anyhow!("Session not found: {}", full_id)))?;
 
     println!("\n{}", "Session Information".bright_blue().bold());
     println!("═══════════════════\n");
@@ -206,8 +199,7 @@ pub async fn info(session_id: String) -> Result<()> {
             println!("Log File:      {} ({} KB)", log_file, size_kb);
             println!(
                 "\n{}",
-                format!("View logs: rstn session logs {}", &session.session_id[..8])
-                    .bright_black()
+                format!("View logs: rstn session logs {}", &session.session_id[..8]).bright_black()
             );
         } else {
             println!("Log File:      {} {}", log_file, "(missing)".red());
@@ -235,15 +227,12 @@ pub async fn logs(
 ) -> Result<()> {
     let manager = SessionManager::open()?;
     let full_id = resolve_session_id(&manager, &session_id)?;
-    let session = manager.get_session(&full_id)?.ok_or_else(|| {
-        RscliError::Other(anyhow::anyhow!("Session not found: {}", full_id))
-    })?;
+    let session = manager
+        .get_session(&full_id)?
+        .ok_or_else(|| RscliError::Other(anyhow::anyhow!("Session not found: {}", full_id)))?;
 
     let log_file = session.log_file.ok_or_else(|| {
-        RscliError::Other(anyhow::anyhow!(
-            "No log file for session: {}",
-            full_id
-        ))
+        RscliError::Other(anyhow::anyhow!("No log file for session: {}", full_id))
     })?;
 
     if !Path::new(&log_file).exists() {

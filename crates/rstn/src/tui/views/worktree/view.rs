@@ -123,18 +123,13 @@ impl WorktreeView {
             .map(|&p| (p, PhaseStatus::NotStarted))
             .collect::<Vec<_>>();
 
-        // Build unified command list (Workflow + SDD phases + Git commands)
+        // Build unified command list (Workflow only)
         let mut commands = Vec::new();
-        // WORKFLOW section
+        // WORKFLOW section - Minimalist Workflow-Driven UI
         commands.push(Command::PromptClaude);
-        // SDD section
-        for (phase, status) in &phases {
-            commands.push(Command::SddPhase(*phase, *status));
-        }
-        // GIT section
-        for git_cmd in GitCommand::all() {
-            commands.push(Command::GitAction(*git_cmd));
-        }
+        
+        // Note: SDD phases and Git commands are removed from the main menu
+        // They will be integrated into specific workflows later
 
         Self {
             feature_info: None,
@@ -600,7 +595,15 @@ impl WorktreeView {
             skip_permissions: false,
             continue_session: false,
             session_id: None,
-            allowed_tools: Vec::new(),
+            allowed_tools: vec![
+                "Bash".to_string(),  // All Bash commands
+                "Read".to_string(),  // Read files
+                "Write".to_string(), // Write files
+                "Edit".to_string(),  // Edit files
+                "Glob".to_string(),  // File pattern matching
+                "Grep".to_string(),  // Content search
+                "Task".to_string(),  // Subagent tasks
+            ],
         }
     }
 
@@ -824,188 +827,114 @@ impl WorktreeView {
         self.get_focused_pane_text()
     }
 
-    /// Render left panel (commands - unified SDD phases and Git actions)
-    fn render_commands(&self, frame: &mut Frame, area: Rect) {
-        let is_focused = self.focus == WorktreeFocus::Commands;
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(" Commands ")
-            .border_style(if is_focused {
-                Style::default().fg(Color::Yellow)
-            } else {
-                Style::default()
-            });
-
-        let mut items = Vec::new();
-
-        // WORKFLOW section header
-        items.push(ListItem::new(vec![Line::from(vec![Span::styled(
-            "WORKFLOW",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )])]));
-
-        // Prompt Claude command
-        items.push(ListItem::new(vec![Line::from(vec![
-            Span::raw("✨ "),
-            Span::styled(
-                "Prompt Claude",
-                Style::default()
-                    .fg(Color::Magenta)
-                    .add_modifier(Modifier::BOLD),
-            ),
-        ])]));
-
-        // Separator
-        items.push(ListItem::new(Line::from("")));
-
-        // SDD section header
-        items.push(ListItem::new(vec![Line::from(vec![Span::styled(
-            "SDD",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )])]));
-
-        // SDD phase commands
-        for (phase, status) in &self.phases {
-            let symbol = status.symbol();
-            let color = status.color();
-            items.push(ListItem::new(vec![Line::from(vec![
-                Span::styled(symbol, Style::default().fg(color)),
-                Span::raw(" "),
-                Span::styled(phase.display_name(), Style::default().fg(Color::White)),
-            ])]));
+        /// Render left panel (commands)
+        fn render_commands(&self, frame: &mut Frame, area: Rect) {
+            let is_focused = self.focus == WorktreeFocus::Commands;
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .title(" Commands ")
+                .border_style(if is_focused {
+                    Style::default().fg(Color::Yellow)
+                } else {
+                    Style::default()
+                });
+    
+            let mut items = Vec::new();
+    
+            // Render commands from the vector - strictly follow state
+            for command in &self.commands {
+                match command {
+                    Command::PromptClaude => {
+                        items.push(ListItem::new(vec![Line::from(vec![
+                            Span::raw("✨ "),
+                            Span::styled(
+                                "Prompt Claude",
+                                Style::default()
+                                    .fg(Color::Magenta)
+                                    .add_modifier(Modifier::BOLD),
+                            ),
+                        ])]));
+                    }
+                    Command::SddPhase(phase, status) => {
+                        let symbol = status.symbol();
+                        let color = status.color();
+                        items.push(ListItem::new(vec![Line::from(vec![
+                            Span::styled(symbol, Style::default().fg(color)),
+                            Span::raw(" "),
+                            Span::styled(phase.display_name(), Style::default().fg(Color::White)),
+                        ])]));
+                    }
+                    Command::GitAction(git_cmd) => {
+                        items.push(ListItem::new(vec![Line::from(vec![
+                            Span::raw("• "),
+                            Span::styled(git_cmd.display_name(), Style::default().fg(Color::White)),
+                        ])]));
+                    }
+                }
+            }
+    
+            // Add feature info at bottom
+            let mut footer_lines = vec![];
+            if let Some(ref info) = self.feature_info {
+                footer_lines.push(Line::from(""));
+                footer_lines.push(Line::from(vec![
+                    Span::styled("Feature: ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(
+                        format!("#{}", info.number),
+                        Style::default().fg(Color::Cyan),
+                    ),
+                ]));
+                footer_lines.push(Line::from(vec![
+                    Span::styled("Branch: ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(&info.branch, Style::default().fg(Color::Green)),
+                ]));
+            }
+    
+            let list = List::new(items)
+                .block(block)
+                .highlight_style(
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                )
+                .highlight_symbol("▶ ");
+    
+            frame.render_stateful_widget(list, area, &mut self.command_state.clone());
+    
+            // Render footer with feature info
+            if !footer_lines.is_empty() && area.height > 10 {
+                let footer_area = Rect {
+                    x: area.x + 1,
+                    y: area.y + area.height.saturating_sub(4),
+                    width: area.width.saturating_sub(2),
+                    height: 3,
+                };
+                let footer = Paragraph::new(footer_lines);
+                frame.render_widget(footer, footer_area);
+            }
         }
-
-        // Separator
-        items.push(ListItem::new(Line::from("")));
-
-        // GIT section header
-        items.push(ListItem::new(vec![Line::from(vec![Span::styled(
-            "GIT",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )])]));
-
-        // Git commands
-        for git_cmd in GitCommand::all() {
-            items.push(ListItem::new(vec![Line::from(vec![
-                Span::raw("• "),
-                Span::styled(git_cmd.display_name(), Style::default().fg(Color::White)),
-            ])]));
-        }
-
-        // Add feature info at bottom
-        let mut footer_lines = vec![];
-        if let Some(ref info) = self.feature_info {
-            footer_lines.push(Line::from(""));
-            footer_lines.push(Line::from(vec![
-                Span::styled("Feature: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(
-                    format!("#{}", info.number),
-                    Style::default().fg(Color::Cyan),
-                ),
-            ]));
-            footer_lines.push(Line::from(vec![
-                Span::styled("Branch: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(&info.branch, Style::default().fg(Color::Green)),
-            ]));
-        }
-
-        let list = List::new(items)
-            .block(block)
-            .highlight_style(
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            )
-            .highlight_symbol("▶ ");
-
-        frame.render_stateful_widget(list, area, &mut self.command_state.clone());
-
-        // Render footer with feature info
-        if !footer_lines.is_empty() && area.height > 10 {
-            let footer_area = Rect {
-                x: area.x + 1,
-                y: area.y + area.height.saturating_sub(4),
-                width: area.width.saturating_sub(2),
-                height: 3,
-            };
-            let footer = Paragraph::new(footer_lines);
-            frame.render_widget(footer, footer_area);
-        }
-    }
-
     /// Render middle panel (content)
     fn render_content(&self, frame: &mut Frame, area: Rect) {
         let is_focused = self.focus == WorktreeFocus::Content;
 
-        // Split area: Tabs (3 lines) + Content (remaining)
-        let sections = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(3), // Tab bar with border
-                Constraint::Min(0),    // Content area
-            ])
-            .split(area);
-
-        // Determine selected tab index
-        let selected_idx = match self.content_type {
-            ContentType::Spec => 0,
-            ContentType::Plan => 1,
-            ContentType::Tasks => 2,
-            ContentType::CommitReview => 3,
-            ContentType::SpecifyInput | ContentType::SpecifyReview => 0, // Feature 051: Highlight Spec tab during specify workflow
-            ContentType::PromptInput | ContentType::PromptRunning => 0, // Highlight Spec tab during Prompt Claude workflow
-        };
-
-        // Render tab bar
-        let tab_titles = vec!["Spec", "Plan", "Tasks", "Commit Review"];
-        let tab_title = if let Some(ref info) = self.feature_info {
-            format!(" Content - Feature #{} ", info.number)
-        } else {
-            " Content ".to_string()
-        };
-
-        let tabs = Tabs::new(tab_titles)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(tab_title)
-                    .border_style(if is_focused {
-                        Style::default().fg(Color::Yellow)
-                    } else {
-                        Style::default()
-                    }),
-            )
-            .select(selected_idx)
-            .style(Style::default().fg(Color::White))
-            .highlight_style(
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            );
-
-        frame.render_widget(tabs, sections[0]);
+        // Content area is now the entire provided area (no tabs)
+        let content_area = area;
 
         // Render inline input if active (Claude follow-up questions)
         if self.inline_input.is_some() {
-            self.render_inline_input(frame, sections[1]);
+            self.render_inline_input(frame, content_area);
             return;
         }
 
         // Render content area - dispatch to commit review if in that mode (Feature 050)
         if self.content_type == ContentType::CommitReview {
-            self.render_commit_review(frame, sections[1]);
+            self.render_commit_review(frame, content_area);
             return;
         }
 
         // Render content area - dispatch to specify input if in that mode (Feature 051 - T021)
         if self.content_type == ContentType::SpecifyInput {
-            self.render_specify_input(frame, sections[1]);
+            self.render_specify_input(frame, content_area);
             return;
         }
 
@@ -1013,29 +942,34 @@ impl WorktreeView {
         if self.content_type == ContentType::SpecifyReview {
             // T067: Route to edit mode if active (User Story 3)
             if self.specify_state.edit_mode {
-                self.render_specify_edit(frame, sections[1]);
+                self.render_specify_edit(frame, content_area);
                 return;
             }
             // T035: Otherwise show review mode
-            self.render_specify_review(frame, sections[1]);
+            self.render_specify_review(frame, content_area);
             return;
         }
 
         // Render content area - dispatch to Prompt Claude input if in that mode (Task 1.6)
         if self.content_type == ContentType::PromptInput {
-            self.render_prompt_input(frame, sections[1]);
+            self.render_prompt_input(frame, content_area);
             return;
         }
 
         // Render content area - dispatch to Prompt Claude streaming output if running (Task 1.7)
         if self.content_type == ContentType::PromptRunning {
-            self.render_prompt_running(frame, sections[1]);
+            self.render_prompt_running(frame, content_area);
             return;
         }
 
         // Standard content rendering for Spec/Plan/Tasks
         let content_block = Block::default()
             .borders(Borders::ALL)
+            .title(if let Some(ref info) = self.feature_info {
+                format!(" Content - Feature #{} ", info.number)
+            } else {
+                " Content ".to_string()
+            })
             .border_style(if is_focused {
                 Style::default().fg(Color::Yellow)
             } else {
@@ -1046,20 +980,15 @@ impl WorktreeView {
             content
                 .lines()
                 .skip(self.content_scroll)
-                .take(sections[1].height.saturating_sub(2) as usize)
+                .take(content_area.height.saturating_sub(2) as usize)
                 .map(|line| Line::from(line.to_string()))
                 .collect()
         } else if self.feature_info.is_some() {
             vec![
                 Line::from(""),
                 Line::from(Span::styled(
-                    format!("No {} file found", self.content_type.name().to_lowercase()),
+                    format!("No {} content available", self.content_type.name().to_lowercase()),
                     Style::default().fg(Color::Yellow),
-                )),
-                Line::from(""),
-                Line::from(Span::styled(
-                    "Press ← → or h/l to switch tabs",
-                    Style::default().fg(Color::DarkGray),
                 )),
             ]
         } else {
@@ -1089,7 +1018,7 @@ impl WorktreeView {
             .block(content_block)
             .wrap(Wrap { trim: false });
 
-        frame.render_widget(paragraph, sections[1]);
+        frame.render_widget(paragraph, content_area);
     }
 
     /// Render output panel (bottom-right section) with comprehensive logging
@@ -1589,26 +1518,48 @@ impl WorktreeView {
             ])
             .split(area);
 
-        // === HEADER: Spinner and title ===
-        let spinner = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧'];
-        let spinner_char = spinner[self.spinner_frame % spinner.len()];
-
-        let title_lines = vec![
-            Line::from(""),
-            Line::from(vec![
-                Span::raw(" "),
-                Span::styled(
-                    format!("{} ", spinner_char),
-                    Style::default().fg(Color::Cyan),
-                ),
-                Span::styled(
-                    "Running: Prompt Claude",
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
-                ),
-            ]),
-        ];
+        // === HEADER: Spinner/status and title ===
+        let title_lines = if self.is_running {
+            // Actively streaming - show spinner
+            let spinner = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧'];
+            let spinner_char = spinner[self.spinner_frame % spinner.len()];
+            vec![
+                Line::from(""),
+                Line::from(vec![
+                    Span::raw(" "),
+                    Span::styled(
+                        format!("{} ", spinner_char),
+                        Style::default().fg(Color::Cyan),
+                    ),
+                    Span::styled(
+                        "Running: Prompt Claude",
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                ]),
+            ]
+        } else {
+            // Completed - show checkmark
+            vec![
+                Line::from(""),
+                Line::from(vec![
+                    Span::raw(" "),
+                    Span::styled(
+                        "✓ ",
+                        Style::default()
+                            .fg(Color::Green)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        "Prompt Claude",
+                        Style::default()
+                            .fg(Color::Green)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                ]),
+            ]
+        };
 
         let title_paragraph = Paragraph::new(title_lines)
             .block(
@@ -1653,18 +1604,33 @@ impl WorktreeView {
         frame.render_widget(output_paragraph, sections[1]);
 
         // === FOOTER: Duration and status ===
-        // TODO: Calculate actual duration when integrated with app (Task 1.8)
-        let footer_lines = vec![
-            Line::from(""),
-            Line::from(vec![
-                Span::raw(" Streaming...  "),
-                Span::styled("[Esc]", Style::default().fg(Color::DarkGray)),
-                Span::styled(
-                    " Cancel (not yet implemented)",
-                    Style::default().fg(Color::DarkGray),
-                ),
-            ]),
-        ];
+        // Show different footer based on whether actively streaming or completed
+        let footer_lines = if self.is_running {
+            // Actively streaming - show "Streaming..." with cancel option
+            vec![
+                Line::from(""),
+                Line::from(vec![
+                    Span::raw(" Streaming...  "),
+                    Span::styled("[Esc]", Style::default().fg(Color::DarkGray)),
+                    Span::styled(
+                        " Cancel (not yet implemented)",
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                ]),
+            ]
+        } else {
+            // Completed - show completion status with instructions
+            vec![
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled("✓ Completed  ", Style::default().fg(Color::Green)),
+                    Span::styled("[p]", Style::default().fg(Color::Yellow)),
+                    Span::styled(" New prompt  ", Style::default().fg(Color::DarkGray)),
+                    Span::styled("[Tab]", Style::default().fg(Color::Yellow)),
+                    Span::styled(" Switch focus", Style::default().fg(Color::DarkGray)),
+                ]),
+            ]
+        };
 
         let footer_paragraph = Paragraph::new(footer_lines)
             .block(
@@ -1901,6 +1867,11 @@ impl WorktreeView {
         self.content_type == ContentType::SpecifyInput
             && self.focus == WorktreeFocus::Content
             && !self.specify_state.is_generating
+    }
+
+    /// Check if currently in Prompt Claude edit mode that needs input isolation
+    pub fn is_in_prompt_edit_mode(&self) -> bool {
+        self.content_type == ContentType::PromptInput && self.prompt_edit_mode
     }
 
     /// Handle keyboard input during Input Phase (T017)
@@ -3206,8 +3177,8 @@ impl WorktreeView {
             content_scroll: state.content_scroll,
             content_type: state.content_type,
 
-            // P2: Commands Subsystem
-            commands: state.commands,
+            // P2: Commands Subsystem - Overwrite with minimalist list for Workflow-Driven UI
+            commands: vec![Command::PromptClaude],
             pending_git_command: state.pending_git_command,
 
             // P2: Logging/Output Subsystem
@@ -3267,25 +3238,24 @@ impl Default for WorktreeView {
 
 impl View for WorktreeView {
     fn render(&mut self, frame: &mut Frame, area: Rect) {
-        // Create three columns: Commands (20%) | Content (40%) | Log (40%)
+        // Create two columns: Commands (20%) | Content (80%)
+        // Log panel is removed as per GEMINI.md (logs go to file, UI is for workflow)
         let columns = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Percentage(20), // Commands
-                Constraint::Percentage(40), // Content
-                Constraint::Percentage(40), // Log
+                Constraint::Percentage(20), // Commands (Workflow Triggers)
+                Constraint::Percentage(80), // Dynamic Content
             ])
             .split(area);
 
         // Store layout rects for mouse click detection
         self.commands_pane_rect = Some(columns[0]);
         self.content_pane_rect = Some(columns[1]);
-        self.output_pane_rect = Some(columns[2]);
+        self.output_pane_rect = None; // Log panel removed
 
-        // Render all three panels
+        // Render panels
         self.render_commands(frame, columns[0]);
         self.render_content(frame, columns[1]);
-        self.render_output(frame, columns[2]);
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> ViewAction {

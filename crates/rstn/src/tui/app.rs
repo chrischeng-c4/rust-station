@@ -5,11 +5,12 @@ use crate::session::get_data_dir;
 use crate::tui::claude_stream::ClaudeStreamMessage;
 use crate::tui::event::{Event, EventHandler};
 use crate::tui::mcp_server::McpState;
+use crate::tui::paste::PasteStorage;
 use crate::tui::protocol::{OutputParser, ProtocolMessage};
 use crate::tui::state::AppState;
 use crate::tui::views::{
-    CommandRunner, ContentType, Dashboard, McpServerView, SettingsView, SpecPhase, SpecView, View,
-    ViewAction, ViewType, WorktreeView,
+    CommandRunner, ContentType, Dashboard, McpServerView, SessionHistoryView, SessionOutputView,
+    SettingsView, SpecPhase, SpecView, View, ViewAction, ViewType, WorktreeView,
 };
 use crate::tui::widgets::{InputDialog, OptionPicker, TextInput};
 use crossterm::event::{
@@ -40,6 +41,7 @@ pub enum CurrentView {
     McpServer,
     Settings,
     Dashboard,
+    SessionHistory,
 }
 
 /// Main application state
@@ -56,6 +58,10 @@ pub struct App {
     pub dashboard: Dashboard,
     /// Settings view state
     pub settings_view: SettingsView,
+    /// Session history view state
+    pub session_history_view: SessionHistoryView,
+    /// Session output view (for Prompt Claude streaming output)
+    pub session_output_view: Option<SessionOutputView>,
     /// Command runner (internal, for running commands)
     pub command_runner: CommandRunner,
     /// Spec-driven development view state (internal)
@@ -94,6 +100,8 @@ pub struct App {
     pub shortcuts_bar_rect: Option<Rect>,
     /// MCP state reference for polling events
     pub mcp_state: Arc<Mutex<McpState>>,
+    /// Paste placeholder storage (for large text and image pastes)
+    pub paste_storage: PasteStorage,
 }
 
 /// Check if a point (column, row) is within a rectangle
@@ -111,6 +119,7 @@ impl App {
                 "No session file found at {:?}, using defaults",
                 session_path
             );
+            eprintln!("No previous session found, starting fresh");
             return None;
         }
 
@@ -130,32 +139,47 @@ impl App {
 
     /// Create a new application instance
     pub fn new(mcp_state: Arc<Mutex<McpState>>) -> Self {
-        Self::new_with_session(mcp_state, None)
+        Self::new_with_session(mcp_state, None, false)
     }
 
     /// Create a new application instance with a session ID
-    pub fn new_with_session(mcp_state: Arc<Mutex<McpState>>, session_id: Option<String>) -> Self {
-        // Try to load saved session state
-        let app_state = Self::load_session();
+    pub fn new_with_session(
+        mcp_state: Arc<Mutex<McpState>>,
+        session_id: Option<String>,
+        load_session: bool,
+    ) -> Self {
+        // Try to load saved session state (only if requested)
+        let app_state = if load_session {
+            Self::load_session()
+        } else {
+            None
+        };
 
         // Reconstruct views from saved state, or use defaults
-        let (worktree_view, dashboard, settings_view) = if let Some(state) = app_state {
-            // Restore from saved state
-            (
-                WorktreeView::from_state(state.worktree_view).unwrap_or_else(|e| {
-                    eprintln!(
-                        "Warning: Failed to restore worktree view: {}, using defaults",
-                        e
-                    );
-                    WorktreeView::new()
-                }),
-                Dashboard::from_state(state.dashboard_view),
-                SettingsView::from_state(state.settings_view),
-            )
-        } else {
-            // Use default initialization
-            (WorktreeView::new(), Dashboard::new(), SettingsView::new())
-        };
+        let (worktree_view, dashboard, settings_view, session_history_view) =
+            if let Some(state) = app_state {
+                // Restore from saved state
+                (
+                    WorktreeView::from_state(state.worktree_view).unwrap_or_else(|e| {
+                        eprintln!(
+                            "Warning: Failed to restore worktree view: {}, using defaults",
+                            e
+                        );
+                        WorktreeView::new()
+                    }),
+                    Dashboard::from_state(state.dashboard_view),
+                    SettingsView::from_state(state.settings_view),
+                    SessionHistoryView::from_state(state.session_history_view),
+                )
+            } else {
+                // Use default initialization
+                (
+                    WorktreeView::new(),
+                    Dashboard::new(),
+                    SettingsView::new(),
+                    SessionHistoryView::new(),
+                )
+            };
 
         Self {
             running: true,
@@ -164,6 +188,8 @@ impl App {
             mcp_server_view: McpServerView::new(mcp_state.clone()),
             dashboard,
             settings_view,
+            session_history_view,
+            session_output_view: None,
             command_runner: CommandRunner::new(),
             spec_view: SpecView::new(),
             status_message: None,
@@ -183,6 +209,7 @@ impl App {
             tab_bar_rect: None,
             shortcuts_bar_rect: None,
             mcp_state,
+            paste_storage: PasteStorage::new().unwrap_or_default(),
         }
     }
 
@@ -203,6 +230,12 @@ impl App {
         // SpecifyInput mode in worktree view
         if self.current_view == CurrentView::Worktree
             && self.worktree_view.is_in_specify_input_mode()
+        {
+            return true;
+        }
+
+        // Prompt Claude edit mode in worktree view
+        if self.current_view == CurrentView::Worktree && self.worktree_view.is_in_prompt_edit_mode()
         {
             return true;
         }
@@ -244,6 +277,12 @@ impl App {
             return;
         }
 
+        // Handle Esc to close session output view
+        if self.session_output_view.is_some() && key.code == KeyCode::Esc {
+            self.session_output_view = None;
+            return;
+        }
+
         // Global key bindings
         match key.code {
             // Quit on Ctrl+C or q (when not in command view with running command)
@@ -260,10 +299,11 @@ impl App {
             // Switch tabs/views with [ and ]
             KeyCode::Char('[') => {
                 self.current_view = match self.current_view {
-                    CurrentView::Worktree => CurrentView::Dashboard,
+                    CurrentView::Worktree => CurrentView::SessionHistory,
                     CurrentView::McpServer => CurrentView::Worktree,
                     CurrentView::Settings => CurrentView::McpServer,
                     CurrentView::Dashboard => CurrentView::Settings,
+                    CurrentView::SessionHistory => CurrentView::Dashboard,
                 };
                 self.status_message = Some(format!(
                     "Switched to {} view",
@@ -272,6 +312,7 @@ impl App {
                         CurrentView::McpServer => "MCP Server",
                         CurrentView::Settings => "Settings",
                         CurrentView::Dashboard => "Dashboard",
+                        CurrentView::SessionHistory => "Session History",
                     }
                 ));
                 return;
@@ -281,7 +322,8 @@ impl App {
                     CurrentView::Worktree => CurrentView::McpServer,
                     CurrentView::McpServer => CurrentView::Settings,
                     CurrentView::Settings => CurrentView::Dashboard,
-                    CurrentView::Dashboard => CurrentView::Worktree,
+                    CurrentView::Dashboard => CurrentView::SessionHistory,
+                    CurrentView::SessionHistory => CurrentView::Worktree,
                 };
                 self.status_message = Some(format!(
                     "Switched to {} view",
@@ -290,6 +332,7 @@ impl App {
                         CurrentView::McpServer => "MCP Server",
                         CurrentView::Settings => "Settings",
                         CurrentView::Dashboard => "Dashboard",
+                        CurrentView::SessionHistory => "Session History",
                     }
                 ));
                 return;
@@ -309,8 +352,10 @@ impl App {
                             self.dashboard.next_pane(); // Dashboard doesn't have prev_pane yet
                             self.status_message = Some("Switched to next pane".to_string());
                         }
-                        CurrentView::McpServer | CurrentView::Settings => {
-                            // MCP Server and Settings views don't have panes
+                        CurrentView::McpServer
+                        | CurrentView::Settings
+                        | CurrentView::SessionHistory => {
+                            // MCP Server, Settings, and SessionHistory handle Tab internally
                         }
                     }
                 } else {
@@ -324,8 +369,10 @@ impl App {
                             self.dashboard.next_pane();
                             self.status_message = Some("Switched to next pane".to_string());
                         }
-                        CurrentView::McpServer | CurrentView::Settings => {
-                            // MCP Server and Settings views don't have panes
+                        CurrentView::McpServer
+                        | CurrentView::Settings
+                        | CurrentView::SessionHistory => {
+                            // MCP Server, Settings, and SessionHistory handle Tab internally
                         }
                     }
                 }
@@ -346,6 +393,10 @@ impl App {
             }
             KeyCode::Char('4') => {
                 self.current_view = CurrentView::Dashboard;
+                return;
+            }
+            KeyCode::Char('5') => {
+                self.current_view = CurrentView::SessionHistory;
                 return;
             }
             // Copy current pane content with y
@@ -372,6 +423,7 @@ impl App {
             CurrentView::McpServer => self.mcp_server_view.handle_key(key),
             CurrentView::Settings => self.settings_view.handle_key(key),
             CurrentView::Dashboard => self.dashboard.handle_key(key),
+            CurrentView::SessionHistory => self.session_history_view.handle_key(key),
         };
 
         self.handle_view_action(action);
@@ -392,10 +444,10 @@ impl App {
         // Check if clicked on tab bar (top-level view switching)
         if let Some(tab_rect) = self.tab_bar_rect {
             if point_in_rect(col, row, &tab_rect) {
-                // Calculate which tab was clicked (4 tabs: Worktree, MCP Server, Settings, Dashboard)
+                // Calculate which tab was clicked (5 tabs: Worktree, MCP Server, Settings, Dashboard, Sessions)
                 // Tab bar has borders, so effective width is tab_rect.width - 2
                 let inner_width = tab_rect.width.saturating_sub(2);
-                let tab_width = inner_width / 4;
+                let tab_width = inner_width / 5;
                 let click_offset = col.saturating_sub(tab_rect.x + 1);
 
                 let clicked_tab = click_offset / tab_width;
@@ -416,6 +468,10 @@ impl App {
                     3 => {
                         self.current_view = CurrentView::Dashboard;
                         self.status_message = Some("Switched to Dashboard".to_string());
+                    }
+                    4 => {
+                        self.current_view = CurrentView::SessionHistory;
+                        self.status_message = Some("Switched to Session History".to_string());
                     }
                     _ => {}
                 }
@@ -456,8 +512,8 @@ impl App {
             CurrentView::Worktree => {
                 self.worktree_view.handle_mouse(col, row);
             }
-            CurrentView::McpServer | CurrentView::Settings => {
-                // MCP Server and Settings views don't have panes yet
+            CurrentView::McpServer | CurrentView::Settings | CurrentView::SessionHistory => {
+                // MCP Server, Settings, and SessionHistory don't handle pane clicks here
             }
             CurrentView::Dashboard => {
                 // Dashboard could implement pane switching later
@@ -534,25 +590,84 @@ impl App {
                     prompt.len()
                 ));
 
-                // Build Claude CLI options (simple: no special options for direct prompts)
+                // Save images to temp files RIGHT BEFORE sending to Claude
+                let temp_files = match self.paste_storage.save_images_to_temp() {
+                    Ok(files) => {
+                        if !files.is_empty() {
+                            debug!("Saved {} images to temp files", files.len());
+                        }
+                        files
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to save images to temp: {}", e);
+                        self.status_message = Some(format!("Failed to save images: {}", e));
+                        vec![]
+                    }
+                };
+
+                // Replace placeholders with original content
+                let final_prompt = self.paste_storage.replace_placeholders(&prompt);
+                debug!(
+                    "Prompt after placeholder replacement: {} chars (was {} chars)",
+                    final_prompt.len(),
+                    prompt.len()
+                );
+
+                // Get image directories for --add-dir flag
+                let add_dirs = self.paste_storage.get_image_dirs();
+                if !add_dirs.is_empty() {
+                    debug!("Adding {} directories for image access", add_dirs.len());
+                }
+
+                // Build Claude CLI options (using Settings max_turns)
+                let max_turns = self.settings_view.settings.max_turns;
                 let cli_options = crate::runners::cargo::ClaudeCliOptions {
-                    max_turns: Some(1), // Single-turn for direct prompts
-                    skip_permissions: false,
+                    max_turns: Some(max_turns), // Read from Settings (not hardcoded!)
+                    skip_permissions: false,    // Use allowedTools for granular control
                     continue_session: false,
                     session_id: None,
-                    allowed_tools: vec![], // Empty = all tools allowed
+                    allowed_tools: vec![
+                        "Bash".to_string(),  // All Bash commands
+                        "Read".to_string(),  // Read files
+                        "Write".to_string(), // Write files
+                        "Edit".to_string(),  // Edit files
+                        "Glob".to_string(),  // File pattern matching
+                        "Grep".to_string(),  // Content search
+                        "Task".to_string(),  // Subagent tasks
+                    ],
                     system_prompt_file: None,
+                    add_dirs, // NEW: Image directories
+                    permission_mode: None,
+                    context_files: vec![],
                 };
+
+                // Initialize SessionOutputView for streaming display
+                let mut session_view = SessionOutputView::new(max_turns as usize);
+                session_view.start_session(&final_prompt, max_turns as usize);
+                self.session_output_view = Some(session_view);
+
+                // Clear paste storage now that we've extracted the content
+                // (temp files will be cleaned up after Claude finishes)
+                self.paste_storage.clear();
 
                 // Spawn async task to run Claude CLI with streaming
                 let sender = self.event_sender.clone();
                 tokio::spawn(async move {
                     let result = crate::runners::cargo::run_claude_command_streaming(
-                        &prompt,
+                        &final_prompt, // Use final_prompt with placeholders replaced
                         &cli_options,
                         sender.clone(),
                     )
                     .await;
+
+                    // Clean up temp files AFTER Claude finishes
+                    for file in &temp_files {
+                        if let Err(e) = std::fs::remove_file(file) {
+                            tracing::warn!("Failed to delete temp file {:?}: {}", file, e);
+                        } else {
+                            debug!("Deleted temp file: {:?}", file);
+                        }
+                    }
 
                     // Send completion event
                     if let Some(sender) = sender {
@@ -611,6 +726,9 @@ impl App {
                     session_id: session_id.or(options.session_id.clone()),
                     allowed_tools: options.allowed_tools.clone(),
                     system_prompt_file: None, // TODO: Use PromptManager for spec-kit phases
+                    add_dirs: vec![],
+                    permission_mode: None,
+                    context_files: vec![],
                 };
 
                 // Spawn the Claude CLI command
@@ -1092,6 +1210,9 @@ impl App {
             session_id: None,
             allowed_tools: vec![],
             system_prompt_file: Some(prompt_file),
+            add_dirs: vec![],
+            permission_mode: None,
+            context_files: vec![],
         };
 
         // Call Claude with streaming
@@ -1632,6 +1753,10 @@ impl App {
                     self.input_dialog = None;
                     self.input_mode = false;
                     self.worktree_view.pending_follow_up = false;
+
+                    // Clear paste storage when user cancels input (images discarded)
+                    self.paste_storage.clear();
+
                     self.status_message = Some("Input cancelled".to_string());
                 }
                 _ => {}
@@ -1970,19 +2095,35 @@ impl App {
 
     /// Handle Claude streaming JSON message (real-time output)
     fn handle_claude_stream(&mut self, msg: ClaudeStreamMessage) {
+        tracing::debug!(target: "claude_stream", "handle_claude_stream: msg_type={}, content_type={:?}",
+            msg.msg_type, self.worktree_view.content_type);
+
+        // Forward to SessionOutputView if active (Prompt Claude mode)
+        if let Some(session_view) = &mut self.session_output_view {
+            session_view.add_message(&msg);
+        }
+
         // Display assistant messages in output panel (strip status block)
         if msg.msg_type == "assistant" {
             if let Some(text) = msg.get_display_text() {
+                tracing::debug!(target: "claude_stream", "Processing assistant text: {} chars", text.len());
+
                 // Check if in Prompt Claude mode - append to prompt_output
                 if self.worktree_view.content_type == ContentType::PromptRunning {
+                    tracing::debug!(target: "claude_stream", "Appending to prompt_output");
                     self.worktree_view.append_prompt_output(&text);
                 } else {
                     // Standard mode: add to output panel
+                    tracing::debug!(target: "claude_stream", "Adding {} lines to output panel", text.lines().count());
                     for line in text.lines() {
                         self.worktree_view.add_output(line.to_string());
                     }
                 }
+            } else {
+                tracing::debug!(target: "claude_stream", "No display text available");
             }
+        } else {
+            tracing::debug!(target: "claude_stream", "Ignoring non-assistant message type: {}", msg.msg_type);
         }
     }
 
@@ -2232,9 +2373,26 @@ impl App {
     /// Copy current pane content to clipboard
     pub fn copy_current_pane(&mut self) {
         let (content, pane_name) = match self.current_view {
-            CurrentView::Worktree => (self.worktree_view.get_focused_pane_text(), "current pane"),
-            CurrentView::McpServer | CurrentView::Settings => {
-                ("".to_string(), "settings") // MCP Server and Settings don't have copyable panes
+            CurrentView::Worktree => {
+                use crate::tui::views::{ContentType, WorktreeFocus};
+                let text = self.worktree_view.get_focused_pane_text();
+                let name = match self.worktree_view.focus {
+                    WorktreeFocus::Commands => "commands pane",
+                    WorktreeFocus::Content => match self.worktree_view.content_type {
+                        ContentType::PromptRunning | ContentType::PromptInput => "prompt output",
+                        ContentType::Spec => "spec",
+                        ContentType::Plan => "plan",
+                        ContentType::Tasks => "tasks",
+                        ContentType::CommitReview => "commit review",
+                        ContentType::SpecifyInput => "specify input",
+                        ContentType::SpecifyReview => "specify review",
+                    },
+                    WorktreeFocus::Output => "log pane",
+                };
+                (text, name)
+            }
+            CurrentView::McpServer | CurrentView::Settings | CurrentView::SessionHistory => {
+                ("".to_string(), "view") // These views don't have copyable panes
             }
             CurrentView::Dashboard => (self.dashboard.get_focused_pane_text(), "current pane"),
         };
@@ -2290,6 +2448,7 @@ impl App {
             CurrentView::McpServer => ("".to_string(), "MCP Server"), // MCP Server doesn't have styled output yet
             CurrentView::Settings => ("".to_string(), "Settings"), // Settings doesn't have styled output
             CurrentView::Dashboard => (self.dashboard.get_styled_output(), "Dashboard"),
+            CurrentView::SessionHistory => ("".to_string(), "Session History"), // SessionHistory doesn't have styled output yet
         };
 
         if content.is_empty() {
@@ -2365,6 +2524,7 @@ impl App {
             worktree_view: self.worktree_view.to_state(),
             dashboard_view: self.dashboard.to_state(),
             settings_view: self.settings_view.to_state(),
+            session_history_view: self.session_history_view.to_state(),
         };
 
         // Get session file path: ~/.rstn/session.yaml
@@ -2501,6 +2661,7 @@ impl App {
                                         CurrentView::McpServer => "MCP Server",
                                         CurrentView::Settings => "Settings",
                                         CurrentView::Dashboard => "Dashboard",
+                                        CurrentView::SessionHistory => "Session History",
                                     };
                                     self.status_message = Some(format!(
                                         "Copied {} visual view ({} lines)",
@@ -2541,6 +2702,95 @@ impl App {
                     self.handle_mouse_event(mouse);
                 }
                 Event::Resize(_, _) => {} // Terminal handles resize automatically
+                Event::Paste(text) => {
+                    debug!(
+                        "main_loop iteration {}: Event::Paste({} chars)",
+                        iteration,
+                        text.len()
+                    );
+                    // Handle paste into input dialog
+                    if self.input_mode {
+                        if let Some(ref mut dialog) = self.input_dialog {
+                            // Check if it's an image data URL
+                            if PasteStorage::is_image_data_url(&text) {
+                                match self.paste_storage.add_image(&text) {
+                                    Ok(placeholder) => {
+                                        debug!("Created image placeholder: {}", placeholder);
+                                        dialog.input.insert_text(&placeholder);
+                                        self.status_message =
+                                            Some(format!("Image saved ({})", placeholder));
+                                    }
+                                    Err(e) => {
+                                        tracing::error!("Image paste failed: {}", e);
+                                        self.status_message = Some(format!(
+                                            "Failed to process image: {}. Inserting as text.",
+                                            e
+                                        ));
+                                        dialog.input.insert_text(&text);
+                                    }
+                                }
+                            } else {
+                                // Text paste - check threshold
+                                match self.paste_storage.add_text(text.clone()) {
+                                    Some(placeholder) => {
+                                        debug!("Created text placeholder: {}", placeholder);
+                                        dialog.input.insert_text(&placeholder);
+                                        self.status_message =
+                                            Some(format!("Large paste stored ({})", placeholder));
+                                    }
+                                    None => {
+                                        // Small paste - insert directly
+                                        debug!("Small paste, inserting directly");
+                                        dialog.input.insert_text(&text);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    // Handle paste into worktree prompt
+                    else if self.current_view == CurrentView::Worktree {
+                        if self.worktree_view.is_in_prompt_edit_mode() {
+                            if let Some(ref mut input) = self.worktree_view.prompt_input {
+                                // Check if it's an image data URL
+                                if PasteStorage::is_image_data_url(&text) {
+                                    match self.paste_storage.add_image(&text) {
+                                        Ok(placeholder) => {
+                                            debug!("Created image placeholder: {}", placeholder);
+                                            input.insert_text(&placeholder);
+                                            self.status_message =
+                                                Some(format!("Image saved ({})", placeholder));
+                                        }
+                                        Err(e) => {
+                                            tracing::error!("Image paste failed: {}", e);
+                                            self.status_message = Some(format!(
+                                                "Failed to process image: {}. Inserting as text.",
+                                                e
+                                            ));
+                                            input.insert_text(&text);
+                                        }
+                                    }
+                                } else {
+                                    // Text paste - check threshold
+                                    match self.paste_storage.add_text(text.clone()) {
+                                        Some(placeholder) => {
+                                            debug!("Created text placeholder: {}", placeholder);
+                                            input.insert_text(&placeholder);
+                                            self.status_message = Some(format!(
+                                                "Large paste stored ({})",
+                                                placeholder
+                                            ));
+                                        }
+                                        None => {
+                                            // Small paste - insert directly
+                                            debug!("Small paste, inserting directly");
+                                            input.insert_text(&text);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 Event::CommandOutput(line) => self.handle_command_output(line),
                 Event::CommandDone { success, lines } => self.handle_command_done(success, lines),
                 Event::SpecPhaseCompleted {
@@ -2897,51 +3147,26 @@ impl App {
 
         let size = frame.area();
 
-        // Create main layout: tabs at top, content in middle, footer at bottom
+        // Create main layout: content in middle, footer at bottom (No Tabs)
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(3), // Tabs
-                Constraint::Min(0),    // Content
+                Constraint::Min(0),    // Content (fills space)
                 Constraint::Length(2), // Footer (shortcuts + status)
             ])
             .split(size);
 
-        // Store tab bar rect for mouse click detection
-        self.tab_bar_rect = Some(chunks[0]);
+        // Tab bar rect is now None
+        self.tab_bar_rect = None;
 
-        // Render tabs
-        let tab_titles = vec![
-            "[1] Worktree",
-            "[2] MCP Server",
-            "[3] Settings",
-            "[4] Dashboard",
-        ];
-        let selected_tab = match self.current_view {
-            CurrentView::Worktree => 0,
-            CurrentView::McpServer => 1,
-            CurrentView::Settings => 2,
-            CurrentView::Dashboard => 3,
-        };
-        let tabs = Tabs::new(tab_titles)
-            .block(Block::default().borders(Borders::ALL).title(format!(
-                " rstn {}{} - Rustation Dev Toolkit ",
-                crate::version::short_version(),
-                self.session_id.as_ref()
-                    .map(|id| format!(" [session: {}]", id))
-                    .unwrap_or_default()
-            )))
-            .select(selected_tab)
-            .style(Style::default().fg(Color::White))
-            .highlight_style(Style::default().fg(Color::Yellow));
-        frame.render_widget(tabs, chunks[0]);
-
-        // Render current view
+        // Render current view directly into the main chunk
+        // Note: Title bar is removed as part of minimalist design
         match self.current_view {
-            CurrentView::Worktree => self.worktree_view.render(frame, chunks[1]),
-            CurrentView::McpServer => self.mcp_server_view.render(frame, chunks[1]),
-            CurrentView::Settings => self.settings_view.render(frame, chunks[1]),
-            CurrentView::Dashboard => self.dashboard.render(frame, chunks[1]),
+            CurrentView::Worktree => self.worktree_view.render(frame, chunks[0]),
+            CurrentView::McpServer => self.mcp_server_view.render(frame, chunks[0]),
+            CurrentView::Settings => self.settings_view.render(frame, chunks[0]),
+            CurrentView::Dashboard => self.dashboard.render(frame, chunks[0]),
+            CurrentView::SessionHistory => self.session_history_view.render(frame, chunks[0]),
         }
 
         // Render footer with shortcuts and status
@@ -2954,7 +3179,7 @@ impl App {
                 Constraint::Length(1), // Shortcuts
                 Constraint::Length(1), // Status message
             ])
-            .split(chunks[2]);
+            .split(chunks[1]);
 
         // Shortcuts bar (always visible)
         let shortcuts = Line::from(vec![
@@ -3030,6 +3255,21 @@ impl App {
             let status = self.status_message.as_deref().unwrap_or("");
             let status_bar = Paragraph::new(status).style(Style::default().fg(Color::Cyan));
             frame.render_widget(status_bar, footer_chunks[1]);
+        }
+
+        // Render session output view as overlay (when active)
+        if let Some(ref mut session_view) = self.session_output_view {
+            // Render in bottom 40% of content area (not full screen)
+            // This ensures we don't overlap the footer (chunks[1])
+            let content_area = chunks[0];
+            let overlay_height = (content_area.height * 4) / 10; // 40% of content area
+            let output_area = Rect {
+                x: content_area.x,
+                y: content_area.y + content_area.height - overlay_height,
+                width: content_area.width,
+                height: overlay_height,
+            };
+            session_view.render(frame, output_area);
         }
 
         // Render input dialog as overlay (on top of everything)
@@ -3484,10 +3724,10 @@ mod tests {
 
         let tab_rect = app.tab_bar_rect.unwrap();
         let inner_width = tab_rect.width.saturating_sub(2);
-        let tab_width = inner_width / 3;
+        let tab_width = inner_width / 5;
 
-        // Click on Dashboard tab (third tab, last third)
-        let dashboard_tab_x = tab_rect.x + 1 + (tab_width * 2) + (tab_width / 2);
+        // Click on Dashboard tab (4th tab, index 3)
+        let dashboard_tab_x = tab_rect.x + 1 + (tab_width * 3) + (tab_width / 2);
         let tab_y = tab_rect.y + 1;
 
         app.handle_mouse_event(mouse_click(dashboard_tab_x, tab_y));

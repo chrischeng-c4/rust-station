@@ -50,7 +50,7 @@ pub fn generate_session_id() -> String {
 
 /// Initialize logging based on settings
 ///
-/// Logs are written to ~/.rustation/logs/rstn.<session_id>.log
+/// Logs are written to ~/.rstn/logs/rstn.<session_id>.log
 /// Old logs are rotated and compressed after each session.
 ///
 /// Returns the session ID for this execution.

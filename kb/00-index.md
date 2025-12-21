@@ -2,7 +2,7 @@
 
 **Last updated**: 2025-12-21
 
-**🎯 rustation v2 - Fresh Start**: All v1 specs archived. State-first architecture.
+**🎯 rustation v2 - Fresh Start**: State-first architecture.
 
 ---
 
@@ -99,23 +99,11 @@
 
 ---
 
-## Archive 📦
-*Historical reference (v1 content)*
-
-| Document | Description | Status |
-|----------|-------------|--------|
-| [README](99-archive/README.md) | Archive overview | 📦 Archived |
-| [v1 Analysis](99-archive/v1-analysis/) | Technical debt | 📦 Archived |
-| [v1 Designs](99-archive/v1-designs/) | Unimplemented designs | 📦 Archived |
-
----
-
 ## Legend
 
 - 🟢 **Implemented** - Content current, feature shipped
 - 🟡 **Draft** - Documentation written, feature not yet implemented
 - 🔴 **Deprecated** - Feature exists but being phased out
-- 📦 **Archived** - Historical reference only (v1)
 
 ---
 

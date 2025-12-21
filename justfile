@@ -4,7 +4,6 @@ install-dev: build-debug
     ln -sf {{justfile_directory()}}/target/debug/rstn ~/.local/bin/rstn
     ln -sf {{justfile_directory()}}/target/debug/rush ~/.local/bin/rush
     @echo "Linked DEBUG builds to ~/.local/bin (hot reload enabled)"
-    rstn
 
 # Build release binary
 build:

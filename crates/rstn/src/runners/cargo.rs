@@ -327,6 +327,28 @@ pub async fn run_cargo_command(name: &str, args: &[String]) -> Result<CommandOut
     Ok(output)
 }
 
+/// Permission mode for Claude CLI
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PermissionMode {
+    /// Plan before executing (like TUI Shift+Tab)
+    Plan,
+    /// Execute without asking
+    Auto,
+    /// Ask before each tool (default)
+    Ask,
+}
+
+impl PermissionMode {
+    /// Convert to CLI argument string
+    pub fn as_cli_arg(&self) -> &'static str {
+        match self {
+            PermissionMode::Plan => "plan",
+            PermissionMode::Auto => "auto",
+            PermissionMode::Ask => "ask",
+        }
+    }
+}
+
 /// Options for Claude CLI execution
 #[derive(Debug, Clone, Default)]
 pub struct ClaudeCliOptions {
@@ -342,6 +364,12 @@ pub struct ClaudeCliOptions {
     pub allowed_tools: Vec<String>,
     /// Custom system prompt file path (for spec-kit prompts)
     pub system_prompt_file: Option<std::path::PathBuf>,
+    /// Additional directories for Claude to access (for image pastes via --add-dir)
+    pub add_dirs: Vec<std::path::PathBuf>,
+    /// Permission mode (plan/auto/ask)
+    pub permission_mode: Option<PermissionMode>,
+    /// Additional files for context (multi-file context feature)
+    pub context_files: Vec<std::path::PathBuf>,
 }
 
 /// Result from a Claude streaming command
@@ -384,6 +412,44 @@ pub async fn run_claude_command_with_options(
 ///
 /// This uses `--output-format stream-json` to get JSONL output and
 /// `--append-system-prompt` to instruct Claude about the RSCLI protocol.
+/// Build JSONL message with context files for multi-file context feature
+async fn build_jsonl_with_context(prompt: &str, context_files: &[std::path::PathBuf]) -> Result<String> {
+    use serde_json::json;
+
+    // Build content blocks array
+    let mut content_blocks = vec![json!({
+        "type": "text",
+        "text": prompt
+    })];
+
+    // Add context files
+    for path in context_files {
+        // Read file content
+        let file_content = tokio::fs::read_to_string(path)
+            .await
+            .map_err(|e| RscliError::Other(anyhow::anyhow!("Failed to read context file {:?}: {}", path, e)))?;
+
+        // Add file header and content
+        let header = format!("=== {} ===\n\n", path.display());
+        content_blocks.push(json!({
+            "type": "text",
+            "text": format!("{}{}", header, file_content)
+        }));
+    }
+
+    // Build JSONL message
+    let message = json!({
+        "role": "user",
+        "content": content_blocks
+    });
+
+    // Convert to JSONL (single line with newline)
+    let jsonl = format!("{}\n", serde_json::to_string(&message)
+        .map_err(|e| RscliError::Other(anyhow::anyhow!("Failed to serialize JSONL: {}", e)))?);
+
+    Ok(jsonl)
+}
+
 pub async fn run_claude_command_streaming(
     command: &str,
     options: &ClaudeCliOptions,
@@ -402,23 +468,44 @@ pub async fn run_claude_command_streaming(
     if let Some(max) = options.max_turns {
         cmd.arg("--max-turns").arg(max.to_string());
     }
+    // Add allowed tools for autonomous operation (instead of skip_permissions)
+    if !options.allowed_tools.is_empty() {
+        let tools_str = options.allowed_tools.join(",");
+        cmd.arg("--allowedTools").arg(&tools_str);
+        tracing::debug!("Added --allowedTools: {}", tools_str);
+    }
+
+    // Legacy: skip_permissions still works as fallback
     if options.skip_permissions {
         cmd.arg("--dangerously-skip-permissions");
+        tracing::warn!("Using skip_permissions (consider --allowedTools instead)");
     }
+
+    // Permission mode (plan/auto/ask)
+    if let Some(mode) = options.permission_mode {
+        cmd.arg("--permission-mode").arg(mode.as_cli_arg());
+        tracing::debug!("Added --permission-mode: {}", mode.as_cli_arg());
+    }
+
     if let Some(ref session) = options.session_id {
         cmd.arg("--resume").arg(session);
     } else if options.continue_session {
         cmd.arg("--continue");
     }
-    if !options.allowed_tools.is_empty() {
-        cmd.arg("--allowedTools")
-            .arg(options.allowed_tools.join(","));
+
+    // Core args: prompt with optional context files
+    let use_stdin_input = !options.context_files.is_empty();
+
+    if use_stdin_input {
+        // Multi-file context mode: use stdin with JSONL format
+        cmd.arg("--input-format").arg("stream-json");
+    } else {
+        // Simple prompt mode: use -p flag
+        cmd.arg("-p").arg(command);
     }
 
-    // Core args: prompt, streaming JSON with partial messages
-    cmd.arg("-p").arg(command);
     cmd.arg("--output-format").arg("stream-json");
-    cmd.arg("--verbose"); // Required when using -p with stream-json
+    cmd.arg("--verbose"); // Required when using -p or input-format with stream-json
     cmd.arg("--include-partial-messages"); // Show incremental output as Claude types
 
     // Point Claude to rstn's MCP server config
@@ -428,6 +515,15 @@ pub async fn run_claude_command_streaming(
     {
         if std::path::Path::new(&mcp_config_path).exists() {
             cmd.arg("--mcp-config").arg(&mcp_config_path);
+        }
+    }
+
+    // Add directories for image access (for paste placeholders)
+    for dir in &options.add_dirs {
+        if dir.exists() {
+            cmd.arg("--add-dir").arg(dir);
+        } else {
+            tracing::warn!("Skipping non-existent --add-dir path: {:?}", dir);
         }
     }
 
@@ -469,9 +565,39 @@ pub async fn run_claude_command_streaming(
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
 
+    // If using stdin input, set up stdin pipe
+    if use_stdin_input {
+        cmd.stdin(Stdio::piped());
+    }
+
     let mut child = cmd
         .spawn()
         .map_err(|e| RscliError::CommandNotFound(format!("claude: {}", e)))?;
+
+    // If using stdin input, write JSONL message with context files
+    if use_stdin_input {
+        use tokio::io::AsyncWriteExt;
+
+        if let Some(mut stdin) = child.stdin.take() {
+            // Build JSONL message with context files
+            let jsonl_message = build_jsonl_with_context(command, &options.context_files).await?;
+
+            // Write to stdin
+            stdin
+                .write_all(jsonl_message.as_bytes())
+                .await
+                .map_err(|e| RscliError::Other(anyhow::anyhow!("Failed to write to stdin: {}", e)))?;
+
+            // Flush and close stdin
+            stdin
+                .flush()
+                .await
+                .map_err(|e| RscliError::Other(anyhow::anyhow!("Failed to flush stdin: {}", e)))?;
+
+            drop(stdin); // Explicitly close stdin
+            tracing::debug!("JSONL message written to Claude stdin ({} bytes)", jsonl_message.len());
+        }
+    }
 
     let mut result = ClaudeResult::default();
     let mut stderr_buffer = String::new(); // Accumulate stderr for error reporting
@@ -481,31 +607,52 @@ pub async fn run_claude_command_streaming(
     if let Some(stdout) = child.stdout.take() {
         let reader = BufReader::new(stdout);
         let mut lines = reader.lines();
+        let mut line_count = 0;
 
         while let Ok(Some(line)) = lines.next_line().await {
-            // Try to parse as JSON
-            if let Ok(msg) = serde_json::from_str::<ClaudeStreamMessage>(&line) {
-                // Track session_id
-                if msg.session_id.is_some() {
-                    result.session_id = msg.session_id.clone();
-                }
+            line_count += 1;
+            tracing::debug!(target: "claude_stream", "Read line {}: {} chars", line_count, line.len());
 
-                // Accumulate assistant text content for return value
-                if msg.msg_type == "assistant" {
-                    if let Some(text) = msg.get_text() {
-                        if !result.content.is_empty() {
-                            result.content.push('\n');
+            // Try to parse as JSON
+            match serde_json::from_str::<ClaudeStreamMessage>(&line) {
+                Ok(msg) => {
+                    tracing::debug!(target: "claude_stream", "Parsed message type: {}", msg.msg_type);
+
+                    // Track session_id
+                    if msg.session_id.is_some() {
+                        result.session_id = msg.session_id.clone();
+                    }
+
+                    // Accumulate assistant text content for return value
+                    if msg.msg_type == "assistant" {
+                        if let Some(text) = msg.get_text() {
+                            tracing::debug!(target: "claude_stream", "Assistant text: {} chars", text.len());
+                            if !result.content.is_empty() {
+                                result.content.push('\n');
+                            }
+                            result.content.push_str(&text);
                         }
-                        result.content.push_str(&text);
+                    }
+
+                    // Send to TUI for real-time display (status comes via MCP tools)
+                    if let Some(ref s) = sender {
+                        match s.send(Event::ClaudeStream(msg)) {
+                            Ok(_) => {
+                                tracing::debug!(target: "claude_stream", "Sent ClaudeStream event to TUI")
+                            }
+                            Err(e) => {
+                                tracing::error!(target: "claude_stream", "Failed to send ClaudeStream event: {}", e)
+                            }
+                        }
                     }
                 }
-
-                // Send to TUI for real-time display (status comes via MCP tools)
-                if let Some(ref s) = sender {
-                    let _ = s.send(Event::ClaudeStream(msg));
+                Err(e) => {
+                    tracing::warn!(target: "claude_stream", "Failed to parse JSONL line {}: {}", line_count, e);
                 }
             }
         }
+
+        tracing::info!(target: "claude_stream", "Finished reading stdout: {} lines total", line_count);
     }
 
     // Capture and log stderr (for error messages)

@@ -6,6 +6,75 @@ Respond in English (U.S.) by default. Use Traditional Chinese only when user wri
 
 ---
 
+<kb-first-principle>
+## KB-First = Spec-First
+
+**Core Development Philosophy**: The entire project architecture and logic can be derived from the Knowledge Base. KB-First equals Spec-First.
+
+### Principle
+
+- **Knowledge Base as Source of Truth**: `kb/` directory contains authoritative documentation for:
+  - Architecture decisions and patterns
+  - Workflows and processes
+  - API references and tool schemas
+  - Development guidelines and best practices
+  - Design specifications and flow diagrams
+
+- **Code Implements KB**: Implementation follows what is specified in the Knowledge Base, not the other way around
+  - Design in KB → Implement in code
+  - Document workflows in KB → Build features accordingly
+  - Define patterns in KB → Apply consistently in codebase
+
+- **Documentation-Driven Development**:
+  - All architectural decisions documented before implementation
+  - Workflows and state machines defined in KB before coding
+  - API contracts and tool schemas specified in KB first
+
+### Examples
+
+**Keybinding Management** (KB-First approach):
+1. Define all keybindings in `kb/03-api-reference/keybindings.md` (source of truth)
+2. Implement mapping logic in `crates/rstn/src/tui/keybindings.rs` (code follows KB)
+3. Code reads from KB specification, not the reverse
+
+**State Machine Workflows** (KB-First approach):
+1. Document workflow architecture in `kb/99-archive/v2-ux-redesign-state-machine.md`
+2. Define state transitions and validation rules in KB
+3. Implement state machine based on KB specification
+
+**MCP Tools** (KB-First approach):
+1. Define tool schemas in `kb/03-api-reference/mcp-tools.md`
+2. Document communication patterns in `kb/03-api-reference/claude-code-communication.md`
+3. Implement MCP server following KB specifications
+
+### Benefits
+
+1. **Single Source of Truth**: No confusion about intended behavior or architecture
+2. **Onboarding Efficiency**: New contributors can understand the system from KB alone
+3. **Design Validation**: Document and review designs before implementation effort
+4. **Consistency**: All implementations follow documented patterns
+5. **Traceability**: Every feature traces back to KB documentation
+
+### Workflow Integration
+
+This principle integrates with the SDD (Specification-Driven Development) workflow:
+
+- **spec.md** in feature directories follows KB-First principle (spec before code)
+- **plan.md** references KB architecture patterns and constraints
+- **tasks.md** generated based on KB workflow definitions
+- Implementation validates against both feature spec AND KB principles
+
+**Before implementing ANY feature**:
+1. Check KB for existing patterns and guidelines
+2. Document new patterns in KB if needed
+3. Follow KB architectural principles
+4. Update KB if new insights emerge (but spec comes first)
+
+See: `kb/00-index.md` for Knowledge Base navigation and structure.
+</kb-first-principle>
+
+---
+
 <chain-of-thought>
 Before starting ANY feature work, work through these steps IN ORDER:
 

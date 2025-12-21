@@ -1,15 +1,3 @@
----
-title: "Core Concepts Overview"
-description: "State-first architecture, CLI/TUI separation, SDD workflow, MCP integration"
-category: concept
-status: evergreen
-last_updated: 2025-12-21
-version: 0.2.0
-tags: []
-weight: 1
-aliases: ["/01-getting-started/concepts.md"]
----
-
 # Core Concepts
 
 **Last Updated**: 2025-12-19
@@ -530,6 +518,8 @@ Think of rstn as:
 
 **Result**: Easy to test, easy to refactor, easy to maintain
 
+**Archive**: See `kb/99-archive/` for v1 analysis and lessons learned
+
 ---
 
 ## Learning Path
@@ -589,9 +579,11 @@ Think of rstn as:
 
 ### Q: Is v1 still supported?
 
-**A**: No, v1 is deprecated (2025-12-19):
+**A**: No, v1 is archived (2025-12-19):
+- All v1 specs moved to `specs/archive/`
+- v1 analysis in `kb/99-archive/`
+- No bug fixes or features
 - v2 is the current version
-- v1 analysis and specs have been removed from the repository
 
 ---
 

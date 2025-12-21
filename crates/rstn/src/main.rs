@@ -34,6 +34,10 @@ struct Args {
     #[arg(short, long, conflicts_with = "verbose")]
     quiet: bool,
 
+    /// Continue from previous session (TUI mode only)
+    #[arg(short = 'c', long)]
+    continue_session: bool,
+
     /// Save application state to a file (JSON format)
     #[arg(long, value_name = "FILE")]
     save_state: Option<std::path::PathBuf>,
@@ -120,7 +124,7 @@ async fn main() -> Result<()> {
     } else {
         // Default: run TUI mode
         debug!("running in TUI mode");
-        run_tui_mode(session_id).await
+        run_tui_mode(session_id, args.continue_session).await
     };
 
     // Log session end with duration
@@ -143,7 +147,7 @@ async fn main() -> Result<()> {
     result
 }
 
-async fn run_tui_mode(session_id: String) -> Result<()> {
+async fn run_tui_mode(session_id: String, continue_session: bool) -> Result<()> {
     use rstn::tui::mcp_server::{self, McpServerConfig, McpState};
     use std::sync::Arc;
     use tokio::sync::{mpsc, Mutex};
@@ -162,6 +166,9 @@ async fn run_tui_mode(session_id: String) -> Result<()> {
 
     // Create shared MCP state for metrics tracking
     let mcp_state = Arc::new(Mutex::new(McpState::default()));
+
+    // Initialize global MCP state for CLI mode access
+    mcp_server::init_global_mcp_state(mcp_state.clone());
 
     // Start MCP server for Claude Code communication
     debug!("starting MCP server");
@@ -184,7 +191,7 @@ async fn run_tui_mode(session_id: String) -> Result<()> {
         };
 
     debug!("creating App instance with session_id: {}", session_id);
-    let mut app = App::new_with_session(mcp_state.clone(), Some(session_id));
+    let mut app = App::new_with_session(mcp_state.clone(), Some(session_id), continue_session);
     debug!("App created successfully");
 
     debug!("running app main loop");
@@ -342,6 +349,7 @@ async fn run_cli_mode(args: Args) -> Result<()> {
             continue_session,
             session_id,
             allowed_tools,
+            context,
         } => {
             let result = commands::prompt::run(
                 &message,
@@ -350,6 +358,7 @@ async fn run_cli_mode(args: Args) -> Result<()> {
                 continue_session,
                 session_id,
                 allowed_tools,
+                context,
                 args.verbose,
             )
             .await?;
@@ -360,9 +369,11 @@ async fn run_cli_mode(args: Args) -> Result<()> {
                 use std::time::{SystemTime, UNIX_EPOCH};
 
                 if let Ok(manager) = SessionManager::open() {
-                    let log_file = rstn::domain::paths::rstn_logs_dir()
-                        .ok()
-                        .and_then(|dir| dir.join(format!("rstn.{}.log", sess_id)).to_str().map(String::from));
+                    let log_file = rstn::domain::paths::rstn_logs_dir().ok().and_then(|dir| {
+                        dir.join(format!("rstn.{}.log", sess_id))
+                            .to_str()
+                            .map(String::from)
+                    });
 
                     let record = SessionRecord {
                         session_id: sess_id.clone(),
@@ -371,7 +382,12 @@ async fn run_cli_mode(args: Args) -> Result<()> {
                             .duration_since(UNIX_EPOCH)
                             .unwrap_or_default()
                             .as_secs() as i64,
-                        status: if result.success { "completed" } else { "failed" }.to_string(),
+                        status: if result.success {
+                            "completed"
+                        } else {
+                            "failed"
+                        }
+                        .to_string(),
                         log_file,
                     };
 

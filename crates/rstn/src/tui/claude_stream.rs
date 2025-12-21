@@ -4,6 +4,7 @@
 //! object per line. This module parses that output for display in the TUI.
 
 use serde::Deserialize;
+use serde_json::Value;
 
 /// A single line from Claude's stream-json output
 #[derive(Debug, Clone, Deserialize)]
@@ -39,8 +40,27 @@ pub struct ClaudeMessage {
 pub struct ClaudeContent {
     #[serde(rename = "type")]
     pub content_type: String,
+
+    // For "text" type
     #[serde(default)]
     pub text: Option<String>,
+
+    // For "tool_use" type
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub input: Option<Value>,
+
+    // For "tool_result" type
+    #[serde(default)]
+    pub tool_use_id: Option<String>,
+    #[serde(default)]
+    pub content: Option<String>,
+
+    #[serde(default)]
+    pub is_error: Option<bool>,
 }
 
 impl ClaudeStreamMessage {
@@ -79,10 +99,22 @@ mod tests {
                     ClaudeContent {
                         content_type: "text".to_string(),
                         text: Some("First part".to_string()),
+                        id: None,
+                        name: None,
+                        input: None,
+                        tool_use_id: None,
+                        content: None,
+                        is_error: None,
                     },
                     ClaudeContent {
                         content_type: "text".to_string(),
                         text: Some("Second part".to_string()),
+                        id: None,
+                        name: None,
+                        input: None,
+                        tool_use_id: None,
+                        content: None,
+                        is_error: None,
                     },
                 ],
             }),
@@ -114,5 +146,41 @@ mod tests {
         let msg: ClaudeStreamMessage = serde_json::from_str(json).unwrap();
 
         assert_eq!(msg.msg_type, "init");
+    }
+
+    #[test]
+    fn test_tool_use_with_metadata() {
+        let json = r#"{"type":"assistant","message":{"role":"assistant","content":[
+            {"type":"tool_use","id":"toolu_01ABC123","name":"Read","input":{"file_path":"/test.rs"}}
+        ]}}"#;
+
+        let msg: ClaudeStreamMessage = serde_json::from_str(json).unwrap();
+        let message = msg.message.unwrap();
+        let content = &message.content[0];
+
+        assert_eq!(content.content_type, "tool_use");
+        assert_eq!(content.id, Some("toolu_01ABC123".to_string()));
+        assert_eq!(content.name, Some("Read".to_string()));
+        assert!(content.input.is_some());
+
+        // Check input parameters
+        let input = content.input.as_ref().unwrap();
+        assert_eq!(input["file_path"], "/test.rs");
+    }
+
+    #[test]
+    fn test_tool_result_with_metadata() {
+        let json = r#"{"type":"assistant","message":{"role":"assistant","content":[
+            {"type":"tool_result","tool_use_id":"toolu_01ABC123","content":"File read successfully","is_error":false}
+        ]}}"#;
+
+        let msg: ClaudeStreamMessage = serde_json::from_str(json).unwrap();
+        let message = msg.message.unwrap();
+        let content = &message.content[0];
+
+        assert_eq!(content.content_type, "tool_result");
+        assert_eq!(content.tool_use_id, Some("toolu_01ABC123".to_string()));
+        assert_eq!(content.content, Some("File read successfully".to_string()));
+        assert_eq!(content.is_error, Some(false));
     }
 }

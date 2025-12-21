@@ -100,3 +100,8 @@ pub use domain::clarify::{
 pub use domain::plan::{
     ArtifactKind, ArtifactWriter, PlanArtifact, PlanConfig, PlanContext, PlanError, PlanResult,
 };
+
+// Session manager re-exports (dual-layer session management)
+pub use session_manager::{
+    ClaudeSession, ClaudeSessionStatus, RstnSession, SessionManager, SessionRecord, WorkflowType,
+};

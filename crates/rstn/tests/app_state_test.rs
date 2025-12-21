@@ -382,6 +382,15 @@ fn test_invalid_state_panics() {
             "selected_index": 0,
             "current_feature": null,
             "status_message": null
+        },
+        "session_history_view": {
+            "selected_index": null,
+            "focus": "List",
+            "max_sessions": 50,
+            "show_log_preview": true,
+            "log_scroll": 0,
+            "filter_type": null,
+            "filter_status": null
         }
     }"#;
 
