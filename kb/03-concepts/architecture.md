@@ -1,3 +1,15 @@
+---
+title: "Architecture Principles"
+description: "Three pillars: state-first, CLI/TUI separation, testing-first"
+category: concept
+status: evergreen
+last_updated: 2025-12-21
+version: 0.2.0
+tags: []
+weight: 2
+aliases: ["/02-architecture/core-principles.md"]
+---
+
 # Core Principles - rustation v2
 
 **Last Updated**: 2025-12-19

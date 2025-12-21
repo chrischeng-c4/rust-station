@@ -1,3 +1,15 @@
+---
+title: "Core Concepts Overview"
+description: "State-first architecture, CLI/TUI separation, SDD workflow, MCP integration"
+category: concept
+status: evergreen
+last_updated: 2025-12-21
+version: 0.2.0
+tags: []
+weight: 1
+aliases: ["/01-getting-started/concepts.md"]
+---
+
 # Core Concepts
 
 **Last Updated**: 2025-12-19
