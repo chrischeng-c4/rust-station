@@ -12,91 +12,129 @@ aliases: ["/04-development/prompt-command-architecture.md"]
 
 # Prompt Claude Command Architecture
 
-**Last Updated**: 2025-12-20
-**Status**: Reference Documentation
-**Scope**: Developer guide to the Prompt Claude workflow implementation
+**Last Updated**: 2025-12-21
+**Status**: Target Architecture (Heavy Refactoring In Progress)
+**Scope**: Developer guide to the minimalist, workflow-driven Prompt Claude implementation.
 
 ---
 
-## Overview
+## Core Principles
 
-The **Prompt Claude** command is a stateful workflow that enables users to interact with Claude Code from both CLI and TUI interfaces. It demonstrates the CLI/TUI separation pattern where both interfaces share the same core business logic but differ only in I/O handling.
+The Prompt Claude workflow follows a **Workflow-Driven UI** model with three primary constraints:
 
-**Key Characteristics**:
-- ✅ Stateful workflow with 9 distinct states
-- ✅ Supports both CLI (`rstn prompt "..."`) and TUI (press `p`)
-- ✅ Real-time streaming output (JSONL parsing)
-- ✅ Bidirectional MCP communication (rstn ↔ Claude Code)
-- ✅ Session continuity (resume/continue)
-- ✅ Image paste support (TUI only)
-- ✅ Async execution with event-driven updates
+1.  **Single Active Workflow**: Only ONE workflow can be active at any given time to prevent file conflicts and cognitive overload.
+2.  **Rich Dynamic Content**: The interface is a visualization of a timeline of **Nodes** (Rich Objects), not just a log of text.
+3.  **Context-Aware Input**: Uses a large editor for initial prompts and a minimalist footer input for follow-ups/interactions.
 
 ---
 
-## State Diagram
+## Session Hierarchy
 
-The Prompt Claude workflow transitions through 9 states:
+To simplify management, rstn uses a three-tier hierarchy:
 
-```mermaid
-stateDiagram-v2
-    [*] --> Idle
+1.  **rstn Project (Top)**: Persistent workspace state (~/.rstn/session.yaml).
+2.  **Workflow Session (Active)**: The current interactive task. Owns the history of nodes.
+3.  **Agent Session (Claude)**: The underlying LLM context ID. Owned by the Workflow Session.
 
-    Idle --> InputPending : User presses 'p' (TUI)\nUser runs rstn prompt (CLI)
+---
 
-    InputPending --> Validating : User submits prompt\n(Enter or Ctrl+S)
-    InputPending --> Idle : User cancels (Esc)
+## Data Structure (FSM)
 
-    Validating --> Spawning : Validation passed\n(>5 chars)
-    Validating --> InputPending : Validation failed\n(show error)
+The workflow is managed by a single `WorkflowState` struct containing rich history and current status.
 
-    Spawning --> Streaming : Process started\nJSONL stream begins
-    Spawning --> Error : Failed to spawn\n(claude not found)
-
-    Streaming --> WaitingForInput : MCP: rstn_report_status\n(needs_input)
-    Streaming --> Completing : JSONL stream ends\n(stdout closed)
-
-    WaitingForInput --> Streaming : User responds\n(inline input)
-    WaitingForInput --> Error : Input cancelled\n(timeout or Esc)
-
-    Completing --> Completed : Exit code 0\n(save session_id)
-    Completing --> Error : Exit code != 0\n(capture stderr)
-
-    Completed --> Idle : User continues\n(new prompt or action)
-    Error --> Idle : User dismisses\n(clear error state)
-
-    Error --> [*]
-    Completed --> [*]
-
-    note right of Idle
-        State fields:
-        - prompt_input: Option<TextInput>
-        - prompt_edit_mode: bool
-        - is_running: false
-    end note
-
-    note right of Streaming
-        State fields:
-        - is_running: true
-        - prompt_output: String
-        - running_phase: Some("PromptClaude")
-        - content_type: PromptRunning
-    end note
-
-    note right of WaitingForInput
-        State fields:
-        - pending_follow_up: true
-        - inline_input: Some(InlineInput)
-        - MCP server blocks HTTP response
-    end note
-
-    note right of Completed
-        State fields:
-        - active_session_id: Some(String)
-        - is_running: false
-        - content_type: PromptOutput
-        - prompt_output: <full response>
-    end note
+### Workflow Nodes
+Nodes represent discrete events in the timeline:
+```rust
+enum WorkflowNode {
+    UserPrompt(String),        // What the user asked
+    AssistantResponse(String), // AI streaming or final text
+    ToolCall {                 // AI using a tool (e.g., read_file)
+        name: String, 
+        args: Value 
+    },
+    ToolResult(String),        // Output of the tool
+    FileDiff {                 // Visualization of file changes
+        path: String, 
+        diff: String 
+    },
+    Error(String),             // Error messages
+}
 ```
+
+### Workflow Status
+The FSM variants that drive the UI behavior:
+```rust
+enum WorkflowStatus {
+    Idle,                      // Waiting for trigger
+    Inputting(InitialInput),   // Large editor for first prompt
+    Executing(StreamState),    // Active streaming from Claude
+    InteractionRequired(MCP),  // Blocked on user (needs_input / approval)
+    Reviewing(ReviewState),    // Viewing results (Diffs)
+    AwaitingFollowUp,          // AI finished, waiting for user's next command (Footer Input)
+}
+```
+
+---
+
+## UI Layout & Interaction
+
+The Content area (80% width) adapts its layout based on the `WorkflowStatus`:
+
+### Initial Prompt (Editor Mode)
+- **Layout**: Center-focused large text area.
+- **Focus**: Pure composition.
+
+### Active Workflow (Timeline Mode)
+- **Layout**: 
+    - **Header**: Active node status (Spinner/✓).
+    - **Body**: Scrollable list of `WorkflowNode` components.
+    - **Footer**: Dynamic Interaction area.
+- **Footer Content**:
+    - If `Executing`: Progress indicator / Cancel hint.
+    - If `InteractionRequired`: Inline input or [Approve/Deny] buttons.
+    - If `AwaitingFollowUp`: Minimalist one-line chat input.
+
+---
+
+## State Transitions Table (Refined)
+
+| From Status | Event | To Status | UI Transformation |
+|:---|:---|:---|:---|
+| Idle | Select "Prompt Claude" | Inputting | Show large editor |
+| Inputting | Submit (Ctrl+Enter) | Executing | Show Timeline, start Spinner |
+| Executing | MCP needs_input | InteractionRequired | Append Node, show Footer Input |
+| InteractionRequired | User Submit | Executing | Node becomes history, resume Spinner |
+| Executing | Stream End | AwaitingFollowUp | Stop Spinner, show Footer Chat Input |
+| AwaitingFollowUp | User Submit | Executing | Append New User Node, restart Spinner |
+| Any | Cancel (Esc) | Idle | **Warning**: Clears current view. History is persisted in session, but UI resets. |
+
+---
+
+## Implementation Requirements
+
+1.  **State Serializability**: All `WorkflowNode` variants MUST be serializable to support crash recovery.
+2.  **Stream Accumulator**: A dedicated layer is needed to parse raw JSONL streams and "accumulate" them into Rich Nodes (e.g., waiting for a full `ToolCall` JSON object before creating the node).
+3.  **MCP-Driven**: All human-in-the-loop interactions (Approval, Branching) MUST go through standard MCP tool calls.
+4.  **Async Decoupling**: The execution runner MUST be independent of the UI render loop, communicating via an event channel.
+
+---
+
+## Code Structure (Planned)
+
+```
+crates/rstn/src/tui/
+├── state/
+│   └── workflows/
+│       └── prompt_claude.rs   - FSM and Node definitions
+├── views/
+│   └── worktree/
+│       └── components/
+│           ├── timeline.rs    - Renders the list of nodes
+│           └── node_widgets.rs - Specific widgets for Diff, ToolCall, etc.
+└── runners/
+    └── claude_agent.rs        - Logic for driving the workflow
+```
+
 
 ---
 

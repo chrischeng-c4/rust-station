@@ -9,20 +9,22 @@
 
 use crate::tui::event::WorktreeType;
 use crate::tui::logging::{FileChangeTracker, LogBuffer, LogCategory, LogEntry};
+use crate::tui::state::prompt_claude::PromptClaudeStatus;
+use crate::tui::state::workflow::WorkflowState;
 use crate::tui::views::{AutoFlowState, ClaudeOptions, PhaseStatus, SpecPhase, View, ViewAction};
 use crate::tui::widgets::TextInput; // Feature 051: Multi-line edit mode (User Story 3)
 
 // Import extracted types from sibling modules
 use super::{
-    Command, ContentType, FeatureInfo, GitCommand, InlineInput, ParsedTask, SpecifyState,
-    TaskListState, WorktreeFocus,
+    Command, ContentType, FeatureInfo, GitCommand, InlineInput, SpecifyState,
+    WorktreeFocus,
 };
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Tabs, Wrap};
+use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui::Frame;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -65,14 +67,10 @@ pub struct WorktreeView {
     pub file_tracker: FileChangeTracker,
     pub last_file_check_tick: u64,
     pub output_scroll: usize,
-    pub is_running: bool,
-    pub running_phase: Option<String>,
     pub spinner_frame: usize,
 
     // Input handling
     pub pending_input_phase: Option<SpecPhase>,
-    pub active_session_id: Option<String>,
-    pub pending_follow_up: bool,
 
     // Progress tracking
     pub progress_step: Option<u32>,
@@ -95,17 +93,12 @@ pub struct WorktreeView {
     pub specify_state: SpecifyState,
 
     // Prompt Claude workflow state
-    pub prompt_input: Option<TextInput>, // Multi-line prompt input
-    pub prompt_edit_mode: bool,          // Track if in edit mode (i/Esc toggle)
-    pub prompt_output: String,           // Accumulated streaming output
+    pub prompt_workflow: WorkflowState<PromptClaudeStatus>,
 
     // Layout rects for mouse click detection
     pub commands_pane_rect: Option<Rect>,
     pub content_pane_rect: Option<Rect>,
     pub output_pane_rect: Option<Rect>,
-
-    // Inline input mode for Claude follow-up questions (replaces dialog)
-    pub inline_input: Option<InlineInput>,
 }
 
 impl WorktreeView {
@@ -153,12 +146,8 @@ impl WorktreeView {
             file_tracker: FileChangeTracker::new(),
             last_file_check_tick: 0,
             output_scroll: 0,
-            is_running: false,
-            running_phase: None,
             spinner_frame: 0,
             pending_input_phase: None,
-            active_session_id: None,
-            pending_follow_up: false,
             progress_step: None,
             progress_total: None,
             progress_message: None,
@@ -174,15 +163,11 @@ impl WorktreeView {
             // Specify workflow state initialization (Feature 051)
             specify_state: SpecifyState::new(),
             // Prompt Claude workflow state initialization
-            prompt_input: None,
-            prompt_edit_mode: false,
-            prompt_output: String::new(),
+            prompt_workflow: WorkflowState::default(),
             // Mouse click detection
             commands_pane_rect: None,
             content_pane_rect: None,
             output_pane_rect: None,
-            // Inline input (replaces dialog for Claude follow-ups)
-            inline_input: None,
         }
     }
 
@@ -608,22 +593,23 @@ impl WorktreeView {
     }
 
     /// Start a command and track it
-    pub fn start_command(&mut self, phase: SpecPhase, session_id: Option<&str>) {
-        self.is_running = true;
-        self.running_phase = Some(phase.name().to_string());
-        // Note: We keep log_buffer for history, don't clear it
+    pub fn start_command(&mut self, _phase: SpecPhase, session_id: Option<&str>) {
+        // Transition workflow to Executing
+        self.prompt_workflow.status = PromptClaudeStatus::Executing;
+        self.prompt_workflow.agent_session_id = session_id.map(|s| s.to_string());
+        
         self.output_scroll = 0;
-        self.active_session_id = session_id.map(|s| s.to_string());
     }
 
     /// Get the current session ID if active
     pub fn get_session_id(&self) -> Option<String> {
-        self.active_session_id.clone()
+        self.prompt_workflow.agent_session_id.clone()
     }
 
     /// Check if output is being shown
     pub fn is_showing_output(&self) -> bool {
-        !self.log_buffer.is_empty() || self.is_running
+        !self.prompt_workflow.history.is_empty() || 
+        matches!(self.prompt_workflow.status, PromptClaudeStatus::Executing)
     }
 
     /// Add output line (logs it with ClaudeStream category)
@@ -633,9 +619,11 @@ impl WorktreeView {
 
     /// Mark command as done
     pub fn command_done(&mut self) {
-        self.is_running = false;
-        self.running_phase = None;
-        self.active_session_id = None;
+        // Transition to AwaitingFollowUp
+        self.prompt_workflow.status = PromptClaudeStatus::AwaitingFollowUp {
+            input: String::new(),
+            cursor: 0,
+        };
     }
 
     /// Update progress display
@@ -652,46 +640,6 @@ impl WorktreeView {
         self.progress_message = None;
     }
 
-    // ─── Inline Input Methods (replaces dialog for Claude follow-ups) ───
-
-    /// Set inline input mode with Claude's prompt
-    pub fn set_inline_input(&mut self, prompt: String) {
-        self.inline_input = Some(InlineInput::new(prompt));
-        // Switch to content tab to show the input
-        self.focus = WorktreeFocus::Content;
-    }
-
-    /// Submit inline input and return the value
-    pub fn submit_inline_input(&mut self) -> Option<String> {
-        self.inline_input.take().map(|input| input.text_input.value)
-    }
-
-    /// Cancel inline input mode
-    pub fn cancel_inline_input(&mut self) {
-        self.inline_input = None;
-    }
-
-    /// Check if inline input is active
-    pub fn has_inline_input(&self) -> bool {
-        self.inline_input.is_some()
-    }
-
-    /// Handle key event for inline input
-    pub fn handle_inline_input_key(&mut self, key: KeyEvent) {
-        if let Some(ref mut input) = self.inline_input {
-            match key.code {
-                KeyCode::Char(c) => input.text_input.insert_char(c),
-                KeyCode::Backspace => input.text_input.delete_char(),
-                KeyCode::Left => input.text_input.move_cursor_left(),
-                KeyCode::Right => input.text_input.move_cursor_right(),
-                KeyCode::Home => input.text_input.move_cursor_home(),
-                KeyCode::End => input.text_input.move_cursor_end(),
-                KeyCode::Up => input.text_input.move_cursor_up(),
-                KeyCode::Down => input.text_input.move_cursor_down(),
-                _ => {}
-            }
-        }
-    }
 
     /// Log a message with timestamp and category
     pub fn log(&mut self, category: LogCategory, content: String) {
@@ -917,48 +865,49 @@ impl WorktreeView {
     fn render_content(&self, frame: &mut Frame, area: Rect) {
         let is_focused = self.focus == WorktreeFocus::Content;
 
-        // Content area is now the entire provided area (no tabs)
-        let content_area = area;
-
-        // Render inline input if active (Claude follow-up questions)
-        if self.inline_input.is_some() {
-            self.render_inline_input(frame, content_area);
-            return;
+        // Route rendering based on Workflow status (Workflow-Driven UI)
+        match &self.prompt_workflow.status {
+            PromptClaudeStatus::Inputting { .. } => {
+                self.render_prompt_input(frame, area);
+            }
+            PromptClaudeStatus::Executing => {
+                self.render_prompt_running(frame, area);
+            }
+            PromptClaudeStatus::InteractionRequired { .. } => {
+                self.render_inline_input(frame, area);
+            }
+            PromptClaudeStatus::AwaitingFollowUp { .. } => {
+                // Show completed timeline
+                self.render_prompt_running(frame, area);
+            }
+            PromptClaudeStatus::Idle => {
+                // In Idle mode, fall back to legacy content or landing page
+                self.render_idle_content(frame, area, is_focused);
+            }
         }
+    }
 
+    /// Render idle/landing content when no workflow is active
+    fn render_idle_content(&self, frame: &mut Frame, area: Rect, is_focused: bool) {
         // Render content area - dispatch to commit review if in that mode (Feature 050)
         if self.content_type == ContentType::CommitReview {
-            self.render_commit_review(frame, content_area);
+            self.render_commit_review(frame, area);
             return;
         }
 
         // Render content area - dispatch to specify input if in that mode (Feature 051 - T021)
         if self.content_type == ContentType::SpecifyInput {
-            self.render_specify_input(frame, content_area);
+            self.render_specify_input(frame, area);
             return;
         }
 
         // Render content area - dispatch to specify review/edit if in that mode (Feature 051)
         if self.content_type == ContentType::SpecifyReview {
-            // T067: Route to edit mode if active (User Story 3)
             if self.specify_state.edit_mode {
-                self.render_specify_edit(frame, content_area);
+                self.render_specify_edit(frame, area);
                 return;
             }
-            // T035: Otherwise show review mode
-            self.render_specify_review(frame, content_area);
-            return;
-        }
-
-        // Render content area - dispatch to Prompt Claude input if in that mode (Task 1.6)
-        if self.content_type == ContentType::PromptInput {
-            self.render_prompt_input(frame, content_area);
-            return;
-        }
-
-        // Render content area - dispatch to Prompt Claude streaming output if running (Task 1.7)
-        if self.content_type == ContentType::PromptRunning {
-            self.render_prompt_running(frame, content_area);
+            self.render_specify_review(frame, area);
             return;
         }
 
@@ -980,7 +929,7 @@ impl WorktreeView {
             content
                 .lines()
                 .skip(self.content_scroll)
-                .take(content_area.height.saturating_sub(2) as usize)
+                .take(area.height.saturating_sub(2) as usize)
                 .map(|line| Line::from(line.to_string()))
                 .collect()
         } else if self.feature_info.is_some() {
@@ -1018,20 +967,18 @@ impl WorktreeView {
             .block(content_block)
             .wrap(Wrap { trim: false });
 
-        frame.render_widget(paragraph, content_area);
+        frame.render_widget(paragraph, area);
     }
 
-    /// Render output panel (bottom-right section) with comprehensive logging
+    /// Render output panel (Used as part of workflow visualization)
     fn render_output(&self, frame: &mut Frame, area: Rect) {
+        let is_running = matches!(self.prompt_workflow.status, PromptClaudeStatus::Executing);
+        
         // Dynamic title based on running state
-        let title = if self.is_running {
+        let title = if is_running {
             let spinner = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧'];
             let spinner_char = spinner[self.spinner_frame % spinner.len()];
-            if let Some(ref phase) = self.running_phase {
-                format!(" Log {} Running: {} ", spinner_char, phase)
-            } else {
-                format!(" Log {} Running... ", spinner_char)
-            }
+            format!(" Log {} Running... ", spinner_char)
         } else {
             " Log ".to_string()
         };
@@ -1049,18 +996,12 @@ impl WorktreeView {
             .title(title)
             .border_style(border_style);
 
-        // Build output lines with timestamps, icons, and category-based styling
-        let lines: Vec<Line> = if self.log_buffer.is_empty() && !self.is_running {
-            // Show placeholder when no output
+        // Build output lines from log buffer
+        let lines: Vec<Line> = if self.log_buffer.is_empty() && !is_running {
             vec![
                 Line::from(""),
                 Line::from(Span::styled(
                     "No output yet",
-                    Style::default().fg(Color::DarkGray),
-                )),
-                Line::from(""),
-                Line::from(Span::styled(
-                    "Run a command or SDD phase to see output here",
                     Style::default().fg(Color::DarkGray),
                 )),
             ]
@@ -1271,149 +1212,172 @@ impl WorktreeView {
     /// 4. Press Esc to exit edit mode
     /// 5. Press Ctrl+Enter to submit prompt
     pub fn start_prompt_input(&mut self) {
-        // Initialize TextInput widget for multi-line prompt (20 lines max)
-        self.prompt_input = Some(TextInput::new_multiline(String::new(), 20));
-        self.prompt_edit_mode = false; // Start in view mode (press 'i' to edit)
-        self.prompt_output.clear();
+        // Initialize Inputting state
+        self.prompt_workflow.status = PromptClaudeStatus::Inputting {
+            input: String::new(),
+            cursor: 0,
+        };
+        
         self.content_type = ContentType::PromptInput;
         self.focus = WorktreeFocus::Content; // Auto-focus Content area
     }
 
-    /// Handle key input for Prompt Claude workflow (Task 1.5)
+    /// Handle key input for Prompt Claude workflow
     ///
-    /// Vim-style modal editing:
-    /// - View mode (default): 'i' to enter edit, 'Esc' to cancel
-    /// - Edit mode: Full editing, 'Esc' to exit edit, 'Ctrl+Enter' to submit
+    /// Handles manual string editing for the Inputting state.
     pub fn handle_prompt_input_key(&mut self, key: KeyEvent) -> ViewAction {
         use crossterm::event::{KeyCode, KeyModifiers};
 
-        // Get mutable reference to input widget
-        let Some(input) = self.prompt_input.as_mut() else {
-            return ViewAction::None;
-        };
-
-        // Handle keys based on edit mode
-        if !self.prompt_edit_mode {
-            // VIEW MODE: Only handle mode switching and cancel
+        // Only handle input if we are in the Inputting state
+        if let PromptClaudeStatus::Inputting { input, cursor } = &mut self.prompt_workflow.status {
             match key.code {
-                KeyCode::Char('i') => {
-                    // Enter edit mode
-                    self.prompt_edit_mode = true;
-                    input.active = true;
-                    ViewAction::None
+                // Submit: Ctrl+Enter
+                KeyCode::Enter if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    return self.submit_prompt_input();
                 }
+                
+                // Cancel: Esc
                 KeyCode::Esc => {
                     // Cancel prompt workflow
-                    self.prompt_input = None;
-                    self.prompt_edit_mode = false;
-                    self.prompt_output.clear();
+                    self.prompt_workflow.status = PromptClaudeStatus::Idle;
                     self.content_type = ContentType::Spec; // Return to default content
                     self.focus = WorktreeFocus::Commands; // Return focus to commands
-                    ViewAction::None
+                    return ViewAction::None;
                 }
-                KeyCode::Enter if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                    // Allow Ctrl+Enter submit in view mode too
-                    self.submit_prompt_input()
-                }
-                _ => ViewAction::None,
-            }
-        } else {
-            // EDIT MODE: Full editing capabilities
-            match key.code {
-                KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
-                    input.insert_char(c);
-                    ViewAction::None
-                }
-                KeyCode::Backspace => {
-                    input.delete_char();
-                    ViewAction::None
-                }
-                KeyCode::Delete => {
-                    input.delete_char_forward();
-                    ViewAction::None
-                }
-                KeyCode::Left => {
-                    input.move_cursor_left();
-                    ViewAction::None
-                }
-                KeyCode::Right => {
-                    input.move_cursor_right();
-                    ViewAction::None
-                }
-                KeyCode::Up => {
-                    input.move_cursor_up();
-                    ViewAction::None
-                }
-                KeyCode::Down => {
-                    input.move_cursor_down();
-                    ViewAction::None
-                }
-                KeyCode::Home => {
-                    input.move_cursor_home();
-                    ViewAction::None
-                }
-                KeyCode::End => {
-                    input.move_cursor_end();
-                    ViewAction::None
-                }
-                KeyCode::Enter if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                    // Ctrl+Enter: Submit prompt
-                    self.submit_prompt_input()
-                }
+                
+                // Insert newline: Enter
                 KeyCode::Enter => {
-                    // Regular Enter: Insert newline
-                    input.insert_newline();
-                    ViewAction::None
+                    if *cursor <= input.len() && input.is_char_boundary(*cursor) {
+                        input.insert(*cursor, '\n');
+                        *cursor += 1;
+                    }
                 }
-                KeyCode::Esc => {
-                    // Exit edit mode (don't cancel, just return to view mode)
-                    self.prompt_edit_mode = false;
-                    input.active = false;
-                    ViewAction::None
+                
+                // Character input
+                KeyCode::Char(c) => {
+                    if *cursor <= input.len() && input.is_char_boundary(*cursor) {
+                        input.insert(*cursor, c);
+                        *cursor += c.len_utf8();
+                    }
                 }
-                _ => ViewAction::None,
+                
+                // Backspace
+                KeyCode::Backspace => {
+                    if *cursor > 0 {
+                        // Find previous char boundary
+                        let mut new_cursor = *cursor - 1;
+                        while !input.is_char_boundary(new_cursor) && new_cursor > 0 {
+                            new_cursor -= 1;
+                        }
+                        
+                        if input.is_char_boundary(new_cursor) {
+                            input.remove(new_cursor);
+                            *cursor = new_cursor;
+                        }
+                    }
+                }
+                
+                // Delete
+                KeyCode::Delete => {
+                    if *cursor < input.len() {
+                        if input.is_char_boundary(*cursor) {
+                            input.remove(*cursor);
+                        }
+                    }
+                }
+                
+                // Left Arrow
+                KeyCode::Left => {
+                    if *cursor > 0 {
+                        let mut new_cursor = *cursor - 1;
+                        while !input.is_char_boundary(new_cursor) && new_cursor > 0 {
+                            new_cursor -= 1;
+                        }
+                        *cursor = new_cursor;
+                    }
+                }
+                
+                // Right Arrow
+                KeyCode::Right => {
+                    if *cursor < input.len() {
+                        let mut new_cursor = *cursor + 1;
+                        while !input.is_char_boundary(new_cursor) && new_cursor < input.len() {
+                            new_cursor += 1;
+                        }
+                        *cursor = new_cursor;
+                    }
+                }
+                
+                // Home
+                KeyCode::Home => {
+                    *cursor = 0;
+                }
+                
+                // End
+                KeyCode::End => {
+                    *cursor = input.len();
+                }
+                
+                _ => {}
             }
         }
+        
+        ViewAction::None
     }
 
-    /// Submit the prompt and trigger Claude CLI execution (Task 1.5)
+    /// Submit the prompt and trigger Claude CLI execution
     ///
     /// Validates minimum length, then returns RunPromptClaude action
     fn submit_prompt_input(&mut self) -> ViewAction {
-        let Some(input) = self.prompt_input.as_mut() else {
-            return ViewAction::None;
-        };
+        if let PromptClaudeStatus::Inputting { input, .. } = &self.prompt_workflow.status {
+            let prompt = input.clone();
 
-        // Get prompt text
-        let prompt = input.get_multiline_value();
+            // Validate minimum length (at least 3 characters)
+            if prompt.trim().len() < 3 {
+                return ViewAction::None;
+            };
 
-        // Validate minimum length (at least 3 characters)
-        if prompt.trim().len() < 3 {
-            // TODO: Show validation error in UI (for now, just ignore)
-            return ViewAction::None;
-        };
+            // Transition to Executing state
+            self.prompt_workflow.status = PromptClaudeStatus::Executing;
+            
+            // Add UserPrompt node to history
+            use crate::tui::state::workflow::WorkflowNode;
+            self.prompt_workflow.history.push(WorkflowNode::UserPrompt(prompt.clone()));
 
-        // Clear input state
-        self.prompt_input = None;
-        self.prompt_edit_mode = false;
-
-        // Return action to execute Claude CLI
-        ViewAction::RunPromptClaude { prompt }
+            // Return action to execute Claude CLI
+            return ViewAction::RunPromptClaude { prompt };
+        }
+        
+        ViewAction::None
     }
 
-    /// Append streaming output for Prompt Claude (Task 1.7)
+    /// Append streaming output for Prompt Claude
     ///
-    /// Called when new chunks arrive from Claude CLI streaming
+    /// Accumulates output into the last AssistantResponse node in history
     pub fn append_prompt_output(&mut self, chunk: &str) {
-        self.prompt_output.push_str(chunk);
+        use crate::tui::state::workflow::WorkflowNode;
+        
+        // Ensure the last node is an AssistantResponse, if not create one
+        let history_len = self.prompt_workflow.history.len();
+        let needs_new_node = if history_len == 0 {
+            true
+        } else {
+            !matches!(self.prompt_workflow.history[history_len - 1], WorkflowNode::AssistantResponse(_))
+        };
+        
+        if needs_new_node {
+            self.prompt_workflow.history.push(WorkflowNode::AssistantResponse(String::new()));
+        }
+        
+        // Append chunk to the last node
+        if let Some(WorkflowNode::AssistantResponse(content)) = self.prompt_workflow.history.last_mut() {
+            content.push_str(chunk);
+        }
     }
 
-    /// Render Prompt Claude input UI (Task 1.6)
+    /// Render Prompt Claude input UI
     ///
-    /// Layout:
-    /// - Title and instructions (3 lines)
-    /// - TextInput widget (multiline, fills most space)
-    /// - Status and keybindings (4 lines)
+    /// Renders the manual input state using Paragraph widgets
     fn render_prompt_input(&self, frame: &mut Frame, area: Rect) {
         // Split area: Header (3 lines) + Input (fill) + Footer (4 lines)
         let sections = Layout::default()
@@ -1435,11 +1399,7 @@ impl WorktreeView {
             )),
             Line::from(""),
             Line::from(Span::styled(
-                if self.prompt_edit_mode {
-                    "Type your prompt below (multi-line):"
-                } else {
-                    "Press 'i' to enter edit mode:"
-                },
+                "Type your prompt below (multi-line):",
                 Style::default().fg(Color::Yellow),
             )),
         ];
@@ -1454,37 +1414,30 @@ impl WorktreeView {
 
         frame.render_widget(title_paragraph, sections[0]);
 
-        // === INPUT: TextInput widget ===
-        if let Some(ref input) = self.prompt_input {
-            // Render TextInput widget in bordered box
-            let input_block = Block::default()
-                .borders(Borders::LEFT | Borders::RIGHT)
-                .border_style(Style::default().fg(Color::Magenta));
-
-            let input_inner = input_block.inner(sections[1]);
-            frame.render_widget(input_block, sections[1]);
-            frame.render_widget(input, input_inner);
+        // === INPUT: Manual text rendering ===
+        if let PromptClaudeStatus::Inputting { input, cursor } = &self.prompt_workflow.status {
+            // Render text content
+            let input_paragraph = Paragraph::new(input.as_str())
+                .block(
+                    Block::default()
+                        .borders(Borders::LEFT | Borders::RIGHT)
+                        .border_style(Style::default().fg(Color::Magenta)),
+                )
+                .wrap(Wrap { trim: false });
+            
+            frame.render_widget(input_paragraph, sections[1]);
+            
+            // TODO: Render cursor manually (requires calculating line/col from index)
+            // For now, we rely on the text being visible
         }
 
         // === FOOTER: Status and keybindings ===
-        let edit_mode_status = if self.prompt_edit_mode {
-            Span::styled("EDIT", Style::default().fg(Color::Green))
-        } else {
-            Span::styled("VIEW", Style::default().fg(Color::Yellow))
-        };
-
         let footer_lines = vec![
-            Line::from(vec![Span::raw("Edit mode: "), edit_mode_status]),
+            Line::from(vec![Span::raw("Edit mode: "), Span::styled("EDIT", Style::default().fg(Color::Green))]),
             Line::from(""),
             Line::from(vec![
-                Span::styled("[i]", Style::default().fg(Color::Green)),
-                Span::raw(" Edit  "),
                 Span::styled("[Esc]", Style::default().fg(Color::Red)),
-                Span::raw(if self.prompt_edit_mode {
-                    " Exit edit  "
-                } else {
-                    " Cancel     "
-                }),
+                Span::raw(" Cancel     "),
                 Span::styled("[Ctrl+Enter]", Style::default().fg(Color::Cyan)),
                 Span::raw(" Submit"),
             ]),
@@ -1501,13 +1454,16 @@ impl WorktreeView {
         frame.render_widget(footer_paragraph, sections[2]);
     }
 
-    /// Render Prompt Claude streaming output (Task 1.7)
+    /// Render Prompt Claude streaming output
     ///
     /// Layout:
     /// - Header (3 lines): Spinner + title
     /// - Output area (fills space): Accumulated streaming output with auto-scroll
     /// - Footer (3 lines): Duration/status
     fn render_prompt_running(&self, frame: &mut Frame, area: Rect) {
+        // Check running state from workflow status
+        let is_running = matches!(self.prompt_workflow.status, PromptClaudeStatus::Executing);
+
         // Split area: Header (3 lines) + Output (fill) + Footer (3 lines)
         let sections = Layout::default()
             .direction(Direction::Vertical)
@@ -1519,7 +1475,7 @@ impl WorktreeView {
             .split(area);
 
         // === HEADER: Spinner/status and title ===
-        let title_lines = if self.is_running {
+        let title_lines = if is_running {
             // Actively streaming - show spinner
             let spinner = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧'];
             let spinner_char = spinner[self.spinner_frame % spinner.len()];
@@ -1571,9 +1527,23 @@ impl WorktreeView {
 
         frame.render_widget(title_paragraph, sections[0]);
 
-        // === OUTPUT: Accumulated streaming output ===
-        let output_lines: Vec<Line> = self
-            .prompt_output
+        // === OUTPUT: Accumulated streaming output from history ===
+        let mut full_output = String::new();
+        use crate::tui::state::workflow::WorkflowNode;
+        
+        for node in &self.prompt_workflow.history {
+            match node {
+                WorkflowNode::UserPrompt(p) => {
+                    full_output.push_str(&format!("\n> {}\n\n", p));
+                }
+                WorkflowNode::AssistantResponse(r) => {
+                    full_output.push_str(r);
+                }
+                _ => {} // Ignore other nodes for now
+            }
+        }
+
+        let output_lines: Vec<Line> = full_output
             .lines()
             .map(|line| Line::from(line.to_string()))
             .collect();
@@ -1605,7 +1575,7 @@ impl WorktreeView {
 
         // === FOOTER: Duration and status ===
         // Show different footer based on whether actively streaming or completed
-        let footer_lines = if self.is_running {
+        let footer_lines = if is_running {
             // Actively streaming - show "Streaming..." with cancel option
             vec![
                 Line::from(""),
@@ -1871,7 +1841,7 @@ impl WorktreeView {
 
     /// Check if currently in Prompt Claude edit mode that needs input isolation
     pub fn is_in_prompt_edit_mode(&self) -> bool {
-        self.content_type == ContentType::PromptInput && self.prompt_edit_mode
+        matches!(self.prompt_workflow.status, PromptClaudeStatus::Inputting { .. })
     }
 
     /// Handle keyboard input during Input Phase (T017)
@@ -2602,82 +2572,77 @@ impl WorktreeView {
         }
     }
 
-    /// Render specify Input Phase dialog (T020)
     /// Render inline input for Claude follow-up questions
     fn render_inline_input(&self, frame: &mut Frame, area: Rect) {
-        let inline = match &self.inline_input {
-            Some(input) => input,
-            None => return,
-        };
+        use crate::tui::state::prompt_claude::PromptClaudeStatus;
+        if let PromptClaudeStatus::InteractionRequired { prompt, input, cursor } = &self.prompt_workflow.status {
+            let mut lines = vec![];
 
-        let mut lines = vec![];
-
-        // Title
-        lines.push(Line::from(Span::styled(
-            "Claude Input",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )));
-        lines.push(Line::from(""));
-
-        // Claude's prompt/question (split by newlines for markdown-like display)
-        for line in inline.prompt.lines() {
+            // Title
             lines.push(Line::from(Span::styled(
-                line,
-                Style::default().fg(Color::Yellow),
+                "Claude Input",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
             )));
+            lines.push(Line::from(""));
+
+            // Claude's prompt/question
+            for line in prompt.lines() {
+                lines.push(Line::from(Span::styled(
+                    line,
+                    Style::default().fg(Color::Yellow),
+                )));
+            }
+            lines.push(Line::from(""));
+
+            // Input area header
+            lines.push(Line::from(Span::styled(
+                "Your Response:",
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            )));
+
+            // Input buffer with cursor indicator
+            let input_display = if input.is_empty() {
+                Line::from(Span::styled(
+                    "Type your response here..._",
+                    Style::default().fg(Color::DarkGray),
+                ))
+            } else {
+                // Show cursor position
+                let (before, after) = input.split_at(*cursor.min(&input.len()));
+                Line::from(vec![
+                    Span::raw(before),
+                    Span::styled("█", Style::default().fg(Color::White)),
+                    Span::raw(after),
+                ])
+            };
+            lines.push(input_display);
+
+            lines.push(Line::from(""));
+
+            // Action hints
+            lines.push(Line::from(vec![
+                Span::styled("[Enter]", Style::default().fg(Color::Green)),
+                Span::raw(" Submit  "),
+                Span::styled("[Esc]", Style::default().fg(Color::Red)),
+                Span::raw(" Cancel"),
+            ]));
+
+            // Render as paragraph
+            let paragraph = Paragraph::new(lines)
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title(" Claude Input ")
+                        .border_style(Style::default().fg(Color::Cyan)),
+                )
+                .wrap(Wrap { trim: false });
+
+            frame.render_widget(paragraph, area);
         }
-        lines.push(Line::from(""));
-
-        // Input area header
-        lines.push(Line::from(Span::styled(
-            "Your Response:",
-            Style::default()
-                .fg(Color::Green)
-                .add_modifier(Modifier::BOLD),
-        )));
-
-        // Input buffer with cursor indicator
-        let input_value = &inline.text_input.value;
-        let cursor_pos = inline.text_input.cursor_position;
-        let input_display = if input_value.is_empty() {
-            Line::from(Span::styled(
-                "Type your response here..._",
-                Style::default().fg(Color::DarkGray),
-            ))
-        } else {
-            // Show cursor position
-            let (before, after) = input_value.split_at(cursor_pos.min(input_value.len()));
-            Line::from(vec![
-                Span::raw(before),
-                Span::styled("█", Style::default().fg(Color::White)),
-                Span::raw(after),
-            ])
-        };
-        lines.push(input_display);
-
-        lines.push(Line::from(""));
-
-        // Action hints
-        lines.push(Line::from(vec![
-            Span::styled("[Enter]", Style::default().fg(Color::Green)),
-            Span::raw(" Submit  "),
-            Span::styled("[Esc]", Style::default().fg(Color::Red)),
-            Span::raw(" Cancel"),
-        ]));
-
-        // Render as paragraph
-        let paragraph = Paragraph::new(lines)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(" Claude Input ")
-                    .border_style(Style::default().fg(Color::Cyan)),
-            )
-            .wrap(Wrap { trim: false });
-
-        frame.render_widget(paragraph, area);
     }
 
     fn render_specify_input(&self, frame: &mut Frame, area: Rect) {
@@ -3090,21 +3055,17 @@ impl WorktreeView {
             commands: self.commands.clone(),
             command_state_index: self.command_state.selected(),
 
-            // P2: Logging/Output Subsystem (7 fields)
+            // P2: Logging/Output Subsystem
             log_entries: self.log_buffer.entries().cloned().collect(),
             output_scroll: self.output_scroll,
-            is_running: self.is_running,
-            running_phase: self.running_phase.clone(),
-            pending_git_command: self.pending_git_command,
-            active_session_id: self.active_session_id.clone(),
-            pending_follow_up: self.pending_follow_up,
 
-            // P3: Input Subsystem (3 fields)
+            // Workflow Subsystem (Replaces scattered fields)
+            prompt_workflow: self.prompt_workflow.clone(),
+
+            // P3: Input Subsystem
             pending_input_phase: self.pending_input_phase,
-            prompt_input: self.prompt_input.clone(),
-            inline_input: self.inline_input.clone(),
 
-            // P3: Progress Subsystem (3 fields)
+            // P3: Progress Subsystem (Legacy)
             progress_step: self.progress_step,
             progress_total: self.progress_total,
             progress_message: self.progress_message.clone(),
@@ -3121,10 +3082,8 @@ impl WorktreeView {
 
             // P5: Specify Workflow (1 field)
             specify_state: self.specify_state.clone(),
-
-            // P5: Prompt Workflow (2 fields)
-            prompt_edit_mode: self.prompt_edit_mode,
-            prompt_output: self.prompt_output.clone(),
+            
+            pending_git_command: self.pending_git_command,
         }
     }
 
@@ -3184,17 +3143,14 @@ impl WorktreeView {
             // P2: Logging/Output Subsystem
             log_buffer,
             output_scroll: state.output_scroll,
-            is_running: state.is_running,
-            running_phase: state.running_phase,
-            active_session_id: state.active_session_id,
-            pending_follow_up: state.pending_follow_up,
 
             // P3: Input Subsystem
             pending_input_phase: state.pending_input_phase,
-            prompt_input: state.prompt_input,
-            inline_input: state.inline_input,
 
-            // P3: Progress Subsystem
+            // Workflow Subsystem
+            prompt_workflow: state.prompt_workflow,
+
+            // Progress Subsystem
             progress_step: state.progress_step,
             progress_total: state.progress_total,
             progress_message: state.progress_message,
@@ -3211,10 +3167,6 @@ impl WorktreeView {
 
             // P5: Specify Workflow
             specify_state: state.specify_state,
-
-            // P5: Prompt Workflow
-            prompt_edit_mode: state.prompt_edit_mode,
-            prompt_output: state.prompt_output,
 
             // Ephemeral fields (initialized to defaults, not serialized)
             tick_count: 0,
@@ -3423,7 +3375,8 @@ impl View for WorktreeView {
         self.tick_count += 1;
 
         // Update spinner animation when running
-        if self.is_running {
+        let is_running = matches!(self.prompt_workflow.status, PromptClaudeStatus::Executing);
+        if is_running {
             self.spinner_frame = (self.spinner_frame + 1) % 8;
         }
 

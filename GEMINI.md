@@ -39,6 +39,7 @@ The TUI is shifting from a static document viewer to a **Workflow Launcher**.
 ### 1. Command as Workflow Trigger
 - **Left Panel (Commands)**: This is NOT a menu. It is a list of available Workflows.
 - **Action**: Selecting a command triggers a Workflow (e.g., "Prompt Claude", "Git Commit").
+- **Constraint**: **Single Active Workflow**. Only one workflow can be active/executing at a time. The UI must block new triggers while a workflow is running.
 - **Agent Integration**: AI Agents (Claude Code) are invoked *only* when the workflow reaches a specific node requiring intelligence.
 
 ### 2. Dynamic Content Area

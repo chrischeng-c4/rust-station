@@ -17,8 +17,10 @@
 
 pub mod builders;
 pub mod dashboard;
+pub mod prompt_claude;
 pub mod session_history;
 pub mod settings;
+pub mod workflow;
 pub mod worktree;
 
 use serde::{Deserialize, Serialize};

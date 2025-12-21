@@ -4,39 +4,26 @@
 //! Phase 1: P1 fields (10 fields) - feature context, content cache, phase tracking
 //! Phase 3A: P1+P2 fields (19 fields) - added commands and logging/output state
 //! Phase 3B: P1+P2+P3+P4+P5 fields (36 fields) - complete state-first architecture
+//! Phase 4 (Workflow-Driven): Refactored to use WorkflowState container
 
 use crate::domain::git::{CommitGroup, SecurityWarning};
 use crate::tui::event::WorktreeType;
 use crate::tui::logging::LogEntry;
 use crate::tui::views::{
-    Command, ContentType, FeatureInfo, GitCommand, InlineInput, PhaseStatus, SpecPhase,
+    Command, ContentType, FeatureInfo, GitCommand, PhaseStatus, SpecPhase,
     SpecifyState, WorktreeFocus,
 };
-use crate::tui::widgets::TextInput;
 use serde::{Deserialize, Serialize};
 
+use super::prompt_claude::PromptClaudeStatus;
+use super::workflow::WorkflowState;
 use super::StateInvariants;
 
-/// Worktree view state (Phase 3B: P1+P2+P3+P4+P5 fields)
-///
-/// This struct contains 36 core serializable fields:
-/// - Feature context (2 fields) - P1
-/// - Content cache (3 fields) - P1
-/// - Phase tracking (2 fields) - P1
-/// - UI state (3 fields) - P1
-/// - Commands subsystem (2 fields) - P2
-/// - Logging/Output subsystem (7 fields) - P2
-/// - Input subsystem (3 fields) - P3
-/// - Progress subsystem (3 fields) - P3
-/// - Commit workflow (8 fields) - P4
-/// - Specify workflow (1 field) - P5
-/// - Prompt workflow (2 fields) - P5
-///
-/// This represents the complete state-first architecture implementation.
+/// Worktree view state
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WorktreeViewState {
     // ========================================
-    // Feature Context (2 fields)
+    // Feature Context
     // ========================================
     /// Current feature information (if in feature worktree)
     pub feature_info: Option<FeatureInfo>,
@@ -45,7 +32,7 @@ pub struct WorktreeViewState {
     pub worktree_type: WorktreeType,
 
     // ========================================
-    // Content Cache (3 fields)
+    // Content Cache
     // ========================================
     /// Cached spec.md content
     pub spec_content: Option<String>,
@@ -57,7 +44,7 @@ pub struct WorktreeViewState {
     pub tasks_content: Option<String>,
 
     // ========================================
-    // Phase Tracking (2 fields)
+    // Phase Tracking
     // ========================================
     /// SDD workflow phases with status
     pub phases: Vec<(SpecPhase, PhaseStatus)>,
@@ -66,7 +53,7 @@ pub struct WorktreeViewState {
     pub current_phase: Option<SpecPhase>,
 
     // ========================================
-    // UI State (3 fields)
+    // UI State
     // ========================================
     /// Current focus area
     pub focus: WorktreeFocus,
@@ -78,7 +65,7 @@ pub struct WorktreeViewState {
     pub content_scroll: usize,
 
     // ========================================
-    // Commands Subsystem - P2 (2 fields)
+    // Commands Subsystem
     // ========================================
     /// Unified command list (SDD phases + Git actions)
     pub commands: Vec<Command>,
@@ -87,7 +74,7 @@ pub struct WorktreeViewState {
     pub command_state_index: Option<usize>,
 
     // ========================================
-    // Logging/Output Subsystem - P2 (7 fields)
+    // Logging/Output Subsystem
     // ========================================
     /// Log entries (serializable form of LogBuffer)
     pub log_entries: Vec<LogEntry>,
@@ -95,35 +82,20 @@ pub struct WorktreeViewState {
     /// Output scroll position
     pub output_scroll: usize,
 
-    /// Whether a command is currently running
-    pub is_running: bool,
-
-    /// Which phase is currently running (e.g., "Specify", "Plan")
-    pub running_phase: Option<String>,
-
-    /// Pending git command to execute
-    pub pending_git_command: Option<GitCommand>,
-
-    /// Active Claude session ID (for session continuation)
-    pub active_session_id: Option<String>,
-
-    /// Whether pending follow-up input from Claude
-    pub pending_follow_up: bool,
+    // ========================================
+    // Workflow Subsystem (Replaces scattered fields)
+    // ========================================
+    /// Prompt Claude workflow state
+    pub prompt_workflow: WorkflowState<PromptClaudeStatus>,
 
     // ========================================
-    // Input Subsystem - P3 (3 fields)
+    // Input Subsystem
     // ========================================
     /// Pending input request for a specific phase
     pub pending_input_phase: Option<SpecPhase>,
 
-    /// Multi-line prompt input widget
-    pub prompt_input: Option<TextInput>,
-
-    /// Inline input widget for Claude follow-up questions
-    pub inline_input: Option<InlineInput>,
-
     // ========================================
-    // Progress Subsystem - P3 (3 fields)
+    // Progress Subsystem (Legacy - to be moved to Workflow)
     // ========================================
     /// Current progress step
     pub progress_step: Option<u32>,
@@ -135,7 +107,7 @@ pub struct WorktreeViewState {
     pub progress_message: Option<String>,
 
     // ========================================
-    // Commit Workflow Subsystem - P4 (8 fields)
+    // Commit Workflow Subsystem
     // ========================================
     /// Pending commit message from intelligent commit workflow
     pub pending_commit_message: Option<String>,
@@ -162,19 +134,13 @@ pub struct WorktreeViewState {
     pub commit_validation_error: Option<String>,
 
     // ========================================
-    // Specify Workflow Subsystem - P5 (1 field)
+    // Specify Workflow Subsystem
     // ========================================
     /// SDD workflow state (Specify/Plan/Tasks phases)
     pub specify_state: SpecifyState,
-
-    // ========================================
-    // Prompt Workflow Subsystem - P5 (2 fields)
-    // ========================================
-    /// Prompt edit mode flag (toggle with i/Esc)
-    pub prompt_edit_mode: bool,
-
-    /// Accumulated streaming output from prompt
-    pub prompt_output: String,
+    
+    // Note: Pending git command kept for now, but should move to a GitWorkflow later
+    pub pending_git_command: Option<GitCommand>,
 }
 
 impl Default for WorktreeViewState {
@@ -216,30 +182,25 @@ impl Default for WorktreeViewState {
             content_type: ContentType::Spec, // Default to Spec view
             content_scroll: 0,
 
-            // Commands subsystem (P2)
+            // Commands subsystem
             commands,
             command_state_index: Some(1), // Start on "Prompt Claude"
 
-            // Logging/Output subsystem (P2)
+            // Logging/Output subsystem
             log_entries: Vec::new(),
             output_scroll: 0,
-            is_running: false,
-            running_phase: None,
+
+            // Workflow subsystem
+            prompt_workflow: WorkflowState::default(),
             pending_git_command: None,
-            active_session_id: None,
-            pending_follow_up: false,
-
-            // Input subsystem (P3)
             pending_input_phase: None,
-            prompt_input: None,
-            inline_input: None,
 
-            // Progress subsystem (P3)
+            // Progress subsystem
             progress_step: None,
             progress_total: None,
             progress_message: None,
 
-            // Commit workflow (P4)
+            // Commit workflow
             pending_commit_message: None,
             commit_warnings: Vec::new(),
             commit_groups: None,
@@ -249,12 +210,8 @@ impl Default for WorktreeViewState {
             commit_sensitive_files: Vec::new(),
             commit_validation_error: None,
 
-            // Specify workflow (P5)
+            // Specify workflow
             specify_state: SpecifyState::default(),
-
-            // Prompt workflow (P5)
-            prompt_edit_mode: false,
-            prompt_output: String::new(),
         }
     }
 }
@@ -292,17 +249,6 @@ impl StateInvariants for WorktreeViewState {
                 self.commands.len()
             );
         }
-
-        // Invariant 5: Running phase implies is_running
-        if self.running_phase.is_some() {
-            assert!(
-                self.is_running,
-                "running_phase is set but is_running is false"
-            );
-        }
-
-        // Phase 3A: Added P2 invariants
-        // More invariants will be added in Phase 3B as more fields are added
     }
 }
 

@@ -26,6 +26,9 @@ use crate::tui::views::{
 use crate::tui::widgets::TextInput;
 use std::path::PathBuf;
 
+use crate::tui::state::prompt_claude::PromptClaudeStatus;
+use crate::tui::state::workflow::WorkflowState;
+
 /// Builder for WorktreeViewState
 pub struct WorktreeViewStateBuilder {
     feature_number: Option<String>,
@@ -44,15 +47,11 @@ pub struct WorktreeViewStateBuilder {
     command_state_index: Option<usize>,
     log_entries: Vec<LogEntry>,
     output_scroll: usize,
-    is_running: bool,
-    running_phase: Option<String>,
-    pending_git_command: Option<GitCommand>,
-    active_session_id: Option<String>,
-    pending_follow_up: bool,
     // P3 fields
     pending_input_phase: Option<SpecPhase>,
-    prompt_input: Option<TextInput>,
-    inline_input: Option<InlineInput>,
+    // Workflow subsystem
+    prompt_workflow: WorkflowState<PromptClaudeStatus>,
+    // Legacy Progress Subsystem
     progress_step: Option<u32>,
     progress_total: Option<u32>,
     progress_message: Option<String>,
@@ -67,8 +66,7 @@ pub struct WorktreeViewStateBuilder {
     commit_validation_error: Option<String>,
     // P5 fields
     specify_state: SpecifyState,
-    prompt_edit_mode: bool,
-    prompt_output: String,
+    pending_git_command: Option<GitCommand>,
 }
 
 impl WorktreeViewStateBuilder {
@@ -82,12 +80,6 @@ impl WorktreeViewStateBuilder {
         // Build default command list
         let mut commands = Vec::new();
         commands.push(Command::PromptClaude);
-        for (phase, status) in &phases {
-            commands.push(Command::SddPhase(*phase, *status));
-        }
-        for git_cmd in GitCommand::all() {
-            commands.push(Command::GitAction(*git_cmd));
-        }
 
         Self {
             feature_number: None,
@@ -106,15 +98,10 @@ impl WorktreeViewStateBuilder {
             command_state_index: Some(1), // Start on "Prompt Claude"
             log_entries: Vec::new(),
             output_scroll: 0,
-            is_running: false,
-            running_phase: None,
-            pending_git_command: None,
-            active_session_id: None,
-            pending_follow_up: false,
-            // P3 fields
             pending_input_phase: None,
-            prompt_input: None,
-            inline_input: None,
+            // Workflow subsystem
+            prompt_workflow: WorkflowState::default(),
+            // Progress subsystem
             progress_step: None,
             progress_total: None,
             progress_message: None,
@@ -129,8 +116,7 @@ impl WorktreeViewStateBuilder {
             commit_validation_error: None,
             // P5 fields
             specify_state: SpecifyState::default(),
-            prompt_edit_mode: false,
-            prompt_output: String::new(),
+            pending_git_command: None,
         }
     }
 
@@ -239,15 +225,10 @@ impl WorktreeViewStateBuilder {
             command_state_index: self.command_state_index,
             log_entries: self.log_entries,
             output_scroll: self.output_scroll,
-            is_running: self.is_running,
-            running_phase: self.running_phase,
-            pending_git_command: self.pending_git_command,
-            active_session_id: self.active_session_id,
-            pending_follow_up: self.pending_follow_up,
+            // Workflow subsystem
+            prompt_workflow: self.prompt_workflow,
             // P3 fields
             pending_input_phase: self.pending_input_phase,
-            prompt_input: self.prompt_input,
-            inline_input: self.inline_input,
             progress_step: self.progress_step,
             progress_total: self.progress_total,
             progress_message: self.progress_message,
@@ -262,8 +243,7 @@ impl WorktreeViewStateBuilder {
             commit_validation_error: self.commit_validation_error,
             // P5 fields
             specify_state: self.specify_state,
-            prompt_edit_mode: self.prompt_edit_mode,
-            prompt_output: self.prompt_output,
+            pending_git_command: self.pending_git_command,
         }
     }
 

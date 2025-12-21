@@ -291,7 +291,7 @@ impl App {
                 self.running = false;
                 return;
             }
-            KeyCode::Char('q') if !self.worktree_view.is_running => {
+            KeyCode::Char('q') if !self.worktree_view.is_showing_output() => {
                 debug!("Quit triggered: 'q' key");
                 self.running = false;
                 return;
@@ -579,14 +579,13 @@ impl App {
                     prompt.len()
                 );
 
-                // Switch to PromptRunning content type to show streaming output
-                self.worktree_view.content_type = ContentType::PromptRunning;
-                self.worktree_view.is_running = true;
+                // Note: State transition to Executing is handled in WorktreeView::submit_prompt_input
                 self.status_message = Some("Running Claude CLI with your prompt...".to_string());
 
                 // Log command execution checkpoint (Task 1.9 will add more detailed logging)
-                self.worktree_view.add_output(format!(
-                    "⚡ Executing Prompt Claude ({} chars)",
+                // Use new FSM-aware output method instead of add_output
+                self.worktree_view.append_prompt_output(&format!(
+                    "\n⚡ Executing Prompt Claude ({} chars)\n",
                     prompt.len()
                 ));
 
@@ -1663,37 +1662,60 @@ impl App {
 
     /// Handle key events when in input mode
     pub fn handle_key_event_in_input_mode(&mut self, key: KeyEvent) {
-        debug!(
-            "handle_key_event_in_input_mode: key={:?}, inline_input_exists={}, input_dialog_exists={}, text_input_exists={}",
-            key.code,
-            self.worktree_view.has_inline_input(),
-            self.input_dialog.is_some(),
-            self.text_input.is_some()
-        );
+        use crate::tui::state::prompt_claude::PromptClaudeStatus;
 
-        // Priority: inline_input > input_dialog > text_input
+        // Priority: workflow interaction > input_dialog > text_input
 
-        // Handle inline input in content area (Claude follow-ups)
-        if self.worktree_view.has_inline_input() {
+        // Handle inline interaction in content area (Claude follow-ups via MCP)
+        if let PromptClaudeStatus::InteractionRequired { input, cursor, .. } = &mut self.worktree_view.prompt_workflow.status {
             match key.code {
                 KeyCode::Enter => {
-                    // Submit inline input
-                    if let Some(value) = self.worktree_view.submit_inline_input() {
-                        self.submit_user_input(value);
-                    }
+                    // Submit interaction input
+                    let value = input.clone();
+                    self.submit_user_input(value);
                     self.input_mode = false;
                 }
                 KeyCode::Esc => {
-                    // Cancel inline input
-                    self.worktree_view.cancel_inline_input();
-                    self.worktree_view.pending_follow_up = false;
+                    // Cancel workflow
+                    self.worktree_view.prompt_workflow.status = PromptClaudeStatus::Idle;
                     self.input_mode = false;
-                    self.status_message = Some("Input cancelled".to_string());
+                    self.status_message = Some("Interaction cancelled".to_string());
                 }
-                _ => {
-                    // Forward other keys to inline input handler
-                    self.worktree_view.handle_inline_input_key(key);
+                KeyCode::Char(c) => {
+                    if *cursor <= input.len() && input.is_char_boundary(*cursor) {
+                        input.insert(*cursor, c);
+                        *cursor += c.len_utf8();
+                    }
                 }
+                KeyCode::Backspace => {
+                    if *cursor > 0 {
+                        let mut new_cursor = *cursor - 1;
+                        while !input.is_char_boundary(new_cursor) && new_cursor > 0 {
+                            new_cursor -= 1;
+                        }
+                        input.remove(new_cursor);
+                        *cursor = new_cursor;
+                    }
+                }
+                KeyCode::Left => {
+                    if *cursor > 0 {
+                        let mut new_cursor = *cursor - 1;
+                        while !input.is_char_boundary(new_cursor) && new_cursor > 0 {
+                            new_cursor -= 1;
+                        }
+                        *cursor = new_cursor;
+                    }
+                }
+                KeyCode::Right => {
+                    if *cursor < input.len() {
+                        let mut new_cursor = *cursor + 1;
+                        while !input.is_char_boundary(new_cursor) && new_cursor < input.len() {
+                            new_cursor += 1;
+                        }
+                        *cursor = new_cursor;
+                    }
+                }
+                _ => {}
             }
             return;
         }
@@ -1752,7 +1774,8 @@ impl App {
                 KeyCode::Esc => {
                     self.input_dialog = None;
                     self.input_mode = false;
-                    self.worktree_view.pending_follow_up = false;
+                    use crate::tui::state::prompt_claude::PromptClaudeStatus;
+                    self.worktree_view.prompt_workflow.status = PromptClaudeStatus::Idle;
 
                     // Clear paste storage when user cancels input (images discarded)
                     self.paste_storage.clear();
@@ -1878,8 +1901,10 @@ impl App {
         }
 
         // Check if this is a follow-up response to Claude's question (via MCP)
-        if self.worktree_view.pending_follow_up {
-            self.worktree_view.pending_follow_up = false;
+        use crate::tui::state::prompt_claude::PromptClaudeStatus;
+        if let PromptClaudeStatus::InteractionRequired { .. } = &self.worktree_view.prompt_workflow.status {
+            // Transition back to Executing
+            self.worktree_view.prompt_workflow.status = PromptClaudeStatus::Executing;
 
             // Send response back to the waiting MCP tool
             if let Ok(mut state) = self.mcp_state.try_lock() {
@@ -2015,8 +2040,9 @@ impl App {
                 session_id,
                 feature,
             } => {
-                // Save session ID
-                self.worktree_view.active_session_id = Some(session_id.clone());
+                // Save session ID to workflow state
+                self.worktree_view.prompt_workflow.agent_session_id = Some(session_id.clone());
+                
                 if let Some(feat) = feature {
                     let _ = crate::session::save_session_id(&feat, &session_id);
                     self.status_message = Some(format!("Session saved for feature {}", feat));
@@ -2150,9 +2176,14 @@ impl App {
                             "needs_input" => {
                                 let prompt_text =
                                     prompt.unwrap_or_else(|| "Enter your response:".to_string());
-                                self.worktree_view.pending_follow_up = true;
-                                // Use inline input in content area instead of popup dialog
-                                self.worktree_view.set_inline_input(prompt_text);
+                                
+                                use crate::tui::state::prompt_claude::PromptClaudeStatus;
+                                self.worktree_view.prompt_workflow.status = PromptClaudeStatus::InteractionRequired {
+                                    prompt: prompt_text,
+                                    input: String::new(),
+                                    cursor: 0,
+                                };
+                                
                                 self.input_mode = true;
                                 self.status_message =
                                     Some("Waiting for your response...".to_string());
@@ -2212,27 +2243,38 @@ impl App {
         success: bool,
         session_id: Option<String>,
     ) {
+        use crate::tui::state::prompt_claude::PromptClaudeStatus;
+        use crate::tui::state::workflow::WorkflowNode;
+
         // Save session ID for this feature
         if let Some(sid) = session_id {
-            self.worktree_view.active_session_id = Some(sid.clone());
+            // Update workflow session ID
+            self.worktree_view.prompt_workflow.agent_session_id = Some(sid.clone());
+            
+            // Persist to disk (Legacy support, maybe remove later)
             if let Some(ref info) = self.worktree_view.feature_info {
                 let _ = crate::session::save_session_id(&info.number, &sid);
             }
         }
 
-        // Handle Prompt Claude completion (Task 1.8)
+        // Handle Prompt Claude completion
         if phase == "PromptClaude" {
-            self.worktree_view.is_running = false;
+            // Transition to AwaitingFollowUp
+            self.worktree_view.prompt_workflow.status = PromptClaudeStatus::AwaitingFollowUp {
+                input: String::new(),
+                cursor: 0,
+            };
+            
             if success {
                 self.status_message = Some("Prompt Claude completed".to_string());
-                self.worktree_view
-                    .add_output("✓ Prompt completed".to_string());
+                // Add completion note to history
+                // Note: We might not need this if the UI renders status based on state
             } else {
                 self.status_message = Some("Prompt Claude failed".to_string());
-                self.worktree_view
-                    .add_output("❌ Prompt failed".to_string());
+                self.worktree_view.prompt_workflow.history.push(
+                    WorkflowNode::Error("Prompt Claude execution failed".to_string())
+                );
             }
-            // Stay on PromptRunning to show results
             return;
         }
 
@@ -2749,42 +2791,49 @@ impl App {
                     }
                     // Handle paste into worktree prompt
                     else if self.current_view == CurrentView::Worktree {
-                        if self.worktree_view.is_in_prompt_edit_mode() {
-                            if let Some(ref mut input) = self.worktree_view.prompt_input {
-                                // Check if it's an image data URL
-                                if PasteStorage::is_image_data_url(&text) {
-                                    match self.paste_storage.add_image(&text) {
-                                        Ok(placeholder) => {
-                                            debug!("Created image placeholder: {}", placeholder);
-                                            input.insert_text(&placeholder);
-                                            self.status_message =
-                                                Some(format!("Image saved ({})", placeholder));
-                                        }
-                                        Err(e) => {
-                                            tracing::error!("Image paste failed: {}", e);
-                                            self.status_message = Some(format!(
-                                                "Failed to process image: {}. Inserting as text.",
-                                                e
-                                            ));
-                                            input.insert_text(&text);
-                                        }
+                        use crate::tui::state::prompt_claude::PromptClaudeStatus;
+                        if let PromptClaudeStatus::Inputting { input, cursor } = &mut self.worktree_view.prompt_workflow.status {
+                            // Helper to insert text into the FSM buffer
+                            let mut insert_to_fsm = |text_to_insert: &str| {
+                                if *cursor <= input.len() && input.is_char_boundary(*cursor) {
+                                    input.insert_str(*cursor, text_to_insert);
+                                    *cursor += text_to_insert.len();
+                                }
+                            };
+
+                            // Check if it's an image data URL
+                            if PasteStorage::is_image_data_url(&text) {
+                                match self.paste_storage.add_image(&text) {
+                                    Ok(placeholder) => {
+                                        debug!("Created image placeholder: {}", placeholder);
+                                        insert_to_fsm(&placeholder);
+                                        self.status_message =
+                                            Some(format!("Image saved ({})", placeholder));
                                     }
-                                } else {
-                                    // Text paste - check threshold
-                                    match self.paste_storage.add_text(text.clone()) {
-                                        Some(placeholder) => {
-                                            debug!("Created text placeholder: {}", placeholder);
-                                            input.insert_text(&placeholder);
-                                            self.status_message = Some(format!(
-                                                "Large paste stored ({})",
-                                                placeholder
-                                            ));
-                                        }
-                                        None => {
-                                            // Small paste - insert directly
-                                            debug!("Small paste, inserting directly");
-                                            input.insert_text(&text);
-                                        }
+                                    Err(e) => {
+                                        tracing::error!("Image paste failed: {}", e);
+                                        self.status_message = Some(format!(
+                                            "Failed to process image: {}. Inserting as text.",
+                                            e
+                                        ));
+                                        insert_to_fsm(&text);
+                                    }
+                                }
+                            } else {
+                                // Text paste - check threshold
+                                match self.paste_storage.add_text(text.clone()) {
+                                    Some(placeholder) => {
+                                        debug!("Created text placeholder: {}", placeholder);
+                                        insert_to_fsm(&placeholder);
+                                        self.status_message = Some(format!(
+                                            "Large paste stored ({})",
+                                            placeholder
+                                        ));
+                                    }
+                                    None => {
+                                        // Small paste - insert directly
+                                        debug!("Small paste, inserting directly");
+                                        insert_to_fsm(&text);
                                     }
                                 }
                             }
@@ -2833,34 +2882,54 @@ impl App {
                     prompt,
                     message,
                 } => {
+                    use crate::tui::state::prompt_claude::PromptClaudeStatus;
                     tracing::info!("Handling MCP status: {}", status);
 
                     match status.as_str() {
                         "needs_input" => {
-                            // Use inline input in content area instead of popup dialog
+                            // Switch to InteractionRequired state
                             let prompt_text =
                                 prompt.unwrap_or_else(|| "Enter your response:".to_string());
-                            self.worktree_view.pending_follow_up = true;
-                            self.worktree_view.set_inline_input(prompt_text);
-                            self.input_mode = true;
+                            
+                            self.worktree_view.prompt_workflow.status = PromptClaudeStatus::InteractionRequired {
+                                prompt: prompt_text,
+                                input: String::new(),
+                                cursor: 0,
+                            };
+                            
+                            self.input_mode = true; // Still needed for app-level key handling? 
+                            // Note: we might need to revisit input_mode if we fully delegate to WorktreeView
+                            
                             self.status_message = Some("Waiting for your response...".to_string());
-                            tracing::info!("Showing inline input in content area");
+                            tracing::info!("Showing interaction input in content area");
                         }
                         "error" => {
-                            // Same logic as handle_claude_completed Line 1712-1718
                             let error_msg = message.unwrap_or_else(|| "Unknown error".to_string());
-                            self.worktree_view.command_done();
+                            
+                            // Transition to AwaitingFollowUp (or Error state)
+                            // For now, AwaitingFollowUp allows user to see the error and try again
+                            self.worktree_view.prompt_workflow.status = PromptClaudeStatus::AwaitingFollowUp {
+                                input: String::new(),
+                                cursor: 0,
+                            };
+                            
+                            // Add error node to history
+                            use crate::tui::state::workflow::WorkflowNode;
+                            self.worktree_view.prompt_workflow.history.push(
+                                WorkflowNode::Error(error_msg.clone())
+                            );
+                            
                             self.status_message = Some(format!("Error: {}", error_msg));
-                            self.worktree_view
-                                .add_output(format!("❌ Error: {}", error_msg));
                             tracing::error!("Task error: {}", error_msg);
                         }
                         "completed" => {
-                            // Same logic as handle_claude_completed Line 1719-1722
-                            self.worktree_view.command_done();
+                            // Transition to AwaitingFollowUp
+                            self.worktree_view.prompt_workflow.status = PromptClaudeStatus::AwaitingFollowUp {
+                                input: String::new(),
+                                cursor: 0,
+                            };
+                            
                             self.status_message = Some("Task completed successfully".to_string());
-                            self.worktree_view
-                                .add_output("✓ Task completed".to_string());
                             tracing::info!("Task completed successfully");
                         }
                         _ => {
