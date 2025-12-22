@@ -67,6 +67,8 @@ Examples:
 - `AgentStreamDelta { workflow_run_id, text }`
 - `McpNeedsInput { prompt_id, prompt }`
 - `EffectCompleted { effect_id, outcome }`
+- `CopyContentRequested`
+- `CopyStateRequested`
 
 ### `AppEffect`
 A **serializable** description of work to do outside the reducer.
@@ -76,6 +78,7 @@ Examples:
 - `McpReply { request_id, result }`
 - `StartTimer { timer_id, delay_ms }`
 - `Cancel { cancel_token_id }`
+- `CopyToClipboard { content }`
 
 ### `EffectExecutor`
 Non-serializable runtime context (process handles, channels, tokio tasks, file IO).

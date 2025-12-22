@@ -41,10 +41,64 @@ High-level descriptions of the screen structure.
 
 | Template | Description | Components |
 | :--- | :--- | :--- |
-| **Standard** | Default two-pane view | Sidebar (Left) + Content (Right) |
-| **Focus** | Maximized content for writing | Content (Full Screen) |
-| **Split** | Comparison or reference view | Content (Left) + Aux (Right) |
+| **Standard** | Default two-pane view | Tab Bar (Top) + Sidebar (Left) + Content (Right) |
+| **Focus** | Maximized content for writing | Tab Bar (Top) + Content (Full Screen) |
+| **Split** | Comparison or reference view | Tab Bar (Top) + Content (Left) + Aux (Right) |
 | **Dialog** | Overlay modal on top of Standard | Standard + Centered Dialog |
+
+---
+
+## Visual Layout Specification
+
+### Standard Template (Default)
+Used for general exploration and command triggering.
+
+```mermaid
+block-beta
+  columns 10
+  Header["Header"]:10
+  TabBar["Tab Bar (1 Worktree | 2 Dashboard | 3 Settings)"]:10
+  Sidebar["Sidebar (30%)"]:3
+  Content["Content (70%)"]:7
+  StatusBar["Status Bar"]:10
+  Footer["Footer (q quit | y copy | Y state)"]:10
+```
+
+### Focus Template
+Used during active workflow execution or content reading.
+
+```mermaid
+block-beta
+  columns 10
+  Header["Header"]:10
+  TabBar["Tab Bar"]:10
+  Content["Content (100%)"]:10
+  StatusBar["Status Bar"]:10
+  Footer["Footer"]:10
+```
+
+---
+
+## Component Layout Specification
+
+### Tab Bar (Top)
+Located directly below the Header. Used for high-level navigation between major application views.
+- **Tabs**: `1 Worktree`, `2 Dashboard`, `3 Settings`
+- **Visual**: Active tab is highlighted; others are dimmed.
+
+### Main Container (Middle)
+Flexible area depending on the active template.
+- **Sidebar**: 30% width (Standard template).
+- **Content**: 70% width (Standard template) or 100% (Focus template).
+
+### Status Bar (Bottom-1)
+Shows transient messages, errors, and workflow status.
+
+### Footer (Bottom-0)
+Minimalist shortcut reference.
+- **Shortcuts**: `q quit`, `y copy visual`, `Y copy state`
+
+---
 
 ### 2. Layout Config (The "Parameters")
 User-adjustable parameters for the templates. These are persistent settings.

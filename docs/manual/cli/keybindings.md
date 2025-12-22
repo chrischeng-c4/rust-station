@@ -1,59 +1,32 @@
-# TUI Keybindings Reference
+# TUI Keybindings
 
-This document is the Source of Truth for all keyboard shortcuts in the rstn TUI.
+This guide lists the primary keyboard shortcuts for the rstn TUI.
 
-```yaml
-# Keybindings Schema
-# - context: Global | Worktree | Input | ...
-#   key: The key or key combination (e.g., 'q', 'Ctrl-c', 'Enter')
-#   action: Internal action ID
-#   description: Human-readable description
+> For the technical specification and full mapping, see [KB: Keybinding Specification](../../../kb/architecture/08-keybindings.md).
 
-keybindings:
-  # Global Actions
-  - context: Global
-    key: "q"
-    action: Quit
-    description: "Quit rstn"
-  
-  - context: Global
-    key: "Ctrl-c"
-    action: ForceQuit
-    description: "Force quit rstn"
+## Global Shortcuts
 
-  # Navigation
-  - context: Worktree
-    key: "j"
-    action: MoveDown
-    description: "Move selection down"
-  
-  - context: Worktree
-    key: "k"
-    action: MoveUp
-    description: "Move selection up"
+| Key | Action |
+| :--- | :--- |
+| `q` | Quit rstn |
+| `y` | Copy current view (visual) to clipboard |
+| `Y` | Copy full application state to clipboard |
+| `1` | Switch to **Worktree** view |
+| `2` | Switch to **Dashboard** view |
+| `3` | Switch to **Settings** view |
 
-  - context: Worktree
-    key: "Tab"
-    action: NextPane
-    description: "Switch focus between Commands and Content panels"
+## Worktree Navigation
 
-  # Workflow Triggers
-  - context: Worktree
-    key: "Enter"
-    action: ExecuteSelected
-    description: "Trigger the selected workflow command"
+| Key | Action |
+| :--- | :--- |
+| `j` | Move selection down |
+| `k` | Move selection up |
+| `Tab` | Switch between Commands and Content panels |
+| `Enter` | Execute selected command |
 
-  # Panel Specific
-  - context: Content
-    key: "h"
-    action: ScrollLeft
-    description: "Scroll content left"
-  
-  - context: Content
-    key: "l"
-    action: ScrollRight
-    description: "Scroll content right"
-```
+## Content Scrolling
 
-## Logic Implementation
-The TUI event loop in `crates/rstn/src/tui/app.rs` and individual views in `crates/rstn/src/tui/views/` must implement these mappings.
+| Key | Action |
+| :--- | :--- |
+| `h` | Scroll left |
+| `l` | Scroll right |

@@ -202,7 +202,7 @@ fn test_prompt_ui() {
 **Key Rules**:
 - ✅ **Command as Trigger**: Left panel lists workflows (e.g., "Prompt Claude"), not navigation menus.
 - ✅ **Dynamic Content**: Right panel visualizes the *current node* of the active workflow.
-- ✅ **Minimalism**: No permanent "Log Panel" (logs go to file). No "Tab Bar" (focus on current worktree).
+- ✅ **Minimalism**: No permanent "Log Panel" (logs go to file). Top "View Tabs" allowed for high-level navigation (Worktree/Dashboard/Settings).
 - ✅ **Agent Integration**: AI agents are invoked only when the workflow reaches a specific node (e.g., `Node::CallAgent`).
 
 ---
