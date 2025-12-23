@@ -31,22 +31,6 @@ class WorkflowState(BaseModel, Generic[T]):  # noqa: UP046
 
     T represents the workflow-specific data/status.
     T must be a Pydantic-compatible type (serializable).
-
-    Examples:
-        # Simple string data
-        workflow = WorkflowState[str](
-            id="wf-123",
-            workflow_type="prompt-claude",
-            data="prompt text"
-        )
-
-        # Complex structured data
-        @dataclass
-        class SpecifyData:
-            feature: str
-            status: str
-
-        workflow = WorkflowState[SpecifyData](...)
     """
 
     model_config = {"frozen": False}

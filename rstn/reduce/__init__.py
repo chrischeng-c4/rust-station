@@ -15,9 +15,11 @@ CRITICAL: Reducers must be pure functions:
 
 from __future__ import annotations
 
-from rstn.effect import AppEffect, CopyToClipboard, LogInfo, Render
+from rstn.reduce.workflow import reduce_workflow
 from rstn.msg import (
     AppMsg,
+    ClaudeCompleted,
+    ClaudeStreamDelta,
     CopyContentRequested,
     CopyStateRequested,
     KeyPressed,
@@ -27,6 +29,9 @@ from rstn.msg import (
     SelectCommand,
     SwitchView,
     Tick,
+    WorkflowCompleted,
+    WorkflowFailed,
+    WorkflowStartRequested,
 )
 from rstn.state import AppState
 
@@ -61,6 +66,17 @@ def reduce(state: AppState, msg: AppMsg) -> tuple[AppState, list[AppEffect]]:
         return reduce_copy_content(state, msg)
     elif isinstance(msg, CopyStateRequested):
         return reduce_copy_state(state, msg)
+    elif isinstance(
+        msg,
+        (
+            WorkflowStartRequested,
+            ClaudeStreamDelta,
+            ClaudeCompleted,
+            WorkflowCompleted,
+            WorkflowFailed,
+        ),
+    ):
+        return reduce_workflow(state, msg)
     elif isinstance(msg, Tick):
         return reduce_tick(state, msg)
     elif isinstance(msg, Quit):
@@ -91,6 +107,51 @@ def reduce_key_pressed(state: AppState, msg: KeyPressed) -> tuple[AppState, list
 
     key = msg.key
     mods = msg.modifiers
+
+    # ========================================
+    # Input Mode Handling
+    # ========================================
+    if state.worktree_view.input_mode:
+        if key == "enter" and mods.is_empty():
+            # Submit input
+            prompt = state.worktree_view.input_buffer
+            if not prompt.strip():
+                return state, []
+
+            import uuid
+
+            workflow_id = str(uuid.uuid4())
+            new_worktree = state.worktree_view.exit_input_mode()
+            new_state = state.model_copy(update={"worktree_view": new_worktree})
+
+            return reduce_workflow_start(
+                new_state,
+                WorkflowStartRequested(
+                    workflow_id=workflow_id,
+                    workflow_type="prompt-claude",
+                    params=prompt,
+                ),
+            )
+        elif key == "esc" and mods.is_empty():
+            # Cancel input mode
+            new_worktree = state.worktree_view.exit_input_mode()
+            new_state = state.model_copy(update={"worktree_view": new_worktree})
+            return new_state, [Render()]
+        elif key == "backspace" and mods.is_empty():
+            # Remove last character
+            new_buffer = state.worktree_view.input_buffer[:-1]
+            new_worktree = state.worktree_view.model_copy(update={"input_buffer": new_buffer})
+            new_state = state.model_copy(update={"worktree_view": new_worktree})
+            return new_state, [Render()]
+        elif len(key) == 1 and mods.is_empty():
+            # Append character
+            new_buffer = state.worktree_view.input_buffer + key
+            new_worktree = state.worktree_view.model_copy(update={"input_buffer": new_buffer})
+            new_state = state.model_copy(update={"worktree_view": new_worktree})
+            return new_state, [Render()]
+
+        # Ignore other keys in input mode
+        return state, []
 
     # ========================================
     # Global Actions (any context)
@@ -157,10 +218,30 @@ def reduce_key_pressed(state: AppState, msg: KeyPressed) -> tuple[AppState, list
             selected = state.worktree_view.commands[
                 state.worktree_view.selected_command_index
             ]
-            # Log the selection for now (actual execution would trigger workflow)
-            return state, [
-                LogInfo(message=f"Execute command: {selected.label}")
-            ]
+
+            # If it's prompt-claude, enter input mode first
+            if selected.id == "prompt-claude":
+                new_worktree = state.worktree_view.enter_input_mode(
+                    prompt="Enter prompt for Claude:"
+                )
+                new_state = state.model_copy(update={"worktree_view": new_worktree})
+                return new_state, [Render()]
+
+            # Default: execute workflow directly if applicable
+            if selected.workflow_type:
+                import uuid
+
+                workflow_id = str(uuid.uuid4())
+                return reduce_workflow_start(
+                    state,
+                    WorkflowStartRequested(
+                        workflow_id=workflow_id,
+                        workflow_type=selected.workflow_type,
+                        params="{}",  # Default empty params
+                    ),
+                )
+
+            return state, [LogInfo(message=f"Execute command: {selected.label}")]
 
         # h/l: Scroll content left/right
         if key == "h" and mods.is_empty():

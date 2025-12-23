@@ -151,6 +151,14 @@ def render_status_bar(state: AppState) -> StatusBarRender:
     # Show worktree status if on worktree view
     if state.current_view == ViewType.WORKTREE:
         worktree = state.worktree_view
+        
+        # If in input mode, show input prompt and buffer
+        if worktree.input_mode:
+            return StatusBarRender(
+                message=f"{worktree.input_prompt} {worktree.input_buffer}█",
+                style="normal",
+            )
+
         if worktree.active_workflow_id:
             return StatusBarRender(
                 message=f"Running workflow: {worktree.active_workflow_id}",

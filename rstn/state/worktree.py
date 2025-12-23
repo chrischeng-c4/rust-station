@@ -60,7 +60,15 @@ class WorktreeViewState(BaseModel):
 
     # Commands
     commands: list[Command] = Field(
-        default_factory=list, description="Available commands in left panel"
+        default_factory=lambda: [
+            Command(
+                id="prompt-claude",
+                label="✨ Prompt Claude",
+                description="Start an interactive session with Claude Code",
+                workflow_type="prompt-claude",
+            )
+        ],
+        description="Available commands in left panel",
     )
     selected_command_index: int = Field(
         default=0, ge=0, description="Selected command index in command list"

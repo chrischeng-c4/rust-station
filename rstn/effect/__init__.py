@@ -241,6 +241,9 @@ class RunClaudeCli(AppEffect):
     system_prompt_file: Path | None = Field(default=None, description="System prompt file path")
     cwd: Path = Field(description="Working directory")
     workflow_id: str = Field(description="Workflow ID for streaming updates")
+    mcp_config_path: Path | None = Field(default=None, description="Optional session MCP config path")
+    max_turns: int = Field(default=10, description="Maximum number of turns")
+    permission_mode: str = Field(default="ask", description="Permission mode (ask, auto, plan)")
 
 
 class CreateDirectory(AppEffect):

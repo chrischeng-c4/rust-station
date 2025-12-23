@@ -50,7 +50,7 @@ class AppState(BaseModel):
     )
 
     # Workflows
-    active_workflows: dict[WorkflowId, WorkflowState[str]] = Field(
+    active_workflows: dict[WorkflowId, WorkflowState[Any]] = Field(
         default_factory=dict, description="Active workflows by ID"
     )
 

@@ -125,6 +125,10 @@ class ContentAreaWidget(Static):
         """
         self._last_render = render_output
         self.update(render_output.content)
+        
+        # Auto-scroll to bottom if it's workflow output
+        if render_output.content_type == "workflow":
+            self.scroll_end(animate=False)
 
     @property
     def content_type(self) -> str:

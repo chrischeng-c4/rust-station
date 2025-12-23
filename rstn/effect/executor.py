@@ -112,6 +112,8 @@ class DefaultEffectExecutor:
                 await self._execute_run_command(effect)
             elif isinstance(effect, RunBashScript):
                 await self._execute_run_bash_script(effect)
+            elif isinstance(effect, RunClaudeCli):
+                await self._execute_run_claude_cli(effect)
             elif isinstance(effect, StartTimer):
                 await self._execute_start_timer(effect)
             elif isinstance(effect, StopTimer):
@@ -266,6 +268,135 @@ class DefaultEffectExecutor:
             await self.msg_sender.send(
                 ErrorOccurred(message=f"Failed to delete {effect.path}: {e}")
             )
+
+    async def _execute_run_claude_cli(self, effect: RunClaudeCli) -> None:
+        """Run Claude CLI with streaming output.
+
+        Args:
+            effect: RunClaudeCli effect
+        """
+        # Create background task for Claude execution
+        task = asyncio.create_task(self._run_claude_cli_process(effect))
+        self.active_tasks[effect.workflow_id] = task
+
+    async def _run_claude_cli_process(self, effect: RunClaudeCli) -> None:
+        """Execute Claude CLI process and parse streaming output.
+
+        Args:
+            effect: RunClaudeCli effect
+        """
+        from rstn.msg import ClaudeCompleted, ClaudeStreamDelta
+
+        workflow_id = effect.workflow_id
+        
+        # Build command
+        cmd = [
+            "claude", "-p", effect.prompt,
+            "--output-format", effect.output_format,
+            "--print", "--verbose",
+            "--max-turns", str(effect.max_turns),
+            "--permission-mode", effect.permission_mode
+        ]
+
+        if effect.mcp_config_path:
+            cmd.extend(["--mcp-config", str(effect.mcp_config_path)])
+        
+        if effect.system_prompt_file:
+            cmd.extend(["--system-prompt-file", str(effect.system_prompt_file)])
+
+        log.info("Starting Claude CLI", cmd=" ".join(cmd), workflow_id=workflow_id)
+
+        process = None
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=effect.cwd,
+            )
+
+            full_output = []
+            claude_session_id = None
+
+            # Read stdout line by line
+            if process.stdout:
+                while True:
+                    line_bytes = await process.stdout.readline()
+                    if not line_bytes:
+                        break
+                    
+                    line = line_bytes.decode("utf-8").strip()
+                    if not line:
+                        continue
+                    
+                    # RAW LOGGING: Crucial for debugging protocol and permissions
+                    log.debug("Claude raw output", line=line, workflow_id=workflow_id)
+
+                    try:
+                        data = json.loads(line)
+                        msg_type = data.get("type")
+                        
+                        # Handle init message to capture session ID
+                        if msg_type == "system" and data.get("subtype") == "init":
+                            claude_session_id = data.get("session_id")
+                            log.info("Claude session initialized", 
+                                     session_id=claude_session_id, workflow_id=workflow_id)
+
+                        # Handle text deltas
+                        # Note: In stream-json mode, we look for content_block_delta
+                        if msg_type == "content_block_delta":
+                            delta = data.get("delta", {})
+                            if delta.get("type") == "text_delta":
+                                text = delta.get("text", "")
+                                full_output.append(text)
+                                await self.msg_sender.send(
+                                    ClaudeStreamDelta(workflow_id=workflow_id, delta=text)
+                                )
+                        
+                        # Fallback for non-streaming assistant messages
+                        elif msg_type == "assistant":
+                            message = data.get("message", {})
+                            content = message.get("content", [])
+                            for item in content:
+                                if item.get("type") == "text":
+                                    text = item.get("text", "")
+                                    full_output.append(text)
+                                    await self.msg_sender.send(
+                                        ClaudeStreamDelta(workflow_id=workflow_id, delta=text)
+                                    )
+
+                    except json.JSONDecodeError:
+                        # Non-JSON line, might be some CLI noise or raw error
+                        log.warning("Claude non-JSON output", line=line, workflow_id=workflow_id)
+
+            # Wait for process to complete
+            stdout_rem, stderr_rem = await process.communicate()
+            exit_code = process.returncode
+
+            if stderr_rem:
+                stderr_text = stderr_rem.decode("utf-8")
+                log.error("Claude CLI stderr", stderr=stderr_text, workflow_id=workflow_id)
+
+            success = exit_code == 0
+            final_output = "".join(full_output)
+
+            await self.msg_sender.send(
+                ClaudeCompleted(
+                    workflow_id=workflow_id,
+                    output=final_output,
+                    success=success,
+                    error=None if success else f"Exit code {exit_code}"
+                )
+            )
+
+        except Exception as e:
+            log.exception("Claude CLI execution failed", error=str(e), workflow_id=workflow_id)
+            await self.msg_sender.send(
+                WorkflowFailed(workflow_id=workflow_id, error=str(e))
+            )
+        finally:
+            if workflow_id in self.active_tasks:
+                del self.active_tasks[workflow_id]
 
     async def _execute_run_command(self, effect: RunCommand) -> None:
         """Run shell command.
