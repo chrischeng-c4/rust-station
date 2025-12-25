@@ -313,22 +313,62 @@ Hash = SHA256(worktree_path)[0:8]
 
 ## 7. Data Flow
 
-### Opening a Project
+### Opening a Project (with Git Root Detection)
+
+When a user opens a folder, the system automatically detects if it's inside a git repository and associates it with the correct project:
+
+```mermaid
+flowchart TD
+    A[User selects folder] --> B{Path exists?}
+    B -->|No| H[Create new project with path]
+    B -->|Yes| C[git rev-parse --show-toplevel]
+    C --> D{Inside git repo?}
+    D -->|No| H
+    D -->|Yes| E[Get git root path]
+    E --> F{Project with git root already open?}
+    F -->|Yes| G[Switch to existing project]
+    F -->|No| I{Path inside existing worktree?}
+    I -->|Yes| J[Switch to project + worktree]
+    I -->|No| K[Create new project with git root]
+
+    G --> L[Find matching worktree if subdirectory]
+    L --> M[Switch to worktree]
+```
+
+**Key behaviors:**
+
+| Scenario | Action |
+|----------|--------|
+| Open `/projects/rustation` | Open as new project (if not already open) |
+| Open `/projects/rustation/src` | Detect git root → switch to rustation project |
+| Open `/projects/rustation-feature` (worktree) | Switch to rustation project + feature worktree |
+
+### Opening a Project (Sequence)
 
 ```
 User clicks [+]
     │
     ▼
-Select folder (git repo root)
+Select folder (any path)
     │
     ▼
-Backend: git worktree list
+Backend: git rev-parse --show-toplevel
     │
     ▼
-Create ProjectState with WorktreeStates
+Normalize to git root (if inside repo)
     │
     ▼
-UI: Show project tab with worktree sub-tabs
+Check: Is git root already open?
+    ├── YES → Switch to existing project
+    │         └── Find & switch to matching worktree
+    │
+    └── NO → Check: Is path inside any open worktree?
+              ├── YES → Switch to that project + worktree
+              │
+              └── NO → Create new ProjectState
+                       └── git worktree list
+                       └── Create WorktreeStates
+                       └── Show project tab
 ```
 
 ### Starting MCP Server

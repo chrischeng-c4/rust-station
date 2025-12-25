@@ -11,6 +11,7 @@ use crate::app_state::{
     ServiceStatus, ServiceType, TaskStatus, WorktreeState,
 };
 use crate::persistence;
+use crate::worktree;
 
 /// Apply an action to the state.
 ///
@@ -23,22 +24,66 @@ pub fn reduce(state: &mut AppState, action: Action) {
         // Project Management
         // ====================================================================
         Action::OpenProject { path } => {
-            // Check if already open
-            if state.projects.iter().any(|p| p.path == path) {
-                // Switch to existing project
-                if let Some(idx) = state.projects.iter().position(|p| p.path == path) {
-                    state.active_project_index = idx;
+            // Normalize to git root if inside a git repository
+            let project_path = if std::path::Path::new(&path).exists() {
+                worktree::get_git_root(&path).unwrap_or_else(|| path.clone())
+            } else {
+                path.clone()
+            };
+
+            // Check if this project (by git root) is already open
+            if let Some(idx) = state.projects.iter().position(|p| p.path == project_path) {
+                state.active_project_index = idx;
+
+                // If the original path is a subdirectory, try to find matching worktree
+                if path != project_path {
+                    if let Some(project) = state.active_project_mut() {
+                        let worktree_data: Vec<_> = project
+                            .worktrees
+                            .iter()
+                            .map(|w| crate::actions::WorktreeData {
+                                path: w.path.clone(),
+                                branch: w.branch.clone(),
+                                is_main: w.is_main,
+                            })
+                            .collect();
+
+                        if let Some(wt_idx) = worktree::find_worktree_for_path(&path, &worktree_data) {
+                            project.active_worktree_index = wt_idx;
+                        }
+                    }
                 }
                 return;
             }
 
-            // Create new project
-            let mut project = ProjectState::new(path.clone());
+            // Check if the path is inside any worktree of an existing project
+            for (proj_idx, project) in state.projects.iter().enumerate() {
+                let worktree_data: Vec<_> = project
+                    .worktrees
+                    .iter()
+                    .map(|w| crate::actions::WorktreeData {
+                        path: w.path.clone(),
+                        branch: w.branch.clone(),
+                        is_main: w.is_main,
+                    })
+                    .collect();
+
+                if let Some(wt_idx) = worktree::find_worktree_for_path(&path, &worktree_data) {
+                    state.active_project_index = proj_idx;
+                    if let Some(proj) = state.active_project_mut() {
+                        proj.active_worktree_index = wt_idx;
+                    }
+                    return;
+                }
+            }
+
+            // Create new project with the normalized git root path
+            let mut project = ProjectState::new(project_path.clone());
 
             // Load and apply persisted project state (only if path exists on disk)
             // This prevents loading stale state for test paths that don't exist
-            if std::path::Path::new(&path).exists() {
-                if let Ok(Some(persisted)) = persistence::load_project(&path) {
+            if std::path::Path::new(&project_path).exists() {
+                if let Ok(Some(persisted)) = persistence::load_project(&project_path) {
                     persisted.apply_to(&mut project);
                 }
             }
@@ -47,8 +92,8 @@ pub fn reduce(state: &mut AppState, action: Action) {
             state.active_project_index = state.projects.len() - 1;
 
             // Update recent_projects (only for real paths)
-            if std::path::Path::new(&path).exists() {
-                update_recent_projects(state, &path);
+            if std::path::Path::new(&project_path).exists() {
+                update_recent_projects(state, &project_path);
             }
         }
 

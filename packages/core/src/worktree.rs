@@ -3,7 +3,72 @@
 //! Parses the output of `git worktree list` to get all worktrees for a project.
 
 use crate::actions::WorktreeData;
+use std::path::Path;
 use std::process::Command;
+
+/// Get the git repository root for a given path.
+///
+/// Uses `git rev-parse --show-toplevel` to find the root.
+/// Returns None if the path is not inside a git repository.
+///
+/// # Arguments
+/// * `path` - Any path, can be the repo root, a subdirectory, or a file
+///
+/// # Returns
+/// * `Some(root_path)` - The absolute path to the git repo root
+/// * `None` - If not inside a git repository
+pub fn get_git_root(path: &str) -> Option<String> {
+    // Determine the directory to check
+    let check_path = if Path::new(path).is_file() {
+        Path::new(path).parent()?.to_str()?
+    } else {
+        path
+    };
+
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(check_path)
+        .arg("rev-parse")
+        .arg("--show-toplevel")
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let root = String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .to_string();
+
+    if root.is_empty() {
+        None
+    } else {
+        Some(root)
+    }
+}
+
+/// Check if a path is inside any worktree of a project.
+///
+/// # Arguments
+/// * `path` - The path to check
+/// * `project_path` - The main worktree path of the project
+///
+/// # Returns
+/// * `Some(worktree_index)` - The index of the matching worktree
+/// * `None` - If the path is not inside any worktree
+pub fn find_worktree_for_path(path: &str, worktrees: &[WorktreeData]) -> Option<usize> {
+    let check_path = Path::new(path);
+
+    for (idx, wt) in worktrees.iter().enumerate() {
+        let wt_path = Path::new(&wt.path);
+        // Check if path starts with worktree path (is inside or equal to)
+        if check_path.starts_with(wt_path) {
+            return Some(idx);
+        }
+    }
+    None
+}
 
 /// Parse the output of `git worktree list` for a given repo path.
 ///
@@ -186,5 +251,52 @@ mod tests {
         let result = parse_worktree_line(line, "/path/main").unwrap();
 
         assert!(result.is_main);
+    }
+
+    #[test]
+    fn test_find_worktree_for_path_exact_match() {
+        let worktrees = vec![
+            WorktreeData {
+                path: "/projects/main".to_string(),
+                branch: "main".to_string(),
+                is_main: true,
+            },
+            WorktreeData {
+                path: "/projects/feature".to_string(),
+                branch: "feature/test".to_string(),
+                is_main: false,
+            },
+        ];
+
+        assert_eq!(find_worktree_for_path("/projects/main", &worktrees), Some(0));
+        assert_eq!(find_worktree_for_path("/projects/feature", &worktrees), Some(1));
+    }
+
+    #[test]
+    fn test_find_worktree_for_path_subdirectory() {
+        let worktrees = vec![
+            WorktreeData {
+                path: "/projects/main".to_string(),
+                branch: "main".to_string(),
+                is_main: true,
+            },
+        ];
+
+        assert_eq!(find_worktree_for_path("/projects/main/src/lib.rs", &worktrees), Some(0));
+        assert_eq!(find_worktree_for_path("/projects/main/packages/core", &worktrees), Some(0));
+    }
+
+    #[test]
+    fn test_find_worktree_for_path_no_match() {
+        let worktrees = vec![
+            WorktreeData {
+                path: "/projects/main".to_string(),
+                branch: "main".to_string(),
+                is_main: true,
+            },
+        ];
+
+        assert_eq!(find_worktree_for_path("/other/project", &worktrees), None);
+        assert_eq!(find_worktree_for_path("/projects/other", &worktrees), None);
     }
 }
