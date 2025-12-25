@@ -25,8 +25,41 @@ pub enum Action {
     /// Switch to a different project tab
     SwitchProject { index: usize },
 
-    /// Set the feature tab within the active project
+    /// Set the feature tab within the active worktree
     SetFeatureTab { tab: FeatureTab },
+
+    // ========================================================================
+    // Worktree Actions
+    // ========================================================================
+    /// Switch to a different worktree within the active project
+    SwitchWorktree { index: usize },
+
+    /// Refresh worktrees for the active project (re-run `git worktree list`)
+    RefreshWorktrees,
+
+    /// Set worktrees (internal, after git worktree list completes)
+    SetWorktrees { worktrees: Vec<WorktreeData> },
+
+    // ========================================================================
+    // MCP Actions
+    // ========================================================================
+    /// Start MCP server for the active worktree
+    StartMcpServer,
+
+    /// Stop MCP server for the active worktree
+    StopMcpServer,
+
+    /// Set MCP server status (internal)
+    SetMcpStatus { status: McpStatusData },
+
+    /// Set MCP server port (internal, after server starts)
+    SetMcpPort { port: u16 },
+
+    /// Set MCP config path (internal)
+    SetMcpConfigPath { path: String },
+
+    /// Set MCP error (internal)
+    SetMcpError { error: String },
 
     // ========================================================================
     // Docker Actions
@@ -124,6 +157,24 @@ pub enum Action {
 
     /// Clear the global error
     ClearError,
+}
+
+/// Worktree data for actions (from `git worktree list`)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WorktreeData {
+    pub path: String,
+    pub branch: String,
+    pub is_main: bool,
+}
+
+/// MCP status for actions
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum McpStatusData {
+    Stopped,
+    Starting,
+    Running,
+    Error,
 }
 
 /// Docker service data for actions (lightweight, serializable)

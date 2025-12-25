@@ -12,6 +12,7 @@ pub mod justfile;
 pub mod persistence;
 pub mod reducer;
 pub mod state;
+pub mod worktree;
 
 use actions::Action;
 use app_state::AppState;
@@ -174,6 +175,16 @@ pub fn state_init(
     if let Ok(Some(persisted)) = persistence::load_global() {
         persisted.apply_to(&mut initial_state);
         tracing::info!("Loaded persisted state with {} recent projects", initial_state.recent_projects.len());
+
+        // Auto-open the most recent project if it exists on disk
+        if let Some(recent) = initial_state.recent_projects.first() {
+            let path = recent.path.clone();
+            if std::path::Path::new(&path).exists() {
+                tracing::info!("Auto-opening recent project: {}", path);
+                // Use reducer to open the project
+                reduce(&mut initial_state, Action::OpenProject { path });
+            }
+        }
     }
 
     let _ = APP_STATE.set(Arc::new(RwLock::new(initial_state)));
@@ -430,6 +441,15 @@ async fn handle_async_action(action: Action) -> napi::Result<()> {
         | Action::CloseProject { .. }
         | Action::SwitchProject { .. }
         | Action::SetFeatureTab { .. }
+        | Action::SwitchWorktree { .. }
+        | Action::RefreshWorktrees
+        | Action::SetWorktrees { .. }
+        | Action::StartMcpServer
+        | Action::StopMcpServer
+        | Action::SetMcpStatus { .. }
+        | Action::SetMcpPort { .. }
+        | Action::SetMcpConfigPath { .. }
+        | Action::SetMcpError { .. }
         | Action::SetDockerAvailable { .. }
         | Action::SetDockerServices { .. }
         | Action::SelectDockerService { .. }

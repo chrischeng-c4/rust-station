@@ -54,30 +54,26 @@ impl AppState {
 }
 
 // ============================================================================
-// Project State
+// Project State (Git Repo)
 // ============================================================================
 
-/// State for a single open project
+/// State for a single open project (git repo)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ProjectState {
     /// Unique identifier
     pub id: String,
-    /// Filesystem path to the project
+    /// Filesystem path to the main worktree (git repo root)
     pub path: String,
-    /// Display name (folder name)
+    /// Display name (repo folder name)
     pub name: String,
-    /// Whether the project has unsaved changes or running tasks
-    pub is_modified: bool,
-    /// Currently active feature tab within this project
-    pub active_tab: FeatureTab,
-    /// Tasks state for this project
-    pub tasks: TasksState,
-    /// Docker state for this project
-    pub dockers: DockersState,
+    /// All worktrees for this project
+    pub worktrees: Vec<WorktreeState>,
+    /// Index of the currently active worktree
+    pub active_worktree_index: usize,
 }
 
 impl ProjectState {
-    /// Create a new project from a path
+    /// Create a new project from a path (with main worktree)
     pub fn new(path: String) -> Self {
         let name = std::path::Path::new(&path)
             .file_name()
@@ -85,16 +81,102 @@ impl ProjectState {
             .unwrap_or("project")
             .to_string();
 
+        // Create main worktree
+        let main_worktree = WorktreeState::new(path.clone(), "main".to_string(), true);
+
         Self {
             id: Uuid::new_v4().to_string(),
             path,
             name,
+            worktrees: vec![main_worktree],
+            active_worktree_index: 0,
+        }
+    }
+
+    /// Get the active worktree (if any)
+    pub fn active_worktree(&self) -> Option<&WorktreeState> {
+        self.worktrees.get(self.active_worktree_index)
+    }
+
+    /// Get the active worktree mutably (if any)
+    pub fn active_worktree_mut(&mut self) -> Option<&mut WorktreeState> {
+        self.worktrees.get_mut(self.active_worktree_index)
+    }
+}
+
+// ============================================================================
+// Worktree State (Git Worktree)
+// ============================================================================
+
+/// State for a single git worktree
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WorktreeState {
+    /// Unique identifier
+    pub id: String,
+    /// Filesystem path to the worktree
+    pub path: String,
+    /// Branch name (e.g., "main", "feature/auth")
+    pub branch: String,
+    /// Is this the main worktree?
+    pub is_main: bool,
+    /// MCP server state
+    pub mcp: McpState,
+    /// Whether the worktree has unsaved changes or running tasks
+    pub is_modified: bool,
+    /// Currently active feature tab within this worktree
+    pub active_tab: FeatureTab,
+    /// Tasks state for this worktree
+    pub tasks: TasksState,
+    /// Docker state for this worktree
+    pub dockers: DockersState,
+}
+
+impl WorktreeState {
+    /// Create a new worktree
+    pub fn new(path: String, branch: String, is_main: bool) -> Self {
+        Self {
+            id: Uuid::new_v4().to_string(),
+            path,
+            branch,
+            is_main,
+            mcp: McpState::default(),
             is_modified: false,
             active_tab: FeatureTab::Tasks,
             tasks: TasksState::default(),
             dockers: DockersState::default(),
         }
     }
+}
+
+// ============================================================================
+// MCP Server State
+// ============================================================================
+
+/// MCP server status
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum McpStatus {
+    #[default]
+    Stopped,
+    Starting,
+    Running,
+    Error,
+}
+
+/// MCP server state for a worktree
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct McpState {
+    /// Server status
+    pub status: McpStatus,
+    /// Assigned port (if running)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
+    /// Path to mcp-session.json config file
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config_path: Option<String>,
+    /// Error message (if status is Error)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// Feature tabs within a project (sidebar)
@@ -292,19 +374,22 @@ mod tests {
 
         // Add a project
         let mut project = ProjectState::new("/test/project".to_string());
-        project.dockers.services.push(DockerServiceInfo {
-            id: "test-id".to_string(),
-            name: "PostgreSQL".to_string(),
-            image: "postgres:16".to_string(),
-            status: ServiceStatus::Running,
-            port: Some(5432),
-            service_type: ServiceType::Database,
-        });
-        project.tasks.commands.push(JustCommandInfo {
-            name: "test".to_string(),
-            description: Some("Run tests".to_string()),
-            recipe: "cargo test".to_string(),
-        });
+        // Access through worktree
+        if let Some(worktree) = project.active_worktree_mut() {
+            worktree.dockers.services.push(DockerServiceInfo {
+                id: "test-id".to_string(),
+                name: "PostgreSQL".to_string(),
+                image: "postgres:16".to_string(),
+                status: ServiceStatus::Running,
+                port: Some(5432),
+                service_type: ServiceType::Database,
+            });
+            worktree.tasks.commands.push(JustCommandInfo {
+                name: "test".to_string(),
+                description: Some("Run tests".to_string()),
+                recipe: "cargo test".to_string(),
+            });
+        }
         state.projects.push(project);
 
         let json = serde_json::to_string_pretty(&state).unwrap();
@@ -312,10 +397,7 @@ mod tests {
 
         let loaded: AppState = serde_json::from_str(&json).unwrap();
         assert_eq!(state.projects.len(), loaded.projects.len());
-        assert_eq!(
-            state.projects[0].name,
-            loaded.projects[0].name
-        );
+        assert_eq!(state.projects[0].name, loaded.projects[0].name);
     }
 
     #[test]
@@ -323,8 +405,10 @@ mod tests {
         let project = ProjectState::new("/Users/chris/my-project".to_string());
         assert_eq!(project.name, "my-project");
         assert_eq!(project.path, "/Users/chris/my-project");
-        assert!(!project.is_modified);
-        assert_eq!(project.active_tab, FeatureTab::Tasks);
+        // Check worktree properties
+        let worktree = project.active_worktree().unwrap();
+        assert!(!worktree.is_modified);
+        assert_eq!(worktree.active_tab, FeatureTab::Tasks);
     }
 
     #[test]

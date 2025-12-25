@@ -59,6 +59,35 @@ export interface TasksState {
 }
 
 // ============================================================================
+// MCP State
+// ============================================================================
+
+export type McpStatus = 'stopped' | 'starting' | 'running' | 'error'
+
+export interface McpState {
+  status: McpStatus
+  port?: number
+  config_path?: string
+  error?: string
+}
+
+// ============================================================================
+// Worktree State
+// ============================================================================
+
+export interface WorktreeState {
+  id: string
+  path: string
+  branch: string
+  is_main: boolean
+  mcp: McpState
+  is_modified: boolean
+  active_tab: FeatureTab
+  tasks: TasksState
+  dockers: DockersState
+}
+
+// ============================================================================
 // Project State
 // ============================================================================
 
@@ -66,10 +95,8 @@ export interface ProjectState {
   id: string
   path: string
   name: string
-  is_modified: boolean
-  active_tab: FeatureTab
-  tasks: TasksState
-  dockers: DockersState
+  worktrees: WorktreeState[]
+  active_worktree_index: number
 }
 
 // ============================================================================
@@ -135,6 +162,50 @@ export interface SwitchProjectAction {
 export interface SetFeatureTabAction {
   type: 'SetFeatureTab'
   payload: { tab: FeatureTab }
+}
+
+// Worktree Actions
+export interface SwitchWorktreeAction {
+  type: 'SwitchWorktree'
+  payload: { index: number }
+}
+
+export interface RefreshWorktreesAction {
+  type: 'RefreshWorktrees'
+}
+
+export interface SetWorktreesAction {
+  type: 'SetWorktrees'
+  payload: { worktrees: WorktreeData[] }
+}
+
+// MCP Actions
+export interface StartMcpServerAction {
+  type: 'StartMcpServer'
+}
+
+export interface StopMcpServerAction {
+  type: 'StopMcpServer'
+}
+
+export interface SetMcpStatusAction {
+  type: 'SetMcpStatus'
+  payload: { status: McpStatusData }
+}
+
+export interface SetMcpPortAction {
+  type: 'SetMcpPort'
+  payload: { port: number }
+}
+
+export interface SetMcpConfigPathAction {
+  type: 'SetMcpConfigPath'
+  payload: { path: string }
+}
+
+export interface SetMcpErrorAction {
+  type: 'SetMcpError'
+  payload: { error: string }
 }
 
 // Docker Actions
@@ -290,12 +361,29 @@ export interface JustCommandData {
 
 export type TaskStatusData = 'idle' | 'running' | 'success' | 'error'
 
+export interface WorktreeData {
+  path: string
+  branch: string
+  is_main: boolean
+}
+
+export type McpStatusData = 'stopped' | 'starting' | 'running' | 'error'
+
 // Union type of all actions
 export type Action =
   | OpenProjectAction
   | CloseProjectAction
   | SwitchProjectAction
   | SetFeatureTabAction
+  | SwitchWorktreeAction
+  | RefreshWorktreesAction
+  | SetWorktreesAction
+  | StartMcpServerAction
+  | StopMcpServerAction
+  | SetMcpStatusAction
+  | SetMcpPortAction
+  | SetMcpConfigPathAction
+  | SetMcpErrorAction
   | CheckDockerAvailabilityAction
   | SetDockerAvailableAction
   | RefreshDockerServicesAction

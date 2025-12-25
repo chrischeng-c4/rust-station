@@ -5,10 +5,10 @@
 //! - Returns nothing (mutates in place for efficiency)
 //! - No side effects (async operations handled separately)
 
-use crate::actions::{Action, DockerServiceData, JustCommandData, TaskStatusData};
+use crate::actions::{Action, DockerServiceData, JustCommandData, McpStatusData, TaskStatusData};
 use crate::app_state::{
-    AppError, AppState, DockerServiceInfo, JustCommandInfo, ProjectState, RecentProject,
-    ServiceStatus, ServiceType, TaskStatus,
+    AppError, AppState, DockerServiceInfo, JustCommandInfo, McpStatus, ProjectState, RecentProject,
+    ServiceStatus, ServiceType, TaskStatus, WorktreeState,
 };
 use crate::persistence;
 
@@ -81,7 +81,9 @@ pub fn reduce(state: &mut AppState, action: Action) {
 
         Action::SetFeatureTab { tab } => {
             if let Some(project) = state.active_project_mut() {
-                project.active_tab = tab;
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.active_tab = tab;
+                }
                 // Save project state when tab changes (only for real paths)
                 if std::path::Path::new(&project.path).exists() {
                     let _ = persistence::save_project(project);
@@ -90,90 +92,197 @@ pub fn reduce(state: &mut AppState, action: Action) {
         }
 
         // ====================================================================
-        // Docker Actions (operate on active project)
+        // Worktree Actions
+        // ====================================================================
+        Action::SwitchWorktree { index } => {
+            if let Some(project) = state.active_project_mut() {
+                if index < project.worktrees.len() {
+                    project.active_worktree_index = index;
+                }
+            }
+        }
+
+        Action::RefreshWorktrees => {
+            // Async trigger - no immediate state change
+            // The dispatcher will call `git worktree list` and then SetWorktrees
+        }
+
+        Action::SetWorktrees { worktrees } => {
+            if let Some(project) = state.active_project_mut() {
+                // Convert WorktreeData to WorktreeState
+                let new_worktrees: Vec<WorktreeState> = worktrees
+                    .into_iter()
+                    .map(|w| WorktreeState::new(w.path, w.branch, w.is_main))
+                    .collect();
+
+                // Replace worktrees, keeping current active index if valid
+                project.worktrees = new_worktrees;
+                if project.active_worktree_index >= project.worktrees.len() {
+                    project.active_worktree_index = 0;
+                }
+            }
+        }
+
+        // ====================================================================
+        // MCP Actions
+        // ====================================================================
+        Action::StartMcpServer => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.mcp.status = McpStatus::Starting;
+                    worktree.mcp.error = None;
+                }
+            }
+        }
+
+        Action::StopMcpServer => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.mcp.status = McpStatus::Stopped;
+                    worktree.mcp.port = None;
+                }
+            }
+        }
+
+        Action::SetMcpStatus { status } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.mcp.status = status.into();
+                }
+            }
+        }
+
+        Action::SetMcpPort { port } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.mcp.port = Some(port);
+                    worktree.mcp.status = McpStatus::Running;
+                }
+            }
+        }
+
+        Action::SetMcpConfigPath { path } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.mcp.config_path = Some(path);
+                }
+            }
+        }
+
+        Action::SetMcpError { error } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.mcp.status = McpStatus::Error;
+                    worktree.mcp.error = Some(error);
+                }
+            }
+        }
+
+        // ====================================================================
+        // Docker Actions (operate on active worktree)
         // ====================================================================
         Action::CheckDockerAvailability => {
             if let Some(project) = state.active_project_mut() {
-                project.dockers.is_loading = true;
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.dockers.is_loading = true;
+                }
             }
         }
 
         Action::SetDockerAvailable { available } => {
             if let Some(project) = state.active_project_mut() {
-                project.dockers.docker_available = Some(available);
-                project.dockers.is_loading = false;
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.dockers.docker_available = Some(available);
+                    worktree.dockers.is_loading = false;
+                }
             }
         }
 
         Action::RefreshDockerServices => {
             if let Some(project) = state.active_project_mut() {
-                project.dockers.is_loading = true;
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.dockers.is_loading = true;
+                }
             }
         }
 
         Action::SetDockerServices { services } => {
             if let Some(project) = state.active_project_mut() {
-                project.dockers.services = services.into_iter().map(|s| s.into()).collect();
-                project.dockers.is_loading = false;
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.dockers.services = services.into_iter().map(|s| s.into()).collect();
+                    worktree.dockers.is_loading = false;
+                }
             }
         }
 
         Action::StartDockerService { service_id } => {
             if let Some(project) = state.active_project_mut() {
-                if let Some(service) = project
-                    .dockers
-                    .services
-                    .iter_mut()
-                    .find(|s| s.id == service_id)
-                {
-                    service.status = ServiceStatus::Starting;
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(service) = worktree
+                        .dockers
+                        .services
+                        .iter_mut()
+                        .find(|s| s.id == service_id)
+                    {
+                        service.status = ServiceStatus::Starting;
+                    }
                 }
             }
         }
 
         Action::StopDockerService { service_id } => {
             if let Some(project) = state.active_project_mut() {
-                if let Some(service) = project
-                    .dockers
-                    .services
-                    .iter_mut()
-                    .find(|s| s.id == service_id)
-                {
-                    service.status = ServiceStatus::Stopping;
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(service) = worktree
+                        .dockers
+                        .services
+                        .iter_mut()
+                        .find(|s| s.id == service_id)
+                    {
+                        service.status = ServiceStatus::Stopping;
+                    }
                 }
             }
         }
 
         Action::RestartDockerService { service_id } => {
             if let Some(project) = state.active_project_mut() {
-                if let Some(service) = project
-                    .dockers
-                    .services
-                    .iter_mut()
-                    .find(|s| s.id == service_id)
-                {
-                    service.status = ServiceStatus::Starting;
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(service) = worktree
+                        .dockers
+                        .services
+                        .iter_mut()
+                        .find(|s| s.id == service_id)
+                    {
+                        service.status = ServiceStatus::Starting;
+                    }
                 }
             }
         }
 
         Action::SelectDockerService { service_id } => {
             if let Some(project) = state.active_project_mut() {
-                project.dockers.selected_service_id = service_id;
-                project.dockers.logs.clear();
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.dockers.selected_service_id = service_id;
+                    worktree.dockers.logs.clear();
+                }
             }
         }
 
         Action::FetchDockerLogs { .. } => {
             if let Some(project) = state.active_project_mut() {
-                project.dockers.is_loading_logs = true;
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.dockers.is_loading_logs = true;
+                }
             }
         }
 
         Action::SetDockerLogs { logs } => {
             if let Some(project) = state.active_project_mut() {
-                project.dockers.logs = logs;
-                project.dockers.is_loading_logs = false;
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.dockers.logs = logs;
+                    worktree.dockers.is_loading_logs = false;
+                }
             }
         }
 
@@ -187,80 +296,102 @@ pub fn reduce(state: &mut AppState, action: Action) {
 
         Action::SetDockerLoading { is_loading } => {
             if let Some(project) = state.active_project_mut() {
-                project.dockers.is_loading = is_loading;
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.dockers.is_loading = is_loading;
+                }
             }
         }
 
         Action::SetDockerLogsLoading { is_loading } => {
             if let Some(project) = state.active_project_mut() {
-                project.dockers.is_loading_logs = is_loading;
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.dockers.is_loading_logs = is_loading;
+                }
             }
         }
 
         // ====================================================================
-        // Tasks Actions (operate on active project)
+        // Tasks Actions (operate on active worktree)
         // ====================================================================
         Action::LoadJustfileCommands { .. } => {
             if let Some(project) = state.active_project_mut() {
-                project.tasks.is_loading = true;
-                project.tasks.error = None;
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.tasks.is_loading = true;
+                    worktree.tasks.error = None;
+                }
             }
         }
 
         Action::SetJustfileCommands { commands } => {
             if let Some(project) = state.active_project_mut() {
-                project.tasks.commands = commands.into_iter().map(|c| c.into()).collect();
-                project.tasks.is_loading = false;
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.tasks.commands = commands.into_iter().map(|c| c.into()).collect();
+                    worktree.tasks.is_loading = false;
+                }
             }
         }
 
         Action::RunJustCommand { name, .. } => {
             if let Some(project) = state.active_project_mut() {
-                project.tasks.active_command = Some(name.clone());
-                project.tasks.task_statuses.insert(name, TaskStatus::Running);
-                project.tasks.output.clear();
-                project.is_modified = true;
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.tasks.active_command = Some(name.clone());
+                    worktree.tasks.task_statuses.insert(name, TaskStatus::Running);
+                    worktree.tasks.output.clear();
+                    worktree.is_modified = true;
+                }
             }
         }
 
         Action::SetTaskStatus { name, status } => {
             if let Some(project) = state.active_project_mut() {
-                project.tasks.task_statuses.insert(name, status.into());
-                // Clear modified flag if task completed
-                if matches!(status, TaskStatusData::Success | TaskStatusData::Error) {
-                    project.is_modified = false;
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.tasks.task_statuses.insert(name, status.into());
+                    // Clear modified flag if task completed
+                    if matches!(status, TaskStatusData::Success | TaskStatusData::Error) {
+                        worktree.is_modified = false;
+                    }
                 }
             }
         }
 
         Action::SetActiveCommand { name } => {
             if let Some(project) = state.active_project_mut() {
-                project.tasks.active_command = name;
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.tasks.active_command = name;
+                }
             }
         }
 
         Action::AppendTaskOutput { line } => {
             if let Some(project) = state.active_project_mut() {
-                project.tasks.output.push(line);
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.tasks.output.push(line);
+                }
             }
         }
 
         Action::ClearTaskOutput => {
             if let Some(project) = state.active_project_mut() {
-                project.tasks.output.clear();
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.tasks.output.clear();
+                }
             }
         }
 
         Action::SetTasksLoading { is_loading } => {
             if let Some(project) = state.active_project_mut() {
-                project.tasks.is_loading = is_loading;
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.tasks.is_loading = is_loading;
+                }
             }
         }
 
         Action::SetTasksError { error } => {
             if let Some(project) = state.active_project_mut() {
-                project.tasks.error = error;
-                project.tasks.is_loading = false;
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.tasks.error = error;
+                    worktree.tasks.is_loading = false;
+                }
             }
         }
 
@@ -376,6 +507,17 @@ impl From<TaskStatusData> for TaskStatus {
     }
 }
 
+impl From<McpStatusData> for McpStatus {
+    fn from(data: McpStatusData) -> Self {
+        match data {
+            McpStatusData::Stopped => McpStatus::Stopped,
+            McpStatusData::Starting => McpStatus::Starting,
+            McpStatusData::Running => McpStatus::Running,
+            McpStatusData::Error => McpStatus::Error,
+        }
+    }
+}
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -395,6 +537,24 @@ mod tests {
             },
         );
         state
+    }
+
+    /// Helper to get the active worktree from state (for tests)
+    fn active_worktree(state: &AppState) -> &crate::app_state::WorktreeState {
+        state
+            .active_project()
+            .unwrap()
+            .active_worktree()
+            .unwrap()
+    }
+
+    /// Helper to get the active worktree mutably from state (for tests)
+    fn active_worktree_mut(state: &mut AppState) -> &mut crate::app_state::WorktreeState {
+        state
+            .active_project_mut()
+            .unwrap()
+            .active_worktree_mut()
+            .unwrap()
     }
 
     // ========================================================================
@@ -529,7 +689,7 @@ mod tests {
     #[test]
     fn test_reduce_set_feature_tab() {
         let mut state = state_with_project();
-        assert_eq!(state.active_project().unwrap().active_tab, FeatureTab::Tasks);
+        assert_eq!(active_worktree(&state).active_tab, FeatureTab::Tasks);
 
         reduce(
             &mut state,
@@ -537,10 +697,7 @@ mod tests {
                 tab: FeatureTab::Dockers,
             },
         );
-        assert_eq!(
-            state.active_project().unwrap().active_tab,
-            FeatureTab::Dockers
-        );
+        assert_eq!(active_worktree(&state).active_tab, FeatureTab::Dockers);
     }
 
     // ========================================================================
@@ -552,12 +709,12 @@ mod tests {
         let mut state = state_with_project();
 
         reduce(&mut state, Action::CheckDockerAvailability);
-        assert!(state.active_project().unwrap().dockers.is_loading);
+        assert!(active_worktree(&state).dockers.is_loading);
 
         reduce(&mut state, Action::SetDockerAvailable { available: true });
-        let project = state.active_project().unwrap();
-        assert_eq!(project.dockers.docker_available, Some(true));
-        assert!(!project.dockers.is_loading);
+        let worktree = active_worktree(&state);
+        assert_eq!(worktree.dockers.docker_available, Some(true));
+        assert!(!worktree.dockers.is_loading);
     }
 
     #[test]
@@ -565,7 +722,7 @@ mod tests {
         let mut state = state_with_project();
 
         reduce(&mut state, Action::RefreshDockerServices);
-        assert!(state.active_project().unwrap().dockers.is_loading);
+        assert!(active_worktree(&state).dockers.is_loading);
 
         reduce(
             &mut state,
@@ -581,18 +738,16 @@ mod tests {
             },
         );
 
-        let project = state.active_project().unwrap();
-        assert!(!project.dockers.is_loading);
-        assert_eq!(project.dockers.services.len(), 1);
-        assert_eq!(project.dockers.services[0].name, "PostgreSQL");
+        let worktree = active_worktree(&state);
+        assert!(!worktree.dockers.is_loading);
+        assert_eq!(worktree.dockers.services.len(), 1);
+        assert_eq!(worktree.dockers.services[0].name, "PostgreSQL");
     }
 
     #[test]
     fn test_reduce_start_stop_service() {
         let mut state = state_with_project();
-        state
-            .active_project_mut()
-            .unwrap()
+        active_worktree_mut(&mut state)
             .dockers
             .services
             .push(DockerServiceInfo {
@@ -611,7 +766,7 @@ mod tests {
             },
         );
         assert_eq!(
-            state.active_project().unwrap().dockers.services[0].status,
+            active_worktree(&state).dockers.services[0].status,
             ServiceStatus::Starting
         );
 
@@ -622,13 +777,13 @@ mod tests {
             },
         );
         assert_eq!(
-            state.active_project().unwrap().dockers.services[0].status,
+            active_worktree(&state).dockers.services[0].status,
             ServiceStatus::Stopping
         );
     }
 
     // ========================================================================
-    // Tasks Actions Tests (with project context)
+    // Tasks Actions Tests (with worktree context)
     // ========================================================================
 
     #[test]
@@ -641,7 +796,7 @@ mod tests {
                 path: "/some/path".to_string(),
             },
         );
-        assert!(state.active_project().unwrap().tasks.is_loading);
+        assert!(active_worktree(&state).tasks.is_loading);
 
         reduce(
             &mut state,
@@ -654,10 +809,10 @@ mod tests {
             },
         );
 
-        let project = state.active_project().unwrap();
-        assert!(!project.tasks.is_loading);
-        assert_eq!(project.tasks.commands.len(), 1);
-        assert_eq!(project.tasks.commands[0].name, "test");
+        let worktree = active_worktree(&state);
+        assert!(!worktree.tasks.is_loading);
+        assert_eq!(worktree.tasks.commands.len(), 1);
+        assert_eq!(worktree.tasks.commands[0].name, "test");
     }
 
     #[test]
@@ -672,13 +827,13 @@ mod tests {
             },
         );
 
-        let project = state.active_project().unwrap();
-        assert_eq!(project.tasks.active_command, Some("test".to_string()));
+        let worktree = active_worktree(&state);
+        assert_eq!(worktree.tasks.active_command, Some("test".to_string()));
         assert_eq!(
-            project.tasks.task_statuses.get("test"),
+            worktree.tasks.task_statuses.get("test"),
             Some(&TaskStatus::Running)
         );
-        assert!(project.is_modified);
+        assert!(worktree.is_modified);
     }
 
     #[test]
@@ -698,11 +853,11 @@ mod tests {
             },
         );
 
-        let project = state.active_project().unwrap();
-        assert_eq!(project.tasks.output.len(), 2);
+        let worktree = active_worktree(&state);
+        assert_eq!(worktree.tasks.output.len(), 2);
 
         reduce(&mut state, Action::ClearTaskOutput);
-        assert!(state.active_project().unwrap().tasks.output.is_empty());
+        assert!(active_worktree(&state).tasks.output.is_empty());
     }
 
     // ========================================================================

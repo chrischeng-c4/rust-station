@@ -47,9 +47,15 @@ pub struct ProjectPersistedState {
 impl ProjectPersistedState {
     /// Extract persistable fields from ProjectState
     pub fn from_project_state(project: &ProjectState) -> Self {
+        // Get active_tab from the active worktree
+        let active_tab = project
+            .active_worktree()
+            .map(|w| w.active_tab)
+            .unwrap_or_default();
+
         Self {
             path: project.path.clone(),
-            active_tab: project.active_tab,
+            active_tab,
         }
     }
 
@@ -57,7 +63,10 @@ impl ProjectPersistedState {
     pub fn apply_to(&self, project: &mut ProjectState) {
         // Only apply if path matches (sanity check)
         if self.path == project.path {
-            project.active_tab = self.active_tab;
+            // Apply active_tab to the active worktree
+            if let Some(worktree) = project.active_worktree_mut() {
+                worktree.active_tab = self.active_tab;
+            }
         }
     }
 }
@@ -281,7 +290,10 @@ mod tests {
     #[test]
     fn test_project_persisted_from_project_state() {
         let mut project = ProjectState::new("/test/path".to_string());
-        project.active_tab = FeatureTab::Settings;
+        // Set active_tab through the worktree
+        if let Some(worktree) = project.active_worktree_mut() {
+            worktree.active_tab = FeatureTab::Settings;
+        }
 
         let persisted = ProjectPersistedState::from_project_state(&project);
         assert_eq!(persisted.path, "/test/path");
@@ -296,10 +308,17 @@ mod tests {
         };
 
         let mut project = ProjectState::new("/test/path".to_string());
-        assert_eq!(project.active_tab, FeatureTab::Tasks); // default
+        // Verify default is Tasks
+        assert_eq!(
+            project.active_worktree().unwrap().active_tab,
+            FeatureTab::Tasks
+        );
 
         persisted.apply_to(&mut project);
-        assert_eq!(project.active_tab, FeatureTab::Dockers);
+        assert_eq!(
+            project.active_worktree().unwrap().active_tab,
+            FeatureTab::Dockers
+        );
     }
 
     #[test]
@@ -313,7 +332,10 @@ mod tests {
         persisted.apply_to(&mut project);
 
         // Should NOT apply because paths don't match
-        assert_eq!(project.active_tab, FeatureTab::Tasks);
+        assert_eq!(
+            project.active_worktree().unwrap().active_tab,
+            FeatureTab::Tasks
+        );
     }
 
     #[test]

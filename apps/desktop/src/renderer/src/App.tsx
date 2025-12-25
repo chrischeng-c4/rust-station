@@ -3,7 +3,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ListTodo, Container, Settings, RefreshCw, FolderOpen } from 'lucide-react'
 import { DockersPage } from '@/features/dockers/DockersPage'
 import { TasksPage } from '@/features/tasks/TasksPage'
-import { useActiveProject, useAppState } from '@/hooks/useAppState'
+import { useActiveWorktree, useAppState } from '@/hooks/useAppState'
 import { ProjectTabs } from '@/components/ProjectTabs'
 import { Button } from '@/components/ui/button'
 import type { FeatureTab } from '@/types/state'
@@ -33,9 +33,9 @@ function NoProjectView() {
 
 function App(): JSX.Element {
   const { state, isLoading } = useAppState()
-  const { project, dispatch } = useActiveProject()
+  const { worktree, project, dispatch } = useActiveWorktree()
 
-  const activeTab = project?.active_tab ?? 'tasks'
+  const activeTab = worktree?.active_tab ?? 'tasks'
 
   const handleTabChange = useCallback(
     (tab: string) => {
@@ -60,7 +60,7 @@ function App(): JSX.Element {
 
       {/* Main Content */}
       <div className="flex flex-1 overflow-hidden">
-        {project ? (
+        {worktree ? (
           /* Sidebar + Content when project is open */
           <Tabs
             value={activeTab}

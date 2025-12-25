@@ -13,6 +13,7 @@ import type {
   TasksState,
   GlobalSettings,
   ProjectState,
+  WorktreeState,
 } from '../types/state'
 
 // ============================================================================
@@ -142,6 +143,62 @@ export function useActiveProject(): UseActiveProjectResult {
 }
 
 // ============================================================================
+// Worktree Hooks
+// ============================================================================
+
+interface UseActiveWorktreeResult {
+  /** Currently active worktree (null if no projects open) */
+  worktree: WorktreeState | null
+  /** The parent project */
+  project: ProjectState | null
+  /** Index of the active worktree within the project */
+  activeWorktreeIndex: number
+  /** All worktrees in the active project */
+  worktrees: WorktreeState[]
+  /** Dispatch an action */
+  dispatch: (action: Action) => Promise<void>
+  /** Whether state is loading */
+  isLoading: boolean
+}
+
+/**
+ * Hook for accessing the active worktree state.
+ *
+ * @example
+ * ```tsx
+ * function WorktreeView() {
+ *   const { worktree, project, dispatch } = useActiveWorktree()
+ *
+ *   if (!worktree) return <NoProjectOpen />
+ *
+ *   return (
+ *     <div>
+ *       <h1>{project.name} / {worktree.branch}</h1>
+ *       <TabContent tab={worktree.active_tab} />
+ *     </div>
+ *   )
+ * }
+ * ```
+ */
+export function useActiveWorktree(): UseActiveWorktreeResult {
+  const { project, dispatch, isLoading } = useActiveProject()
+
+  const worktree = useMemo(() => {
+    if (!project || project.worktrees.length === 0) return null
+    return project.worktrees[project.active_worktree_index] ?? null
+  }, [project])
+
+  return {
+    worktree,
+    project,
+    activeWorktreeIndex: project?.active_worktree_index ?? 0,
+    worktrees: project?.worktrees ?? [],
+    dispatch,
+    isLoading,
+  }
+}
+
+// ============================================================================
 // Feature-specific Hooks
 // ============================================================================
 
@@ -155,7 +212,7 @@ interface UseDockersStateResult {
 }
 
 /**
- * Hook for accessing Docker state from the active project.
+ * Hook for accessing Docker state from the active worktree.
  *
  * @example
  * ```tsx
@@ -173,18 +230,18 @@ interface UseDockersStateResult {
  * ```
  */
 export function useDockersState(): UseDockersStateResult {
-  const { project, dispatch, isLoading } = useActiveProject()
+  const { worktree, dispatch, isLoading } = useActiveWorktree()
   return {
-    dockers: project?.dockers ?? null,
+    dockers: worktree?.dockers ?? null,
     dispatch,
     isLoading,
   }
 }
 
 interface UseTasksStateResult {
-  /** Tasks-related state from the active project */
+  /** Tasks-related state from the active worktree */
   tasks: TasksState | null
-  /** The project path (for running tasks) */
+  /** The worktree path (for running tasks) */
   projectPath: string | null
   /** Dispatch an action */
   dispatch: (action: Action) => Promise<void>
@@ -193,13 +250,13 @@ interface UseTasksStateResult {
 }
 
 /**
- * Hook for accessing Tasks state from the active project.
+ * Hook for accessing Tasks state from the active worktree.
  */
 export function useTasksState(): UseTasksStateResult {
-  const { project, dispatch, isLoading } = useActiveProject()
+  const { worktree, dispatch, isLoading } = useActiveWorktree()
   return {
-    tasks: project?.tasks ?? null,
-    projectPath: project?.path ?? null,
+    tasks: worktree?.tasks ?? null,
+    projectPath: worktree?.path ?? null,
     dispatch,
     isLoading,
   }
