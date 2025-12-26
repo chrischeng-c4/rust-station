@@ -1,107 +1,95 @@
 ---
 title: "Settings UI"
-description: "Planned: Settings configuration interface"
+description: "Spec: Unified Global and Worktree Settings"
 category: roadmap
-status: partial
-last_updated: 2025-12-26
-version: 3.0.0
+status: planned
+version: 1.1.0
 ---
 
-# Settings UI (Partial)
+# Feature Spec: Settings UI
 
-## Current State
+## 1. Overview
 
-**Backend**: Complete
-- `GlobalSettings` struct defined
-- `SetTheme` action implemented
-- `SetProjectPath` action implemented
-- Persistence working
+**Goal**: Provide a unified interface for configuring both Global (app-wide) and Worktree (context-specific) settings.
+**Core Value**: Allow users to customize their experience and configure environment-specific tool behaviors.
 
-**Frontend**: Not implemented
-- Settings tab shows "Coming Soon"
-- No UI components for settings
+## 2. User Stories
 
----
+1. **Theme**: As a user, I want to switch between Light, Dark, and System themes.
+2. **Defaults**: As a user, I want to set a default directory for new projects.
+3. **Worktree Specifics**: As a user, I want to override the `just` binary path for a specific legacy worktree.
 
-## Planned UI
+## 3. UI Design
 
+### Location
+- **View**: `SettingsPage`
+- **Access**: "Settings" tab in the left sidebar (Worktree Scope).
+
+### Layout
 ```
-┌─────────────────────────────────────────────────────────┐
-│ Settings                                                │
-├─────────────────────────────────────────────────────────┤
-│                                                         │
-│ Appearance                                              │
-│ ─────────────────────────────────────────────────────── │
-│ Theme:     [System ▼]                                   │
-│            ○ Light  ○ Dark  ● System                    │
-│                                                         │
-│ Paths                                                   │
-│ ─────────────────────────────────────────────────────── │
-│ Default Project Path:                                   │
-│ [/Users/chris/projects          ] [Browse...]           │
-│                                                         │
-│ About                                                   │
-│ ─────────────────────────────────────────────────────── │
-│ Version: 0.1.0                                          │
-│ Electron: 28.0.0                                        │
-│ React: 19.0.0                                           │
-│                                                         │
-└─────────────────────────────────────────────────────────┘
++---------------------------------------------------------------+
+| Settings                                                      |
++-----------------------+---------------------------------------+
+| [ General           ] |  Global Settings                      |
+| [ Editor            ] |  -----------------------------------  |
+| [ Worktree          ] |  Theme                                |
+| [ About             ] |  (o) System  ( ) Light  ( ) Dark      |
+|                       |                                       |
+|                       |  Default Project Path                 |
+|                       |  [ /Users/chris/dev       ] [Browse]  |
+|                       |                                       |
+|                       |  Worktree Overrides (feature/login)   |
+|                       |  -----------------------------------  |
+|                       |  Justfile Path                        |
+|                       |  [ ./justfile             ]           |
+|                       |                                       |
+|                       |  MCP Server Port                      |
+|                       |  [ Auto                   ]           |
++-----------------------+---------------------------------------+
 ```
 
----
+## 4. State Architecture
 
-## Settings Structure
-
-```typescript
-interface GlobalSettings {
-  theme: 'system' | 'light' | 'dark'
-  default_project_path: string | null
+### Global Settings (AppState)
+```rust
+pub struct GlobalSettings {
+    pub theme: Theme, // System, Light, Dark
+    pub default_project_path: Option<String>,
+    pub notifications_enabled: bool,
 }
 ```
 
----
+### Worktree Settings (WorktreeState)
+*New struct needed*
+```rust
+pub struct WorktreeSettings {
+    pub justfile_path: Option<String>, // Default: "justfile"
+    pub mcp_port_override: Option<u16>,
+    pub terminal_font_size: Option<u8>,
+}
+```
 
-## Actions (Already Implemented)
+## 5. Actions & API
 
 | Action | Payload | Description |
 |--------|---------|-------------|
-| `SetTheme` | `{ theme: Theme }` | Change theme |
-| `SetProjectPath` | `{ path: string }` | Set default path |
+| `SetTheme` | `{ theme: Theme }` | Update global theme |
+| `SetGlobalSetting` | `{ key: string, value: any }` | Generic setter |
+| `SetWorktreeSetting` | `{ worktree_id: string, key: string, value: any }` | Override |
 
----
+## 6. Implementation Plan
 
-## Implementation Tasks
+### Phase 1: Global Settings
+- Implement `GlobalSettings` persistence.
+- Create `SettingsPage` with "General" tab.
+- Implement Theme toggle using `document.documentElement.classList`.
 
-### 1. SettingsPage.tsx
-- Form layout with sections
-- Theme radio buttons or dropdown
-- Path input with browse button
-- About section with versions
+### Phase 2: Worktree Settings
+- Add `settings` field to `WorktreeState`.
+- Add "Worktree" tab to `SettingsPage`.
+- Implement overrides logic in backend (e.g. `get_effective_setting(key)`).
 
-### 2. Theme System
-- Apply theme to document root
-- Persist preference
-- Respect system preference when "System" selected
-
-### 3. Path Browser
-- Use `dialogApi.openFolder()`
-- Validate path exists
-- Show current value
-
----
-
-## UI Components Needed
-
-| Component | Purpose |
-|-----------|---------|
-| `ThemeSelector` | Radio group for theme |
-| `PathInput` | Text input + browse button |
-| `SettingsSection` | Grouped settings with header |
-
----
-
-## References
-
-- [State Topology](../implemented/02-state-topology.md)
-- [Persistence](../implemented/03-persistence.md)
+## 7. Edge Cases
+- **Theme Sync**: System theme changes should auto-update app if "System" is selected.
+- **Persistence**: Settings must survive app restart.
+- **Migration**: Adding new settings fields should not break existing JSON.

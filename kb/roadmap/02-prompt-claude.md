@@ -1,155 +1,84 @@
 ---
-title: "Prompt-to-Claude Workflow"
-description: "Planned: Integrated Claude conversation interface"
+title: "Prompt Claude Chat UI"
+description: "Spec: Native Chat Interface for AI Assistance"
 category: roadmap
 status: planned
-last_updated: 2025-12-26
-version: 3.0.0
+version: 1.1.0
 ---
 
-# Prompt-to-Claude Workflow (Planned)
+# Feature Spec: Prompt Claude Chat UI
 
-## Overview
+## 1. Overview
 
-A dedicated workflow for interacting with Claude Code directly from rustation.
+**Goal**: A built-in chat interface to interact with an LLM (Claude) that has access to the project context via the native MCP server.
+**Core Value**: Seamless "Ask & Code" workflow without switching windows.
 
----
+## 2. User Stories
 
-## Planned UI
+1. **Ask Question**: As a user, I want to ask "Where is the auth logic?" and get an answer with file links.
+2. **Generate Code**: As a user, I want to ask "Create a login form" and get a code block I can copy.
+3. **Context**: As a user, I want the chat to automatically know about the file I currently have open.
 
+## 3. UI Design
+
+### Location
+- **View**: Right-side panel (collapsible) or "Assistant" tab in sidebar.
+
+### Layout
 ```
-┌─────────────────────────────────────────────────────────┐
-│ Workflows                                               │
-├─────────────────────────────────────────────────────────┤
-│ ┌─────────────────────────────────────────────────────┐ │
-│ │ Claude Response                                     │ │
-│ │ ───────────────────────────────────────────────────│ │
-│ │ I'll help you implement that feature...            │ │
-│ │                                                     │ │
-│ │ ```rust                                            │ │
-│ │ fn new_feature() {                                 │ │
-│ │     // implementation                              │ │
-│ │ }                                                  │ │
-│ │ ```                                                │ │
-│ └─────────────────────────────────────────────────────┘ │
-│ ┌─────────────────────────────────────────────────────┐ │
-│ │ Type your prompt...                          [Send] │ │
-│ └─────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────┘
-```
-
----
-
-## Features
-
-### 1. Prompt Input
-- Multi-line text input
-- File/folder attachment
-- Context injection options
-
-### 2. Streaming Response
-- Real-time token streaming
-- Syntax highlighting for code
-- Auto-scroll with pause on manual scroll
-
-### 3. Conversation History
-- Previous prompts and responses
-- Session persistence
-- Clear/reset option
-
-### 4. Context Injection
-- Current file contents
-- Project structure
-- Docker service status
-- Recent task outputs
-
----
-
-## Claude CLI Integration
-
-```bash
-claude -p "prompt" \
-  --output-format stream-json \
-  --verbose \
-  --mcp-config ~/.rstn/mcp-session.json \
-  --append-system-prompt "Context: ..."
++-------------------------------------------------------+
+| Claude Assistant                                  [x] |
++-------------------------------------------------------+
+| [User] How do I run tests?                            |
+|                                                       |
+| [Claude] You can use `just test`.                     |
+| Here is the command from your justfile:               |
+| ```bash                                               |
+| cargo test && pnpm test                               |
+| ```                                                   |
+|                                                       |
+| [User] Fix the bug in main.rs                         |
+|                                                       |
+| [Claude] Reading src/main.rs...                       |
+| I found a missing semicolon on line 10.               |
++-------------------------------------------------------+
+| [ Type a message... ] [Attach] [Send]                 |
++-------------------------------------------------------+
 ```
 
-### Output Format (stream-json)
+## 4. Architecture
 
-```json
-{"type": "assistant", "message": {"content": [{"type": "text", "text": "..."}]}}
-{"type": "result", "result": "...", "cost_usd": 0.01}
-```
+### Backend (Rust)
+- **Client**: `anthropic-sdk-rs` (or raw HTTP reqwest).
+- **Context Gathering**: See "Intelligent Context Engine".
+- **Streaming**: Must support SSE to stream tokens to frontend.
 
----
+### Frontend (React)
+- **State**: `messages: Vec<Message>`, `isTyping: boolean`.
+- **Rendering**: `react-markdown` with syntax highlighting (`prismjs`).
 
-## State Extensions
+## 5. Actions & API
 
-```rust
-pub struct WorkflowState {
-    pub mode: WorkflowMode,
-    pub prompt_input: String,
-    pub conversation: Vec<ConversationEntry>,
-    pub is_streaming: bool,
-    pub session_id: Option<String>,
-}
+| Action | Payload | Description |
+|--------|---------|-------------|
+| `SendChatMessage` | `{ text, context_ids }` | User sends message |
+| `StreamChatResponse` | `{ chunk }` | Server pushes token |
+| `ChatError` | `{ message }` | Connection/API error |
 
-pub enum WorkflowMode {
-    Idle,
-    Composing,
-    Sending,
-    Receiving,
-}
+## 6. Implementation Plan
 
-pub struct ConversationEntry {
-    pub role: Role,
-    pub content: String,
-    pub timestamp: DateTime<Utc>,
-}
-```
+### Phase 1: Basic Chat
+- API Key management (Settings).
+- Simple Text In/Text Out.
 
----
+### Phase 2: Context Injection
+- Append "System Prompt" with project details.
+- Attach open file content.
 
-## Actions (Planned)
+### Phase 3: Streaming & Markdown
+- Implement token streaming pipeline.
+- Render rich text.
 
-| Action | Description |
-|--------|-------------|
-| `SetPromptInput` | Update prompt text |
-| `SendPrompt` | Submit to Claude |
-| `AppendResponse` | Add streaming chunk |
-| `CompleteResponse` | Mark response complete |
-| `ClearConversation` | Reset history |
-| `SetWorkflowMode` | Update UI mode |
-
----
-
-## Sequence Diagram
-
-```mermaid
-sequenceDiagram
-    participant UI as React
-    participant Rust as napi-rs
-    participant Claude as Claude CLI
-
-    UI->>Rust: SendPrompt { prompt }
-    Rust->>Rust: SetWorkflowMode(Sending)
-    Rust->>Claude: spawn("claude -p ...")
-
-    loop Streaming
-        Claude-->>Rust: stdout line (JSON)
-        Rust->>Rust: AppendResponse { chunk }
-        Rust->>UI: state:update
-    end
-
-    Claude-->>Rust: Exit
-    Rust->>Rust: CompleteResponse
-    Rust->>Rust: SetWorkflowMode(Idle)
-```
-
----
-
-## References
-
-- [MCP Integration](01-mcp-integration.md)
-- [Architecture Overview](../implemented/00-architecture.md)
+## 7. Edge Cases
+- **Network Failure**: Handle offline state gracefully.
+- **Cost**: Display token usage/cost estimation if possible.
