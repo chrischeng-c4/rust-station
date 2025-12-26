@@ -41,31 +41,3 @@ install: build-app
     ln -sf {{justfile_directory()}}/apps/desktop/bin/rstn ~/.local/bin/rstn
     @echo "Installed rstn to ~/.local/bin/rstn"
     @echo "Usage: rstn .  # Open current directory"
-
-# ============================================================================
-# Legacy Python CLI (rstn v2)
-# ============================================================================
-
-# Install Python CLI to ~/.local/bin
-install-py:
-    uv pip install -e ".[dev]"
-    mkdir -p ~/.local/bin
-    ln -sf {{justfile_directory()}}/.venv/bin/rstn ~/.local/bin/rstn
-    @echo "Installed rstn to ~/.local/bin/rstn"
-
-# Run Python tests
-test-py:
-    uv run pytest tests/ -v
-
-# Run Python tests with coverage
-test-py-cov:
-    uv run pytest tests/ --cov=rstn --cov-report=term-missing
-
-# Check Python code quality (ruff + mypy)
-check-py:
-    uv run ruff check rstn/ tests/
-    uv run mypy rstn/ --ignore-missing-imports
-
-# Fix Python lint issues
-fix-py:
-    uv run ruff check --fix rstn/ tests/
