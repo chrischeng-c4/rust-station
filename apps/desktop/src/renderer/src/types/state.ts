@@ -179,6 +179,21 @@ export interface SetWorktreesAction {
   payload: { worktrees: WorktreeData[] }
 }
 
+export interface AddWorktreeAction {
+  type: 'AddWorktree'
+  payload: { branch: string }
+}
+
+export interface AddWorktreeNewBranchAction {
+  type: 'AddWorktreeNewBranch'
+  payload: { branch: string }
+}
+
+export interface RemoveWorktreeAction {
+  type: 'RemoveWorktree'
+  payload: { worktree_path: string }
+}
+
 // MCP Actions
 export interface StartMcpServerAction {
   type: 'StartMcpServer'
@@ -378,6 +393,9 @@ export type Action =
   | SwitchWorktreeAction
   | RefreshWorktreesAction
   | SetWorktreesAction
+  | AddWorktreeAction
+  | AddWorktreeNewBranchAction
+  | RemoveWorktreeAction
   | StartMcpServerAction
   | StopMcpServerAction
   | SetMcpStatusAction

@@ -20,6 +20,9 @@ const api = {
     parse: (path: string) => core.justfileParse(path),
     run: (command: string, cwd: string) => core.justfileRun(command, cwd),
   },
+  worktree: {
+    listBranches: (repoPath: string) => core.worktreeListBranches(repoPath),
+  },
 }
 
 // Dialog API for native dialogs

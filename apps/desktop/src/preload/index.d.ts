@@ -17,6 +17,13 @@ interface JustCommand {
   recipe: string
 }
 
+// Branch info types (matching Rust BranchInfo struct)
+interface BranchInfo {
+  name: string
+  hasWorktree: boolean
+  isCurrent: boolean
+}
+
 // API exposed to renderer via contextBridge
 // NOTE: This is the legacy API (React-first). Use stateApi for new code.
 interface Api {
@@ -34,6 +41,9 @@ interface Api {
   justfile: {
     parse(path: string): JustCommand[]
     run(command: string, cwd: string): string
+  }
+  worktree: {
+    listBranches(repoPath: string): BranchInfo[]
   }
 }
 

@@ -1,10 +1,25 @@
 //! Git worktree parsing and management.
 //!
-//! Parses the output of `git worktree list` to get all worktrees for a project.
+//! Provides functions to:
+//! - List worktrees for a project
+//! - List available branches
+//! - Create new worktrees (from existing or new branch)
+//! - Remove worktrees
 
 use crate::actions::WorktreeData;
 use std::path::Path;
 use std::process::Command;
+
+/// Branch information for UI display
+#[derive(Debug, Clone)]
+pub struct BranchInfo {
+    /// Branch name (e.g., "main", "feature/auth")
+    pub name: String,
+    /// Whether this branch already has a worktree
+    pub has_worktree: bool,
+    /// Whether this is the current branch in main worktree
+    pub is_current: bool,
+}
 
 /// Get the git repository root for a given path.
 ///
@@ -175,6 +190,199 @@ fn parse_worktree_line(line: &str, main_worktree_path: &str) -> Option<WorktreeD
 }
 
 // ============================================================================
+// Branch Management
+// ============================================================================
+
+/// List all branches in a repository.
+///
+/// Returns branches that can be used to create worktrees.
+/// Branches that already have worktrees are marked.
+pub fn list_branches(repo_path: &str) -> Result<Vec<BranchInfo>, String> {
+    // Get all branches
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .arg("branch")
+        .arg("-a")
+        .arg("--format=%(refname:short)%(if)%(HEAD)%(then)*%(end)")
+        .output()
+        .map_err(|e| format!("Failed to run git branch: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("git branch failed: {}", stderr));
+    }
+
+    // Get existing worktrees to mark branches that already have one
+    let worktrees = list_worktrees(repo_path).unwrap_or_default();
+    let worktree_branches: std::collections::HashSet<_> =
+        worktrees.iter().map(|w| w.branch.as_str()).collect();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut branches = Vec::new();
+
+    for line in stdout.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        // Skip remote tracking branches (origin/xxx)
+        if line.contains("origin/") || line.contains("HEAD") {
+            continue;
+        }
+
+        let is_current = line.ends_with('*');
+        let name = line.trim_end_matches('*').to_string();
+        let has_worktree = worktree_branches.contains(name.as_str());
+
+        branches.push(BranchInfo {
+            name,
+            has_worktree,
+            is_current,
+        });
+    }
+
+    Ok(branches)
+}
+
+/// Generate the worktree path for a new worktree.
+///
+/// Uses Option B: sibling directory with project-branch naming.
+/// Example: /Users/chris/projects/rustation-feature-auth
+fn generate_worktree_path(repo_path: &str, branch: &str) -> String {
+    let repo_path = Path::new(repo_path);
+    let parent = repo_path.parent().unwrap_or(Path::new("/"));
+    let repo_name = repo_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("project");
+
+    // Sanitize branch name for filesystem (replace / with -)
+    let safe_branch = branch.replace('/', "-");
+
+    let worktree_name = format!("{}-{}", repo_name, safe_branch);
+    parent.join(worktree_name).to_string_lossy().to_string()
+}
+
+/// Create a new worktree from an existing branch.
+///
+/// The worktree will be created as a sibling directory.
+/// Example: /projects/rustation -> /projects/rustation-feature-auth
+pub fn add_worktree(repo_path: &str, branch: &str) -> Result<WorktreeData, String> {
+    let worktree_path = generate_worktree_path(repo_path, branch);
+
+    // Check if path already exists
+    if Path::new(&worktree_path).exists() {
+        return Err(format!("Path already exists: {}", worktree_path));
+    }
+
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .arg("worktree")
+        .arg("add")
+        .arg(&worktree_path)
+        .arg(branch)
+        .output()
+        .map_err(|e| format!("Failed to run git worktree add: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("git worktree add failed: {}", stderr));
+    }
+
+    Ok(WorktreeData {
+        path: worktree_path,
+        branch: branch.to_string(),
+        is_main: false,
+    })
+}
+
+/// Create a new worktree with a new branch.
+///
+/// Creates a new branch from the current HEAD and checks it out in a new worktree.
+pub fn add_worktree_new_branch(repo_path: &str, branch: &str) -> Result<WorktreeData, String> {
+    let worktree_path = generate_worktree_path(repo_path, branch);
+
+    // Check if path already exists
+    if Path::new(&worktree_path).exists() {
+        return Err(format!("Path already exists: {}", worktree_path));
+    }
+
+    // Check if branch already exists
+    let branch_check = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .arg("rev-parse")
+        .arg("--verify")
+        .arg(format!("refs/heads/{}", branch))
+        .output()
+        .map_err(|e| format!("Failed to check branch: {}", e))?;
+
+    if branch_check.status.success() {
+        return Err(format!("Branch '{}' already exists", branch));
+    }
+
+    // Create worktree with new branch (-b flag)
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .arg("worktree")
+        .arg("add")
+        .arg("-b")
+        .arg(branch)
+        .arg(&worktree_path)
+        .output()
+        .map_err(|e| format!("Failed to run git worktree add: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("git worktree add failed: {}", stderr));
+    }
+
+    Ok(WorktreeData {
+        path: worktree_path,
+        branch: branch.to_string(),
+        is_main: false,
+    })
+}
+
+/// Remove a worktree.
+///
+/// This removes the worktree directory and its git metadata.
+/// Cannot remove the main worktree.
+pub fn remove_worktree(repo_path: &str, worktree_path: &str) -> Result<(), String> {
+    // Safety check: don't remove main worktree
+    let worktrees = list_worktrees(repo_path)?;
+    let worktree = worktrees
+        .iter()
+        .find(|w| w.path == worktree_path)
+        .ok_or_else(|| format!("Worktree not found: {}", worktree_path))?;
+
+    if worktree.is_main {
+        return Err("Cannot remove the main worktree".to_string());
+    }
+
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .arg("worktree")
+        .arg("remove")
+        .arg(worktree_path)
+        .arg("--force")
+        .output()
+        .map_err(|e| format!("Failed to run git worktree remove: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("git worktree remove failed: {}", stderr));
+    }
+
+    Ok(())
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -298,5 +506,26 @@ mod tests {
 
         assert_eq!(find_worktree_for_path("/other/project", &worktrees), None);
         assert_eq!(find_worktree_for_path("/projects/other", &worktrees), None);
+    }
+
+    #[test]
+    fn test_generate_worktree_path() {
+        // Simple branch
+        let path = generate_worktree_path("/Users/chris/projects/rustation", "feature-auth");
+        assert_eq!(path, "/Users/chris/projects/rustation-feature-auth");
+
+        // Branch with slash
+        let path = generate_worktree_path("/Users/chris/projects/rustation", "feature/auth");
+        assert_eq!(path, "/Users/chris/projects/rustation-feature-auth");
+
+        // Nested branch
+        let path = generate_worktree_path("/Users/chris/projects/rustation", "fix/bug/123");
+        assert_eq!(path, "/Users/chris/projects/rustation-fix-bug-123");
+    }
+
+    #[test]
+    fn test_generate_worktree_path_preserves_parent() {
+        let path = generate_worktree_path("/home/user/code/myproject", "develop");
+        assert_eq!(path, "/home/user/code/myproject-develop");
     }
 }

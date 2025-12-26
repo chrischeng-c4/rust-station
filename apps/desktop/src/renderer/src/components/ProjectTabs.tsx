@@ -6,7 +6,8 @@
  * - Second row: Worktree sub-tabs (git worktrees within the active project)
  */
 
-import { X, Plus, FolderOpen, GitBranch, ChevronDown, History } from 'lucide-react'
+import { useState, useCallback } from 'react'
+import { X, Plus, FolderOpen, GitBranch, History } from 'lucide-react'
 import { Button } from './ui/button'
 import { useActiveProject, useActiveWorktree, useAppState } from '../hooks/useAppState'
 import { cn } from '@/lib/utils'
@@ -18,13 +19,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu'
+import { AddWorktreeDialog } from './AddWorktreeDialog'
 
 export function ProjectTabs() {
   const { state } = useAppState()
   const { projects, activeIndex, dispatch } = useActiveProject()
   const { worktrees, activeWorktreeIndex, worktree } = useActiveWorktree()
+  const [addWorktreeDialogOpen, setAddWorktreeDialogOpen] = useState(false)
 
   const recentProjects = state?.recent_projects ?? []
+  const activeProject = projects[activeIndex]
 
   const handleOpenProject = async () => {
     const path = await window.dialogApi.openFolder()
@@ -49,6 +53,14 @@ export function ProjectTabs() {
   const handleOpenRecentProject = async (path: string) => {
     await dispatch({ type: 'OpenProject', payload: { path } })
   }
+
+  const handleAddWorktreeFromBranch = useCallback(async (branch: string) => {
+    await dispatch({ type: 'AddWorktree', payload: { branch } })
+  }, [dispatch])
+
+  const handleAddWorktreeNewBranch = useCallback(async (branch: string) => {
+    await dispatch({ type: 'AddWorktreeNewBranch', payload: { branch } })
+  }, [dispatch])
 
   // Check if worktree has unsaved changes
   const getWorktreeModified = (wt: typeof worktree) => {
@@ -144,8 +156,8 @@ export function ProjectTabs() {
         )}
       </div>
 
-      {/* Worktree Sub-Tabs (Second Row) - Only show if project has multiple worktrees */}
-      {worktrees.length > 1 && (
+      {/* Worktree Sub-Tabs (Second Row) - Always show when project is open */}
+      {worktrees.length > 0 && (
         <div className="flex items-center gap-1 px-2 py-1 border-t border-border/50 bg-muted/20">
           <GitBranch className="h-3.5 w-3.5 text-muted-foreground mr-1" />
           {worktrees.map((wt, index) => (
@@ -167,7 +179,27 @@ export function ProjectTabs() {
               )}
             </div>
           ))}
+          {/* Add Worktree Button */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 text-muted-foreground ml-1"
+            onClick={() => setAddWorktreeDialogOpen(true)}
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </Button>
         </div>
+      )}
+
+      {/* Add Worktree Dialog */}
+      {activeProject && (
+        <AddWorktreeDialog
+          open={addWorktreeDialogOpen}
+          onOpenChange={setAddWorktreeDialogOpen}
+          repoPath={activeProject.path}
+          onAddFromBranch={handleAddWorktreeFromBranch}
+          onAddNewBranch={handleAddWorktreeNewBranch}
+        />
       )}
     </div>
   )

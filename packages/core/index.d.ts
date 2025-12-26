@@ -67,6 +67,14 @@ export declare function dockerCreateVhost(serviceId: string, vhostName: string):
 export declare function justfileParse(path: string): Array<JustCommand>
 /** Run a just command in a directory */
 export declare function justfileRun(command: string, cwd: string): string
+/** Branch info for napi export */
+export interface NapiBranchInfo {
+  name: string
+  hasWorktree: boolean
+  isCurrent: boolean
+}
+/** List all branches in a repository */
+export declare function worktreeListBranches(repoPath: string): Array<NapiBranchInfo>
 /**
  * Initialize the application state and register a listener for state updates.
  *

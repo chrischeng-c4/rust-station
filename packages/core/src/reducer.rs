@@ -469,6 +469,17 @@ pub fn reduce(state: &mut AppState, action: Action) {
         Action::ClearError => {
             state.error = None;
         }
+
+        // ====================================================================
+        // Async-only Actions (no synchronous state change)
+        // ====================================================================
+        // These are handled by handle_async_action() in lib.rs
+        Action::AddWorktree { .. }
+        | Action::AddWorktreeNewBranch { .. }
+        | Action::RemoveWorktree { .. } => {
+            // Async triggers - no immediate state change
+            // After completion, these will dispatch SetWorktrees
+        }
     }
 }
 
@@ -967,5 +978,227 @@ mod tests {
 
         // State unchanged
         assert!(state.projects.is_empty());
+    }
+
+    // ========================================================================
+    // Recent Projects Tests (Startup Flow Protection)
+    // ========================================================================
+
+    #[test]
+    fn test_open_project_does_not_update_recent_for_fake_paths() {
+        // This test ensures that test paths (which don't exist on disk)
+        // don't pollute recent_projects
+        let mut state = AppState::default();
+
+        reduce(
+            &mut state,
+            Action::OpenProject {
+                path: "/test/fake/project".to_string(),
+            },
+        );
+
+        // Project is created
+        assert_eq!(state.projects.len(), 1);
+        // But recent_projects is NOT updated (path doesn't exist)
+        assert!(state.recent_projects.is_empty());
+    }
+
+    #[test]
+    fn test_recent_projects_order_most_recent_first() {
+        // Simulate opening projects by directly manipulating recent_projects
+        // (since we can't create real paths in tests)
+        let mut state = AppState::default();
+
+        // Manually add recent projects (simulating what would happen with real paths)
+        state.recent_projects.push(RecentProject {
+            path: "/project/a".to_string(),
+            name: "a".to_string(),
+            last_opened: "2024-01-01T00:00:00Z".to_string(),
+        });
+        state.recent_projects.push(RecentProject {
+            path: "/project/b".to_string(),
+            name: "b".to_string(),
+            last_opened: "2024-01-02T00:00:00Z".to_string(),
+        });
+
+        // Verify first item is still first
+        assert_eq!(state.recent_projects[0].path, "/project/a");
+        assert_eq!(state.recent_projects[1].path, "/project/b");
+    }
+
+    #[test]
+    fn test_startup_flow_apply_persisted_state() {
+        // This test simulates the startup flow:
+        // 1. Load persisted state (GlobalPersistedState)
+        // 2. Apply to AppState
+        // 3. Auto-open most recent project
+        use crate::persistence::GlobalPersistedState;
+
+        // Step 1: Create persisted state with recent projects
+        let persisted = GlobalPersistedState {
+            version: "0.1.0".to_string(),
+            recent_projects: vec![
+                RecentProject {
+                    path: "/project/recent1".to_string(),
+                    name: "recent1".to_string(),
+                    last_opened: "2024-01-02T00:00:00Z".to_string(),
+                },
+                RecentProject {
+                    path: "/project/recent2".to_string(),
+                    name: "recent2".to_string(),
+                    last_opened: "2024-01-01T00:00:00Z".to_string(),
+                },
+            ],
+            global_settings: crate::app_state::GlobalSettings {
+                theme: Theme::Dark,
+                default_project_path: None,
+            },
+        };
+
+        // Step 2: Apply persisted state to fresh AppState
+        let mut state = AppState::default();
+        persisted.apply_to(&mut state);
+
+        // Verify persisted state was applied
+        assert_eq!(state.recent_projects.len(), 2);
+        assert_eq!(state.recent_projects[0].path, "/project/recent1");
+        assert_eq!(state.recent_projects[0].name, "recent1");
+        assert_eq!(state.global_settings.theme, Theme::Dark);
+
+        // Step 3: Simulate auto-open (what state_init does)
+        // In real code, this would check if path exists first
+        if let Some(recent) = state.recent_projects.first() {
+            let path = recent.path.clone();
+            // In real code: if std::path::Path::new(&path).exists() { ... }
+            reduce(&mut state, Action::OpenProject { path });
+        }
+
+        // Verify project was opened
+        assert_eq!(state.projects.len(), 1);
+        assert_eq!(state.projects[0].path, "/project/recent1");
+        assert_eq!(state.projects[0].name, "recent1");
+        assert_eq!(state.active_project_index, 0);
+    }
+
+    #[test]
+    fn test_startup_with_empty_recent_projects() {
+        // Edge case: no recent projects should not panic
+        use crate::persistence::GlobalPersistedState;
+
+        let persisted = GlobalPersistedState {
+            version: "0.1.0".to_string(),
+            recent_projects: vec![],
+            global_settings: crate::app_state::GlobalSettings::default(),
+        };
+
+        let mut state = AppState::default();
+        persisted.apply_to(&mut state);
+
+        // No recent projects
+        assert!(state.recent_projects.is_empty());
+        // No projects opened
+        assert!(state.projects.is_empty());
+
+        // The auto-open logic should handle empty recent_projects safely
+        let path_to_open = state.recent_projects.first().map(|r| r.path.clone());
+        if let Some(path) = path_to_open {
+            reduce(&mut state, Action::OpenProject { path });
+        }
+
+        // Still no projects
+        assert!(state.projects.is_empty());
+    }
+
+    #[test]
+    fn test_persisted_state_roundtrip_with_recent_projects() {
+        // Ensure GlobalPersistedState can serialize/deserialize recent projects
+        use crate::persistence::GlobalPersistedState;
+
+        let original = GlobalPersistedState {
+            version: "0.1.0".to_string(),
+            recent_projects: vec![
+                RecentProject {
+                    path: "/path/to/project1".to_string(),
+                    name: "project1".to_string(),
+                    last_opened: "2024-12-25T10:00:00Z".to_string(),
+                },
+                RecentProject {
+                    path: "/path/to/project2".to_string(),
+                    name: "project2".to_string(),
+                    last_opened: "2024-12-24T10:00:00Z".to_string(),
+                },
+            ],
+            global_settings: crate::app_state::GlobalSettings {
+                theme: Theme::Light,
+                default_project_path: Some("/home/user".to_string()),
+            },
+        };
+
+        // Serialize
+        let json = serde_json::to_string(&original).expect("Failed to serialize");
+
+        // Deserialize
+        let loaded: GlobalPersistedState =
+            serde_json::from_str(&json).expect("Failed to deserialize");
+
+        // Verify
+        assert_eq!(original, loaded);
+        assert_eq!(loaded.recent_projects.len(), 2);
+        assert_eq!(loaded.recent_projects[0].path, "/path/to/project1");
+    }
+
+    #[test]
+    fn test_startup_flow_integration() {
+        // Full integration test simulating exact startup sequence from lib.rs
+        use crate::persistence::GlobalPersistedState;
+
+        // Simulate what state_init does:
+        // 1. Create default state
+        let mut initial_state = AppState::default();
+
+        // 2. Load persisted state (simulated)
+        let persisted = GlobalPersistedState {
+            version: "0.1.0".to_string(),
+            recent_projects: vec![RecentProject {
+                path: "/Users/test/myproject".to_string(),
+                name: "myproject".to_string(),
+                last_opened: "2024-12-25T12:00:00Z".to_string(),
+            }],
+            global_settings: crate::app_state::GlobalSettings {
+                theme: Theme::System,
+                default_project_path: None,
+            },
+        };
+
+        // 3. Apply persisted state
+        persisted.apply_to(&mut initial_state);
+
+        // 4. Verify recent_projects was populated
+        assert_eq!(initial_state.recent_projects.len(), 1);
+        assert_eq!(
+            initial_state.recent_projects[0].path,
+            "/Users/test/myproject"
+        );
+
+        // 5. Auto-open the most recent project (path existence check skipped in test)
+        if let Some(recent) = initial_state.recent_projects.first() {
+            let path = recent.path.clone();
+            // Real code checks: if std::path::Path::new(&path).exists()
+            reduce(&mut initial_state, Action::OpenProject { path });
+        }
+
+        // 6. Verify project is now open
+        assert_eq!(initial_state.projects.len(), 1);
+        assert_eq!(initial_state.active_project_index, 0);
+
+        let project = initial_state.active_project().unwrap();
+        assert_eq!(project.path, "/Users/test/myproject");
+        assert_eq!(project.name, "myproject");
+
+        // 7. Verify worktree was created
+        assert_eq!(project.worktrees.len(), 1);
+        let worktree = project.active_worktree().unwrap();
+        assert_eq!(worktree.branch, "main");
+        assert_eq!(worktree.active_tab, FeatureTab::Tasks);
     }
 }

@@ -157,6 +157,35 @@ pub fn justfile_run(command: String, cwd: String) -> napi::Result<String> {
 }
 
 // ============================================================================
+// Worktree functions
+// ============================================================================
+
+/// Branch info for napi export
+#[napi(object)]
+pub struct NapiBranchInfo {
+    pub name: String,
+    pub has_worktree: bool,
+    pub is_current: bool,
+}
+
+/// List all branches in a repository
+#[napi]
+pub fn worktree_list_branches(repo_path: String) -> napi::Result<Vec<NapiBranchInfo>> {
+    worktree::list_branches(&repo_path)
+        .map(|branches| {
+            branches
+                .into_iter()
+                .map(|b| NapiBranchInfo {
+                    name: b.name,
+                    has_worktree: b.has_worktree,
+                    is_current: b.is_current,
+                })
+                .collect()
+        })
+        .map_err(|e| napi::Error::from_reason(e))
+}
+
+// ============================================================================
 // State Management (State-first architecture)
 // ============================================================================
 
@@ -174,14 +203,11 @@ pub fn state_init(
     // Load persisted global state if available
     if let Ok(Some(persisted)) = persistence::load_global() {
         persisted.apply_to(&mut initial_state);
-        tracing::info!("Loaded persisted state with {} recent projects", initial_state.recent_projects.len());
 
         // Auto-open the most recent project if it exists on disk
         if let Some(recent) = initial_state.recent_projects.first() {
             let path = recent.path.clone();
             if std::path::Path::new(&path).exists() {
-                tracing::info!("Auto-opening recent project: {}", path);
-                // Use reducer to open the project
                 reduce(&mut initial_state, Action::OpenProject { path });
             }
         }
@@ -274,6 +300,25 @@ async fn refresh_docker_services_internal() {
                 context: Some("RefreshDockerServices".to_string()),
             });
             reduce(&mut state, Action::SetDockerLoading { is_loading: false });
+        }
+    }
+}
+
+/// Refresh worktrees for a given project path
+async fn refresh_worktrees_for_path(project_path: &str) {
+    match worktree::list_worktrees(project_path) {
+        Ok(worktrees) => {
+            let worktree_data: Vec<actions::WorktreeData> = worktrees;
+            let mut state = get_app_state().write().await;
+            reduce(&mut state, Action::SetWorktrees { worktrees: worktree_data });
+        }
+        Err(e) => {
+            let mut state = get_app_state().write().await;
+            reduce(&mut state, Action::SetError {
+                code: "WORKTREE_REFRESH_ERROR".to_string(),
+                message: e,
+                context: Some(format!("RefreshWorktrees: {}", project_path)),
+            });
         }
     }
 }
@@ -436,13 +481,102 @@ async fn handle_async_action(action: Action) -> napi::Result<()> {
             }
         }
 
+        Action::OpenProject { ref path } => {
+            // After opening a project, refresh worktrees from git
+            refresh_worktrees_for_path(path).await;
+        }
+
+        Action::RefreshWorktrees => {
+            // Get the active project path and refresh worktrees
+            let project_path = {
+                let state = get_app_state().read().await;
+                state.active_project().map(|p| p.path.clone())
+            };
+            if let Some(path) = project_path {
+                refresh_worktrees_for_path(&path).await;
+            }
+        }
+
+        Action::AddWorktree { ref branch } => {
+            // Get the active project path
+            let project_path = {
+                let state = get_app_state().read().await;
+                state.active_project().map(|p| p.path.clone())
+            };
+
+            if let Some(path) = project_path {
+                match worktree::add_worktree(&path, branch) {
+                    Ok(_new_worktree) => {
+                        // Refresh worktrees to get the updated list
+                        refresh_worktrees_for_path(&path).await;
+                    }
+                    Err(e) => {
+                        let mut state = get_app_state().write().await;
+                        reduce(&mut state, Action::SetError {
+                            code: "WORKTREE_ADD_ERROR".to_string(),
+                            message: e,
+                            context: Some(format!("AddWorktree: {}", branch)),
+                        });
+                    }
+                }
+            }
+        }
+
+        Action::AddWorktreeNewBranch { ref branch } => {
+            // Get the active project path
+            let project_path = {
+                let state = get_app_state().read().await;
+                state.active_project().map(|p| p.path.clone())
+            };
+
+            if let Some(path) = project_path {
+                match worktree::add_worktree_new_branch(&path, branch) {
+                    Ok(_new_worktree) => {
+                        // Refresh worktrees to get the updated list
+                        refresh_worktrees_for_path(&path).await;
+                    }
+                    Err(e) => {
+                        let mut state = get_app_state().write().await;
+                        reduce(&mut state, Action::SetError {
+                            code: "WORKTREE_ADD_ERROR".to_string(),
+                            message: e,
+                            context: Some(format!("AddWorktreeNewBranch: {}", branch)),
+                        });
+                    }
+                }
+            }
+        }
+
+        Action::RemoveWorktree { ref worktree_path } => {
+            // Get the active project path
+            let project_path = {
+                let state = get_app_state().read().await;
+                state.active_project().map(|p| p.path.clone())
+            };
+
+            if let Some(path) = project_path {
+                match worktree::remove_worktree(&path, worktree_path) {
+                    Ok(()) => {
+                        // Refresh worktrees to get the updated list
+                        refresh_worktrees_for_path(&path).await;
+                    }
+                    Err(e) => {
+                        let mut state = get_app_state().write().await;
+                        reduce(&mut state, Action::SetError {
+                            code: "WORKTREE_REMOVE_ERROR".to_string(),
+                            message: e,
+                            context: Some(format!("RemoveWorktree: {}", worktree_path)),
+                        });
+                    }
+                }
+            }
+        }
+
         // Synchronous actions - already handled by reduce()
-        Action::OpenProject { .. }
-        | Action::CloseProject { .. }
+        Action::CloseProject { .. }
         | Action::SwitchProject { .. }
         | Action::SetFeatureTab { .. }
         | Action::SwitchWorktree { .. }
-        | Action::RefreshWorktrees
         | Action::SetWorktrees { .. }
         | Action::StartMcpServer
         | Action::StopMcpServer

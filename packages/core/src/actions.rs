@@ -40,6 +40,15 @@ pub enum Action {
     /// Set worktrees (internal, after git worktree list completes)
     SetWorktrees { worktrees: Vec<WorktreeData> },
 
+    /// Add a worktree from an existing branch
+    AddWorktree { branch: String },
+
+    /// Add a worktree with a new branch
+    AddWorktreeNewBranch { branch: String },
+
+    /// Remove a worktree (cannot remove main worktree)
+    RemoveWorktree { worktree_path: String },
+
     // ========================================================================
     // MCP Actions
     // ========================================================================
@@ -165,6 +174,14 @@ pub struct WorktreeData {
     pub path: String,
     pub branch: String,
     pub is_main: bool,
+}
+
+/// Branch data for UI (from `git branch`)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BranchData {
+    pub name: String,
+    pub has_worktree: bool,
+    pub is_current: bool,
 }
 
 /// MCP status for actions
