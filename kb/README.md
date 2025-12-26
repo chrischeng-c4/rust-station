@@ -1,58 +1,85 @@
 # rustation v3 Engineering Handbook
 
-**Target Audience**: Contributors, Developers, Maintainers.
+**Target Audience**: Contributors, Developers, Maintainers
 
 ---
 
-## Architecture 🏗️
-*Tauri-based GUI Architecture*
+## Implemented Features
 
-### Level 1: Foundation
-| Document | Description | Status |
-|----------|-------------|--------|
-| [00. Overview](architecture/00-overview.md) | The Pillars: State-First, Frontend/Backend Separation | 🟢 Active |
-| [01. System Specification](architecture/01-system-specification.md) | **Master Spec**: Tech stack, Layout, Data Flow | 🟢 Active |
+*Currently working in production*
 
-### Level 2: Core Architecture
-| Document | Description | Status |
-|----------|-------------|--------|
-| [02. State-First Principle](architecture/02-state-first-principle.md) | Core principle: Rust as Source of Truth | 🟢 Active |
-| [03. State Topology](architecture/03-state-topology.md) | Structure of the AppState tree | 🟢 Active |
-| [05. Serialization](architecture/05-serialization.md) | Persistence rules | 🟢 Active |
-
-### Level 3: Features (To Be Updated for GUI)
-| Document | Description | Status |
-|----------|-------------|--------|
-| [09. Workflows Tab](architecture/09-workflow-prompt-claude.md) | Prompting & Agent integration | 🟡 Needs Update |
-| [10. Dockers Tab](architecture/10-docker-management.md) | Container Management | 🟡 Needs Update |
-| [11. MCP Server](architecture/11-mcp-server.md) | Backend Integration | 🟢 Reusable |
-
-### Level 4: Meta
-| Document | Description | Status |
-|----------|-------------|--------|
-| [13. Migration](architecture/13-migration-from-v1.md) | v1 legacy context | 🟢 Reference |
+| Document | Description |
+|----------|-------------|
+| [00. Architecture](implemented/00-architecture.md) | Electron + React + napi-rs architecture |
+| [01. State-First](implemented/01-state-first.md) | Core principle: JSON-serializable state |
+| [02. State Topology](implemented/02-state-topology.md) | AppState tree structure |
+| [03. Persistence](implemented/03-persistence.md) | Save/load application state |
+| [04. Project Management](implemented/04-project-management.md) | Multi-project tabs, worktrees |
+| [05. Docker Management](implemented/05-docker-management.md) | Container dashboard |
+| [06. Tasks (Justfile)](implemented/06-tasks-justfile.md) | Justfile command runner |
+| [07. Testing](implemented/07-testing.md) | Testing patterns |
 
 ---
 
-## Workflow & Standards 🛠️
-*Development processes*
+## Roadmap (Future)
+
+*Planned but not yet implemented*
 
 | Document | Description | Status |
 |----------|-------------|--------|
-| [Contribution Guide](workflow/contribution-guide.md) | PR requirements | 🟡 Needs Update |
-| [SDD Workflow](workflow/sdd-workflow.md) | Specification-Driven Development | 🟢 Active |
+| [00. Overview](roadmap/00-overview.md) | Future vision | - |
+| [01. MCP Integration](roadmap/01-mcp-integration.md) | Claude Code integration | Planned |
+| [02. Prompt Claude](roadmap/02-prompt-claude.md) | Conversation interface | Planned |
+| [03. Settings UI](roadmap/03-settings-ui.md) | Settings form | Partial |
 
 ---
 
-## Legend
+## Development Workflow
 
-- 🟢 **Active** - Current source of truth
-- 🟡 **Needs Update** - Contains TUI specific info, needs migration to GUI concepts
-- 🔴 **Deprecated** - Kept for reference only
+| Document | Description |
+|----------|-------------|
+| [Contribution Guide](workflow/contribution-guide.md) | Dev setup & PR workflow |
+| [SDD Workflow](workflow/sdd-workflow.md) | Specification-Driven Development |
+| [Testing Guide](workflow/testing-guide.md) | Test patterns |
+| [Definition of Done](workflow/definition-of-done.md) | PR checklist |
+
+---
+
+## Quick Reference
+
+### Tech Stack
+- **Desktop**: Electron
+- **Frontend**: React 19 + Vite + Tailwind + shadcn/ui
+- **Backend**: napi-rs (Rust)
+- **State**: Rust AppState (JSON-serializable)
+
+### Commands
+```bash
+# Development
+cd apps/desktop && pnpm dev
+
+# Build
+cd packages/core && pnpm build
+cd apps/desktop && pnpm build
+
+# Tests
+cargo test                    # Rust tests
+pnpm test                     # React tests
+pnpm test:e2e                 # Playwright E2E
+```
+
+### Key Directories
+```
+packages/core/src/    # Rust napi-rs module
+apps/desktop/src/     # Electron + React app
+kb/                   # This documentation
+docs/                 # User documentation
+```
 
 ---
 
 ## Documentation Principles
 
-This `kb/` directory is the **Source of Truth** for the codebase.
-- **KB-First**: Design changes must be documented here *before* implementation.
+1. **KB-First**: Design changes documented here *before* implementation
+2. **State-First**: All state must be JSON-serializable
+3. **No Business Logic in React**: Frontend is display-only

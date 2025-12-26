@@ -11,7 +11,11 @@
     "tauri": "tauri",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "test:e2e:headed": "playwright test --headed"
+    "test:e2e:headed": "playwright test --headed",
+    "test:screenshots": "playwright test -c e2e/playwright.config.ts e2e/generate-screenshots.ts",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs"
   },
   "devDependencies": {
     "@internationalized/date": "^3.10.1",
@@ -26,12 +30,15 @@
     "@wdio/mocha-framework": "^9.22.0",
     "@wdio/spec-reporter": "^9.20.0",
     "bits-ui": "^2.14.4",
+    "mermaid": "^11.12.2",
     "svelte": "^5.16.0",
     "svelte-check": "^4.1.1",
     "tailwind-variants": "^3.2.2",
     "tailwindcss": "^4.1.18",
     "typescript": "^5.7.2",
-    "vite": "^6.0.5"
+    "vite": "^6.0.5",
+    "vitepress": "^1.6.4",
+    "vitepress-plugin-mermaid": "^2.0.17"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
