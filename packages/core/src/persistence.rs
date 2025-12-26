@@ -365,4 +365,169 @@ mod tests {
         // Cleanup
         let _ = fs::remove_dir_all(&temp_dir);
     }
+
+    // ========================================================================
+    // Startup Flow Tests (Recent Projects Protection)
+    // ========================================================================
+
+    #[test]
+    fn test_apply_to_preserves_recent_projects_order() {
+        // Ensures apply_to correctly restores recent_projects in the same order
+        let persisted = GlobalPersistedState {
+            version: "0.1.0".to_string(),
+            recent_projects: vec![
+                RecentProject {
+                    path: "/first".to_string(),
+                    name: "first".to_string(),
+                    last_opened: "2024-12-25T12:00:00Z".to_string(),
+                },
+                RecentProject {
+                    path: "/second".to_string(),
+                    name: "second".to_string(),
+                    last_opened: "2024-12-24T12:00:00Z".to_string(),
+                },
+                RecentProject {
+                    path: "/third".to_string(),
+                    name: "third".to_string(),
+                    last_opened: "2024-12-23T12:00:00Z".to_string(),
+                },
+            ],
+            global_settings: GlobalSettings::default(),
+        };
+
+        let mut state = AppState::default();
+        persisted.apply_to(&mut state);
+
+        // Order must be preserved
+        assert_eq!(state.recent_projects.len(), 3);
+        assert_eq!(state.recent_projects[0].path, "/first");
+        assert_eq!(state.recent_projects[1].path, "/second");
+        assert_eq!(state.recent_projects[2].path, "/third");
+    }
+
+    #[test]
+    fn test_apply_to_does_not_open_projects() {
+        // apply_to only sets recent_projects, does NOT open projects
+        // (project opening is done separately in state_init)
+        let persisted = GlobalPersistedState {
+            version: "0.1.0".to_string(),
+            recent_projects: vec![RecentProject {
+                path: "/my/project".to_string(),
+                name: "project".to_string(),
+                last_opened: "2024-12-25T12:00:00Z".to_string(),
+            }],
+            global_settings: GlobalSettings::default(),
+        };
+
+        let mut state = AppState::default();
+        persisted.apply_to(&mut state);
+
+        // recent_projects is populated
+        assert_eq!(state.recent_projects.len(), 1);
+        // But NO projects are opened (projects list stays empty)
+        assert!(state.projects.is_empty());
+    }
+
+    #[test]
+    fn test_from_app_state_captures_recent_projects() {
+        // Ensures from_app_state correctly captures recent_projects for persistence
+        let mut app_state = AppState::default();
+        app_state.recent_projects = vec![
+            RecentProject {
+                path: "/project/one".to_string(),
+                name: "one".to_string(),
+                last_opened: "2024-12-25T10:00:00Z".to_string(),
+            },
+            RecentProject {
+                path: "/project/two".to_string(),
+                name: "two".to_string(),
+                last_opened: "2024-12-24T10:00:00Z".to_string(),
+            },
+        ];
+        app_state.global_settings.theme = Theme::Light;
+
+        let persisted = GlobalPersistedState::from_app_state(&app_state);
+
+        assert_eq!(persisted.recent_projects.len(), 2);
+        assert_eq!(persisted.recent_projects[0].path, "/project/one");
+        assert_eq!(persisted.recent_projects[1].path, "/project/two");
+        assert_eq!(persisted.global_settings.theme, Theme::Light);
+    }
+
+    #[test]
+    fn test_save_load_with_recent_projects_integration() {
+        // Full integration: save state with recent_projects, load it back
+        let temp_dir = env::temp_dir().join("rstn_test_recent");
+        let _ = fs::remove_dir_all(&temp_dir);
+        let state_path = temp_dir.join("state.json");
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        // Create state with recent projects
+        let persisted = GlobalPersistedState {
+            version: "0.1.0".to_string(),
+            recent_projects: vec![
+                RecentProject {
+                    path: "/Users/test/project-a".to_string(),
+                    name: "project-a".to_string(),
+                    last_opened: "2024-12-25T12:00:00Z".to_string(),
+                },
+                RecentProject {
+                    path: "/Users/test/project-b".to_string(),
+                    name: "project-b".to_string(),
+                    last_opened: "2024-12-24T12:00:00Z".to_string(),
+                },
+            ],
+            global_settings: GlobalSettings {
+                theme: Theme::Dark,
+                default_project_path: Some("/Users/test".to_string()),
+            },
+        };
+
+        // Save
+        let json = serde_json::to_string_pretty(&persisted).unwrap();
+        fs::write(&state_path, &json).unwrap();
+
+        // Load
+        let loaded_json = fs::read_to_string(&state_path).unwrap();
+        let loaded: GlobalPersistedState = serde_json::from_str(&loaded_json).unwrap();
+
+        // Verify all fields
+        assert_eq!(loaded.version, "0.1.0");
+        assert_eq!(loaded.recent_projects.len(), 2);
+        assert_eq!(loaded.recent_projects[0].path, "/Users/test/project-a");
+        assert_eq!(loaded.recent_projects[0].name, "project-a");
+        assert_eq!(loaded.recent_projects[1].path, "/Users/test/project-b");
+        assert_eq!(loaded.global_settings.theme, Theme::Dark);
+        assert_eq!(
+            loaded.global_settings.default_project_path,
+            Some("/Users/test".to_string())
+        );
+
+        // Apply to new state
+        let mut new_state = AppState::default();
+        loaded.apply_to(&mut new_state);
+
+        assert_eq!(new_state.recent_projects.len(), 2);
+        assert_eq!(new_state.global_settings.theme, Theme::Dark);
+
+        // Cleanup
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_recent_project_struct_serialization() {
+        // Ensure RecentProject serializes correctly
+        let recent = RecentProject {
+            path: "/path/to/project".to_string(),
+            name: "project".to_string(),
+            last_opened: "2024-12-25T12:00:00Z".to_string(),
+        };
+
+        let json = serde_json::to_string(&recent).unwrap();
+        let loaded: RecentProject = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(recent.path, loaded.path);
+        assert_eq!(recent.name, loaded.name);
+        assert_eq!(recent.last_opened, loaded.last_opened);
+    }
 }
