@@ -460,6 +460,7 @@ pub enum ActiveViewData {
     Mcp,
     Chat,
     Terminal,
+    #[serde(rename = "agent_rules")]
     AgentRules,
 }
 

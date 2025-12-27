@@ -424,6 +424,7 @@ pub enum ActiveView {
     /// Env management page (project scope)
     Env,
     /// Agent Rules management page (project scope)
+    #[serde(rename = "agent_rules")]
     AgentRules,
     /// MCP Inspector page (worktree scope)
     Mcp,
