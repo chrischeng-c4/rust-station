@@ -14,11 +14,11 @@ export type FeatureTab = 'tasks' | 'dockers' | 'settings'
 /**
  * Active view in the main content area.
  * Maps to scope levels:
- * - tasks, settings, mcp, chat: Worktree scope
+ * - tasks, settings, mcp, chat, terminal: Worktree scope
  * - dockers: Global scope
- * - env: Project scope
+ * - env, agent_rules: Project scope
  */
-export type ActiveView = 'tasks' | 'settings' | 'dockers' | 'env' | 'mcp' | 'chat' | 'terminal'
+export type ActiveView = 'tasks' | 'settings' | 'dockers' | 'env' | 'mcp' | 'chat' | 'terminal' | 'agent_rules'
 
 // ============================================================================
 // Docker State
@@ -107,6 +107,16 @@ export interface EnvConfig {
 }
 
 // ============================================================================
+// Agent Rules (Project scope)
+// ============================================================================
+
+export interface AgentRulesConfig {
+  enabled: boolean
+  custom_prompt: string
+  temp_file_path?: string
+}
+
+// ============================================================================
 // Notifications
 // ============================================================================
 
@@ -159,10 +169,30 @@ export interface ChatMessage {
   is_streaming?: boolean
 }
 
+export type LogLevel = 'info' | 'debug' | 'error'
+
+export type LogEventType =
+  | 'spawn_attempt'
+  | 'spawn_success'
+  | 'spawn_error'
+  | 'stream_event'
+  | 'message_complete'
+  | 'parse_error'
+
+export interface ClaudeDebugLog {
+  timestamp: string
+  level: LogLevel
+  event_type: LogEventType
+  message: string
+  details?: unknown
+}
+
 export interface ChatState {
   messages: ChatMessage[]
   is_typing: boolean
   error?: string
+  debug_logs?: ClaudeDebugLog[]
+  max_debug_logs?: number
 }
 
 // ============================================================================
@@ -204,6 +234,7 @@ export interface ProjectState {
   worktrees: WorktreeState[]
   active_worktree_index: number
   env_config: EnvConfig
+  agent_rules_config: AgentRulesConfig
 }
 
 // ============================================================================
@@ -375,6 +406,15 @@ export interface ClearChatErrorAction {
 
 export interface ClearChatAction {
   type: 'ClearChat'
+}
+
+export interface AddDebugLogAction {
+  type: 'AddDebugLog'
+  payload: { log: ClaudeDebugLogData }
+}
+
+export interface ClearDebugLogsAction {
+  type: 'ClearDebugLogs'
 }
 
 // Docker Actions
@@ -551,6 +591,22 @@ export interface SetEnvSourceWorktreeAction {
   payload: { worktree_path: string | null }
 }
 
+// Agent Rules Actions (Project scope)
+export interface SetAgentRulesEnabledAction {
+  type: 'SetAgentRulesEnabled'
+  payload: { enabled: boolean }
+}
+
+export interface SetAgentRulesPromptAction {
+  type: 'SetAgentRulesPrompt'
+  payload: { prompt: string }
+}
+
+export interface SetAgentRulesTempFileAction {
+  type: 'SetAgentRulesTempFile'
+  payload: { path: string | null }
+}
+
 // Notification Actions
 export interface AddNotificationAction {
   type: 'AddNotification'
@@ -684,6 +740,14 @@ export interface ChatMessageData {
   is_streaming?: boolean
 }
 
+export interface ClaudeDebugLogData {
+  timestamp: string
+  level: string
+  event_type: string
+  message: string
+  details?: unknown
+}
+
 export interface EnvCopyResultData {
   copied_files: string[]
   failed_files: [string, string][]
@@ -692,7 +756,7 @@ export interface EnvCopyResultData {
 
 export type NotificationTypeData = 'info' | 'success' | 'warning' | 'error'
 
-export type ActiveViewData = 'tasks' | 'settings' | 'dockers' | 'env' | 'mcp' | 'chat' | 'terminal'
+export type ActiveViewData = 'tasks' | 'settings' | 'dockers' | 'env' | 'mcp' | 'chat' | 'terminal' | 'agent_rules'
 
 // Union type of all actions
 export type Action =
@@ -721,6 +785,8 @@ export type Action =
   | SetChatErrorAction
   | ClearChatErrorAction
   | ClearChatAction
+  | AddDebugLogAction
+  | ClearDebugLogsAction
   | CheckDockerAvailabilityAction
   | SetDockerAvailableAction
   | RefreshDockerServicesAction
@@ -755,6 +821,9 @@ export type Action =
   | SetEnvTrackedPatternsAction
   | SetEnvAutoCopyAction
   | SetEnvSourceWorktreeAction
+  | SetAgentRulesEnabledAction
+  | SetAgentRulesPromptAction
+  | SetAgentRulesTempFileAction
   | AddNotificationAction
   | DismissNotificationAction
   | MarkNotificationReadAction

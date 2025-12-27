@@ -100,6 +100,12 @@ pub enum Action {
     /// Clear all chat messages
     ClearChat,
 
+    /// Add a debug log entry (for Claude Code CLI logging)
+    AddDebugLog { log: ClaudeDebugLogData },
+
+    /// Clear all debug logs
+    ClearDebugLogs,
+
     // ========================================================================
     // Docker Actions
     // ========================================================================
@@ -215,6 +221,18 @@ pub enum Action {
 
     /// Set source worktree for env copying
     SetEnvSourceWorktree { worktree_path: Option<String> },
+
+    // ========================================================================
+    // Agent Rules Actions (Project scope)
+    // ========================================================================
+    /// Toggle custom agent rules on/off
+    SetAgentRulesEnabled { enabled: bool },
+
+    /// Update custom system prompt text
+    SetAgentRulesPrompt { prompt: String },
+
+    /// Set temp file path (internal, after generation)
+    SetAgentRulesTempFile { path: Option<String> },
 
     // ========================================================================
     // Notification Actions
@@ -352,6 +370,16 @@ pub struct ChatMessageData {
     pub is_streaming: bool,
 }
 
+/// Claude debug log data for actions
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ClaudeDebugLogData {
+    pub timestamp: String,
+    pub level: String,
+    pub event_type: String,
+    pub message: String,
+    pub details: Option<serde_json::Value>,
+}
+
 /// Docker service data for actions (lightweight, serializable)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DockerServiceData {
@@ -432,6 +460,7 @@ pub enum ActiveViewData {
     Mcp,
     Chat,
     Terminal,
+    AgentRules,
 }
 
 // ============================================================================

@@ -292,13 +292,49 @@ pub async fn validate_claude_cli() -> Result<(), ClaudeCliError> {
 /// Spawn Claude CLI with streaming JSON output (async version).
 ///
 /// Returns a Child process with stdout piped for reading JSONL.
-pub fn spawn_claude(prompt: &str, cwd: &Path) -> Result<Child, ClaudeCliError> {
-    Command::new("claude")
-        .arg("-p")
+///
+/// # Arguments
+/// * `prompt` - User's chat message
+/// * `cwd` - Working directory (worktree path)
+/// * `mcp_config_path` - Optional path to MCP config file for tool integration
+///
+/// # Example
+/// ```no_run
+/// // Without MCP
+/// let child = spawn_claude("Hello", &path, None)?;
+///
+/// // With MCP
+/// let child = spawn_claude("Read README", &path, Some("/tmp/rstn-mcp-xxx.json"), None)?;
+///
+/// // With custom agent rules
+/// let child = spawn_claude("Read README", &path, None, Some("/tmp/rstn-agent-rules-xxx.txt"))?;
+///
+/// // With both MCP and agent rules
+/// let child = spawn_claude("Read README", &path, Some("/tmp/rstn-mcp-xxx.json"), Some("/tmp/rstn-agent-rules-xxx.txt"))?;
+/// ```
+pub fn spawn_claude(
+    prompt: &str,
+    cwd: &Path,
+    mcp_config_path: Option<&str>,
+    system_prompt_file_path: Option<&str>,
+) -> Result<Child, ClaudeCliError> {
+    let mut cmd = Command::new("claude");
+    cmd.arg("-p")
         .arg("--verbose")
         .arg("--output-format")
-        .arg("stream-json")
-        .arg(prompt)
+        .arg("stream-json");
+
+    // Add MCP config if available
+    if let Some(config_path) = mcp_config_path {
+        cmd.arg("--mcp-config").arg(config_path);
+    }
+
+    // Add custom system prompt file if available
+    if let Some(prompt_file) = system_prompt_file_path {
+        cmd.arg("--system-prompt-file").arg(prompt_file);
+    }
+
+    cmd.arg(prompt)
         .current_dir(cwd)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())

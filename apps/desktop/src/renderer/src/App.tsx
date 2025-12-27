@@ -4,6 +4,7 @@ import { ListTodo, Settings, RefreshCw, FolderOpen, Server, MessageSquare, Termi
 import { DockersPage } from '@/features/dockers/DockersPage'
 import { TasksPage } from '@/features/tasks/TasksPage'
 import { EnvPage } from '@/features/env'
+import { AgentRulesPage } from '@/features/agent-rules'
 import { SettingsPage } from '@/features/settings'
 import { McpPage } from '@/features/mcp'
 import { ChatPage } from '@/features/chat'
@@ -86,6 +87,8 @@ function App() {
         return <DockersPage />
       case 'env':
         return <EnvPage />
+      case 'agent_rules':
+        return <AgentRulesPage />
       case 'mcp':
         return <McpPage />
       case 'chat':
@@ -147,7 +150,7 @@ function App() {
                 className="flex h-12 w-12 flex-col items-center justify-center gap-1 rounded-lg"
               >
                 <Server className="h-5 w-5" />
-                <span className="text-[10px]">MCP</span>
+                <span className="text-[10px]">rstn</span>
               </TabsTrigger>
               <TabsTrigger
                 value="chat"

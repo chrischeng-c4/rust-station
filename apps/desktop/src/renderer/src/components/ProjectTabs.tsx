@@ -7,7 +7,7 @@
  */
 
 import { useState, useCallback } from 'react'
-import { X, Plus, FolderOpen, GitBranch, History, Container, FileCode } from 'lucide-react'
+import { X, Plus, FolderOpen, GitBranch, History, Container, FileCode, Camera, Bot } from 'lucide-react'
 import { Button } from './ui/button'
 import { useActiveProject, useActiveWorktree, useAppState } from '../hooks/useAppState'
 import { NotificationDrawer } from '@/features/notifications'
@@ -79,8 +79,49 @@ export function ProjectTabs() {
     await dispatch({ type: 'SetActiveView', payload: { view: 'dockers' } })
   }, [dispatch])
 
+  const handleScreenshot = useCallback(async () => {
+    console.log('Screenshot button clicked!')
+    try {
+      const result = await window.screenshotApi.capture()
+      console.log('Screenshot result:', result)
+
+      if (result.success && result.filePath) {
+        // Show success notification
+        await dispatch({
+          type: 'AddNotification',
+          payload: {
+            message: `Screenshot saved and copied to clipboard: ${result.filePath}`,
+            notification_type: 'success',
+          },
+        })
+      } else {
+        // Show error notification
+        await dispatch({
+          type: 'AddNotification',
+          payload: {
+            message: `Screenshot failed: ${result.error || 'Unknown error'}`,
+            notification_type: 'error',
+          },
+        })
+      }
+    } catch (error) {
+      console.error('Screenshot error:', error)
+      await dispatch({
+        type: 'AddNotification',
+        payload: {
+          message: `Screenshot error: ${error}`,
+          notification_type: 'error',
+        },
+      })
+    }
+  }, [dispatch])
+
   const handleEnvClick = useCallback(async () => {
     await dispatch({ type: 'SetActiveView', payload: { view: 'env' } })
+  }, [dispatch])
+
+  const handleAgentRulesClick = useCallback(async () => {
+    await dispatch({ type: 'SetActiveView', payload: { view: 'agent_rules' } })
   }, [dispatch])
 
   return (
@@ -170,8 +211,22 @@ export function ProjectTabs() {
           )}
         </div>
 
-        {/* Right side: Global features (Docker, Notifications) */}
+        {/* Right side: Global features (Screenshot, Docker, Notifications) */}
         <div className="flex items-center gap-1">
+          {/* Screenshot button (dev mode only) */}
+          {import.meta.env.DEV && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleScreenshot}
+              className="gap-1.5 text-sm h-7"
+              title="Capture screenshot"
+            >
+              <Camera className="h-3.5 w-3.5" />
+              Screenshot
+            </Button>
+          )}
+
           <Button
             variant={activeView === 'dockers' ? 'secondary' : 'ghost'}
             size="sm"
@@ -221,7 +276,7 @@ export function ProjectTabs() {
             </Button>
           </div>
 
-          {/* Right side: Project features (Env) */}
+          {/* Right side: Project features (Env, Agent Rules) */}
           <div className="flex items-center gap-1">
             <Button
               variant={activeView === 'env' ? 'secondary' : 'ghost'}
@@ -231,6 +286,15 @@ export function ProjectTabs() {
             >
               <FileCode className="h-3.5 w-3.5" />
               Env
+            </Button>
+            <Button
+              variant={activeView === 'agent_rules' ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={handleAgentRulesClick}
+              className="gap-1.5 text-xs h-6"
+            >
+              <Bot className="h-3.5 w-3.5" />
+              Agent Rules
             </Button>
           </div>
         </div>

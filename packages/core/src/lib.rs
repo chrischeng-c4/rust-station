@@ -6,12 +6,14 @@
 extern crate napi_derive;
 
 pub mod actions;
+pub mod agent_rules;
 pub mod app_state;
 pub mod claude_cli;
 pub mod context_engine;
 pub mod docker;
 pub mod env;
 pub mod justfile;
+pub mod mcp_config;
 pub mod mcp_server;
 pub mod migration;
 pub mod persistence;
@@ -646,8 +648,22 @@ async fn handle_async_action(action: Action) -> napi::Result<()> {
                 None, // Use default port
             ).await {
                 Ok(port) => {
+                    // Generate MCP config file for Claude CLI integration
+                    let config_result = mcp_config::generate_mcp_config_file(&worktree_id, port);
+
                     let mut state = get_app_state().write().await;
                     reduce(&mut state, Action::SetMcpPort { port });
+
+                    // Store config path if generation succeeded
+                    match config_result {
+                        Ok(config_path) => {
+                            reduce(&mut state, Action::SetMcpConfigPath { path: config_path });
+                        }
+                        Err(e) => {
+                            // Non-fatal: Log warning but don't fail server startup
+                            eprintln!("Warning: Failed to generate MCP config: {}", e);
+                        }
+                    }
                 }
                 Err(e) => {
                     let mut state = get_app_state().write().await;
@@ -657,12 +673,12 @@ async fn handle_async_action(action: Action) -> napi::Result<()> {
         }
 
         Action::StopMcpServer => {
-            // Get worktree info from state
-            let worktree_id = {
+            // Get worktree info and config path from state
+            let (worktree_id, config_path) = {
                 let state = get_app_state().read().await;
                 if let Some(project) = state.active_project() {
                     if let Some(worktree) = project.active_worktree() {
-                        worktree.id.clone()
+                        (worktree.id.clone(), worktree.mcp.config_path.clone())
                     } else {
                         return Ok(());
                     }
@@ -675,6 +691,12 @@ async fn handle_async_action(action: Action) -> napi::Result<()> {
             match manager.stop_server(&worktree_id).await {
                 Ok(()) => {
                     // Status is already set to Stopped by the reducer
+
+                    // Cleanup MCP config file
+                    if let Some(path) = config_path {
+                        let _ = mcp_config::cleanup_mcp_config_file(&path);
+                        // Ignore errors - file may already be deleted
+                    }
                 }
                 Err(e) => {
                     let mut state = get_app_state().write().await;
@@ -1060,13 +1082,24 @@ async fn handle_async_action(action: Action) -> napi::Result<()> {
 
         // Claude Code CLI chat (async - spawns external process)
         Action::SendChatMessage { ref text } => {
-            // Get the working directory from active worktree
-            let cwd = {
+            // Get the working directory, MCP config path, and agent rules config
+            let (cwd, mcp_config_path, agent_rules_config, project_id) = {
                 let state = get_app_state().read().await;
-                state
+                let cwd = state
                     .active_project()
                     .and_then(|p| p.active_worktree())
-                    .map(|w| std::path::PathBuf::from(&w.path))
+                    .map(|w| std::path::PathBuf::from(&w.path));
+                let config_path = state
+                    .active_project()
+                    .and_then(|p| p.active_worktree())
+                    .and_then(|w| w.mcp.config_path.clone());
+                let agent_rules = state
+                    .active_project()
+                    .map(|p| p.agent_rules_config.clone());
+                let proj_id = state
+                    .active_project()
+                    .map(|p| p.id.clone());
+                (cwd, config_path, agent_rules, proj_id)
             };
 
             let cwd = match cwd {
@@ -1109,6 +1142,9 @@ async fn handle_async_action(action: Action) -> napi::Result<()> {
             // Clone values for async task
             let prompt = text.clone();
             let cwd_for_task = cwd.clone();
+            let mcp_config_for_task = mcp_config_path.clone();
+            let agent_rules_for_task = agent_rules_config.clone();
+            let project_id_for_task = project_id.clone();
 
             // Log spawn attempt (debug mode)
             {
@@ -1161,8 +1197,25 @@ async fn handle_async_action(action: Action) -> napi::Result<()> {
         return;
     }
 
-    // Spawn Claude CLI process
-    match claude_cli::spawn_claude(&prompt, &cwd_for_task) {
+    // Generate agent rules file if enabled
+    let agent_rules_path = if let (Some(config), Some(proj_id)) = (&agent_rules_for_task, &project_id_for_task) {
+        if config.enabled && !config.custom_prompt.trim().is_empty() {
+            match agent_rules::generate_agent_rules_file(&proj_id, &config.custom_prompt) {
+                Ok(path) => Some(path),
+                Err(e) => {
+                    eprintln!("Failed to generate agent rules file: {}", e);
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // Spawn Claude CLI process (with MCP config and/or agent rules if available)
+    match claude_cli::spawn_claude(&prompt, &cwd_for_task, mcp_config_for_task.as_deref(), agent_rules_path.as_deref()) {
         Ok(mut child) => {
             // Log spawn success
             {
@@ -1465,9 +1518,24 @@ async fn handle_async_action(action: Action) -> napi::Result<()> {
             notify_state_update().await;
         }
     }
+
+    // Cleanup agent rules file if it was created
+    if let Some(path) = agent_rules_path {
+        if let Err(e) = agent_rules::cleanup_agent_rules_file(&path) {
+            eprintln!("Warning: Failed to cleanup agent rules file: {}", e);
+        }
+    }
 });
 
             // Return immediately - background thread handles streaming
+        }
+
+        // Agent Rules actions (sync - handled in reducer)
+        Action::SetAgentRulesEnabled { .. }
+        | Action::SetAgentRulesPrompt { .. }
+        | Action::SetAgentRulesTempFile { .. } => {
+            // These are pure state mutations, handled synchronously in reducer
+            // No async operations needed
         }
 
         // Debug log actions (sync - handled in reducer)

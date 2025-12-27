@@ -85,6 +85,9 @@ pub struct ProjectState {
     /// Environment file configuration (project-level)
     #[serde(default)]
     pub env_config: EnvConfig,
+    /// Agent rules configuration (project-level)
+    #[serde(default)]
+    pub agent_rules_config: AgentRulesConfig,
 }
 
 impl ProjectState {
@@ -106,6 +109,7 @@ impl ProjectState {
             worktrees: vec![main_worktree],
             active_worktree_index: 0,
             env_config: EnvConfig::with_source(path),
+            agent_rules_config: AgentRulesConfig::default(),
         }
     }
 
@@ -282,7 +286,7 @@ pub struct ChatMessage {
 const MAX_CHAT_MESSAGES: usize = 100;
 
 /// Chat state for a worktree
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ChatState {
     /// Chat messages
     #[serde(default)]
@@ -293,6 +297,71 @@ pub struct ChatState {
     /// Error message (if any)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Debug logs for Claude Code streaming (dev mode only)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub debug_logs: Vec<ClaudeDebugLog>,
+    /// Maximum number of debug logs to keep (prevent memory bloat)
+    #[serde(default = "default_max_debug_logs")]
+    pub max_debug_logs: usize,
+}
+
+fn default_max_debug_logs() -> usize {
+    500
+}
+
+impl Default for ChatState {
+    fn default() -> Self {
+        Self {
+            messages: Vec::new(),
+            is_typing: false,
+            error: None,
+            debug_logs: Vec::new(),
+            max_debug_logs: 500,
+        }
+    }
+}
+
+/// Debug log entry for Claude Code CLI integration
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ClaudeDebugLog {
+    /// Timestamp (ISO 8601)
+    pub timestamp: String,
+    /// Log level (info, debug, error)
+    pub level: LogLevel,
+    /// Event type categorization
+    pub event_type: LogEventType,
+    /// Human-readable message
+    pub message: String,
+    /// Additional structured details (JSON)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<serde_json::Value>,
+}
+
+/// Log level for debug logs
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LogLevel {
+    Info,
+    Debug,
+    Error,
+}
+
+/// Event type for Claude Code debug logs
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LogEventType {
+    /// Before spawning Claude CLI
+    SpawnAttempt,
+    /// CLI spawned with PID
+    SpawnSuccess,
+    /// Failed to spawn
+    SpawnError,
+    /// JSONL event received
+    StreamEvent,
+    /// message_stop received
+    MessageComplete,
+    /// JSONL parse error
+    ParseError,
 }
 
 impl ChatState {
@@ -354,6 +423,8 @@ pub enum ActiveView {
     Dockers,
     /// Env management page (project scope)
     Env,
+    /// Agent Rules management page (project scope)
+    AgentRules,
     /// MCP Inspector page (worktree scope)
     Mcp,
     /// Chat assistant page (worktree scope)
@@ -416,6 +487,32 @@ pub struct EnvCopyResult {
     pub failed_files: Vec<(String, String)>,
     /// Timestamp of the operation (ISO 8601)
     pub timestamp: String,
+}
+
+// ============================================================================
+// Agent Rules Configuration (Project-level)
+// ============================================================================
+
+/// Agent rules configuration for customizing Claude's system prompt
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AgentRulesConfig {
+    /// Whether custom agent rules are enabled
+    pub enabled: bool,
+    /// Custom system prompt text (overrides CLAUDE.md)
+    pub custom_prompt: String,
+    /// Generated temp file path (internal, for cleanup)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temp_file_path: Option<String>,
+}
+
+impl Default for AgentRulesConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            custom_prompt: String::new(),
+            temp_file_path: None,
+        }
+    }
 }
 
 // ============================================================================
@@ -488,6 +585,7 @@ impl From<crate::actions::ActiveViewData> for ActiveView {
             crate::actions::ActiveViewData::Mcp => ActiveView::Mcp,
             crate::actions::ActiveViewData::Chat => ActiveView::Chat,
             crate::actions::ActiveViewData::Terminal => ActiveView::Terminal,
+            crate::actions::ActiveViewData::AgentRules => ActiveView::AgentRules,
         }
     }
 }

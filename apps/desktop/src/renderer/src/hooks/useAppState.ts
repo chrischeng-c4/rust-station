@@ -337,6 +337,56 @@ export function useEnvState(): UseEnvStateResult {
 }
 
 // ============================================================================
+// Agent Rules Configuration Hook
+// ============================================================================
+
+interface UseAgentRulesStateResult {
+  /** Agent Rules config from the active project */
+  agentRulesConfig: AgentRulesConfig | null
+  /** Active project for context */
+  project: ProjectState | null
+  /** Dispatch an action */
+  dispatch: (action: Action) => Promise<void>
+  /** Whether state is loading */
+  isLoading: boolean
+}
+
+/**
+ * Hook for accessing Agent Rules configuration state from the active project.
+ *
+ * @example
+ * ```tsx
+ * function AgentRulesPage() {
+ *   const { agentRulesConfig, dispatch } = useAgentRulesState()
+ *
+ *   if (!agentRulesConfig) return <NoProjectOpen />
+ *
+ *   return (
+ *     <div>
+ *       <p>Enabled: {agentRulesConfig.enabled ? 'YES' : 'NO'}</p>
+ *       <textarea
+ *         value={agentRulesConfig.custom_prompt}
+ *         onChange={(e) => dispatch({
+ *           type: 'SetAgentRulesPrompt',
+ *           payload: { prompt: e.target.value }
+ *         })}
+ *       />
+ *     </div>
+ *   )
+ * }
+ * ```
+ */
+export function useAgentRulesState(): UseAgentRulesStateResult {
+  const { project, dispatch, isLoading } = useActiveProject()
+  return {
+    agentRulesConfig: project?.agent_rules_config ?? null,
+    project,
+    dispatch,
+    isLoading,
+  }
+}
+
+// ============================================================================
 // MCP State Hook
 // ============================================================================
 

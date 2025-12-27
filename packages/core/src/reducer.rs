@@ -331,6 +331,51 @@ pub fn reduce(state: &mut AppState, action: Action) {
             }
         }
 
+        Action::AddDebugLog { ref log } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    // Convert action data to state type
+                    let debug_log = crate::app_state::ClaudeDebugLog {
+                        timestamp: log.timestamp.clone(),
+                        level: match log.level.as_str() {
+                            "info" => crate::app_state::LogLevel::Info,
+                            "debug" => crate::app_state::LogLevel::Debug,
+                            "error" => crate::app_state::LogLevel::Error,
+                            _ => crate::app_state::LogLevel::Debug,
+                        },
+                        event_type: match log.event_type.as_str() {
+                            "spawn_attempt" => crate::app_state::LogEventType::SpawnAttempt,
+                            "spawn_success" => crate::app_state::LogEventType::SpawnSuccess,
+                            "spawn_error" => crate::app_state::LogEventType::SpawnError,
+                            "stream_event" => crate::app_state::LogEventType::StreamEvent,
+                            "message_complete" => crate::app_state::LogEventType::MessageComplete,
+                            "parse_error" => crate::app_state::LogEventType::ParseError,
+                            _ => crate::app_state::LogEventType::StreamEvent,
+                        },
+                        message: log.message.clone(),
+                        details: log.details.clone(),
+                    };
+
+                    // Add log entry
+                    worktree.chat.debug_logs.push(debug_log);
+
+                    // Keep only last N logs (prevent memory bloat)
+                    let max_logs = worktree.chat.max_debug_logs;
+                    if worktree.chat.debug_logs.len() > max_logs {
+                        worktree.chat.debug_logs.drain(0..(worktree.chat.debug_logs.len() - max_logs));
+                    }
+                }
+            }
+        }
+
+        Action::ClearDebugLogs => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.chat.debug_logs.clear();
+                }
+            }
+        }
+
         // ====================================================================
         // Docker Actions (global scope - operate on state.docker)
         // ====================================================================
@@ -607,6 +652,27 @@ pub fn reduce(state: &mut AppState, action: Action) {
         }
 
         // ====================================================================
+        // Agent Rules Actions
+        // ====================================================================
+        Action::SetAgentRulesEnabled { enabled } => {
+            if let Some(project) = state.active_project_mut() {
+                project.agent_rules_config.enabled = enabled;
+            }
+        }
+
+        Action::SetAgentRulesPrompt { prompt } => {
+            if let Some(project) = state.active_project_mut() {
+                project.agent_rules_config.custom_prompt = prompt;
+            }
+        }
+
+        Action::SetAgentRulesTempFile { path } => {
+            if let Some(project) = state.active_project_mut() {
+                project.agent_rules_config.temp_file_path = path;
+            }
+        }
+
+        // ====================================================================
         // Notification Actions
         // ====================================================================
         Action::AddNotification {
@@ -823,6 +889,7 @@ impl From<ConflictingContainerData> for ConflictingContainer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::actions::{ChatMessageData, ChatRoleData};
     use crate::app_state::{FeatureTab, Theme};
 
     /// Helper to create a state with one project for testing
@@ -1628,5 +1695,318 @@ mod tests {
         let worktree = project.active_worktree().unwrap();
         assert_eq!(worktree.branch, "main");
         assert_eq!(worktree.active_tab, FeatureTab::Tasks);
+    }
+
+    // ========================================================================
+    // Chat FSM Tests
+    // ========================================================================
+
+    #[test]
+    fn test_reduce_add_chat_message_user() {
+        let mut state = state_with_project();
+
+        // Add a user message
+        reduce(
+            &mut state,
+            Action::AddChatMessage {
+                message: ChatMessageData {
+                    id: "user-1".to_string(),
+                    role: ChatRoleData::User,
+                    content: "Hello Claude".to_string(),
+                    timestamp: "2024-12-27T00:00:00Z".to_string(),
+                    is_streaming: false,
+                },
+            },
+        );
+
+        let worktree = active_worktree(&state);
+        assert_eq!(worktree.chat.messages.len(), 1);
+        assert_eq!(worktree.chat.messages[0].content, "Hello Claude");
+        assert!(matches!(
+            worktree.chat.messages[0].role,
+            crate::app_state::ChatRole::User
+        ));
+    }
+
+    #[test]
+    fn test_reduce_add_chat_message_assistant_streaming() {
+        let mut state = state_with_project();
+
+        // Add an assistant message with streaming=true
+        reduce(
+            &mut state,
+            Action::AddChatMessage {
+                message: ChatMessageData {
+                    id: "assistant-1".to_string(),
+                    role: ChatRoleData::Assistant,
+                    content: String::new(),
+                    timestamp: "2024-12-27T00:00:00Z".to_string(),
+                    is_streaming: true,
+                },
+            },
+        );
+
+        let worktree = active_worktree(&state);
+        assert_eq!(worktree.chat.messages.len(), 1);
+        assert!(worktree.chat.messages[0].is_streaming);
+        assert!(worktree.chat.messages[0].content.is_empty());
+    }
+
+    #[test]
+    fn test_reduce_append_chat_content() {
+        let mut state = state_with_project();
+
+        // Add an assistant message first
+        reduce(
+            &mut state,
+            Action::AddChatMessage {
+                message: ChatMessageData {
+                    id: "assistant-1".to_string(),
+                    role: ChatRoleData::Assistant,
+                    content: String::new(),
+                    timestamp: "2024-12-27T00:00:00Z".to_string(),
+                    is_streaming: true,
+                },
+            },
+        );
+
+        // Append content (streaming delta)
+        reduce(
+            &mut state,
+            Action::AppendChatContent {
+                content: "Hello".to_string(),
+            },
+        );
+        reduce(
+            &mut state,
+            Action::AppendChatContent {
+                content: " world".to_string(),
+            },
+        );
+
+        let worktree = active_worktree(&state);
+        assert_eq!(worktree.chat.messages.len(), 1);
+        assert_eq!(worktree.chat.messages[0].content, "Hello world");
+    }
+
+    #[test]
+    fn test_reduce_set_chat_typing() {
+        let mut state = state_with_project();
+
+        // Initially not typing
+        assert!(!active_worktree(&state).chat.is_typing);
+
+        // Set typing true
+        reduce(&mut state, Action::SetChatTyping { is_typing: true });
+        assert!(active_worktree(&state).chat.is_typing);
+
+        // Set typing false
+        reduce(&mut state, Action::SetChatTyping { is_typing: false });
+        assert!(!active_worktree(&state).chat.is_typing);
+    }
+
+    #[test]
+    fn test_reduce_set_chat_error() {
+        let mut state = state_with_project();
+
+        // Set error
+        reduce(
+            &mut state,
+            Action::SetChatError {
+                error: "Connection failed".to_string(),
+            },
+        );
+
+        let worktree = active_worktree(&state);
+        assert_eq!(worktree.chat.error, Some("Connection failed".to_string()));
+    }
+
+    #[test]
+    fn test_reduce_clear_chat_error() {
+        let mut state = state_with_project();
+
+        // Set error first
+        reduce(
+            &mut state,
+            Action::SetChatError {
+                error: "Error".to_string(),
+            },
+        );
+        assert!(active_worktree(&state).chat.error.is_some());
+
+        // Clear error
+        reduce(&mut state, Action::ClearChatError);
+        assert!(active_worktree(&state).chat.error.is_none());
+    }
+
+    #[test]
+    fn test_reduce_clear_chat() {
+        let mut state = state_with_project();
+
+        // Add messages
+        reduce(
+            &mut state,
+            Action::AddChatMessage {
+                message: ChatMessageData {
+                    id: "user-1".to_string(),
+                    role: ChatRoleData::User,
+                    content: "Hello".to_string(),
+                    timestamp: "2024-12-27T00:00:00Z".to_string(),
+                    is_streaming: false,
+                },
+            },
+        );
+        reduce(
+            &mut state,
+            Action::AddChatMessage {
+                message: ChatMessageData {
+                    id: "assistant-1".to_string(),
+                    role: ChatRoleData::Assistant,
+                    content: "Hi there!".to_string(),
+                    timestamp: "2024-12-27T00:00:01Z".to_string(),
+                    is_streaming: false,
+                },
+            },
+        );
+
+        assert_eq!(active_worktree(&state).chat.messages.len(), 2);
+
+        // Clear chat
+        reduce(&mut state, Action::ClearChat);
+
+        let worktree = active_worktree(&state);
+        assert!(worktree.chat.messages.is_empty());
+        assert!(worktree.chat.error.is_none());
+        assert!(!worktree.chat.is_typing);
+    }
+
+    #[test]
+    fn test_chat_fsm_full_flow() {
+        // Simulate complete chat flow: IDLE → SPAWNING → STREAMING → COMPLETE
+        let mut state = state_with_project();
+
+        // 1. IDLE: Initial state
+        let worktree = active_worktree(&state);
+        assert!(worktree.chat.messages.is_empty());
+        assert!(!worktree.chat.is_typing);
+        assert!(worktree.chat.error.is_none());
+
+        // 2. User sends message → SPAWNING
+        reduce(
+            &mut state,
+            Action::AddChatMessage {
+                message: ChatMessageData {
+                    id: "user-1".to_string(),
+                    role: ChatRoleData::User,
+                    content: "What is Rust?".to_string(),
+                    timestamp: "2024-12-27T00:00:00Z".to_string(),
+                    is_streaming: false,
+                },
+            },
+        );
+        reduce(&mut state, Action::SetChatTyping { is_typing: true });
+
+        let worktree = active_worktree(&state);
+        assert_eq!(worktree.chat.messages.len(), 1);
+        assert!(worktree.chat.is_typing);
+
+        // 3. CLI spawns, creates assistant message placeholder → STREAMING
+        reduce(
+            &mut state,
+            Action::AddChatMessage {
+                message: ChatMessageData {
+                    id: "assistant-1".to_string(),
+                    role: ChatRoleData::Assistant,
+                    content: String::new(),
+                    timestamp: "2024-12-27T00:00:01Z".to_string(),
+                    is_streaming: true,
+                },
+            },
+        );
+
+        let worktree = active_worktree(&state);
+        assert_eq!(worktree.chat.messages.len(), 2);
+        assert!(worktree.chat.messages[1].is_streaming);
+
+        // 4. Streaming deltas arrive
+        reduce(
+            &mut state,
+            Action::AppendChatContent {
+                content: "Rust is ".to_string(),
+            },
+        );
+        reduce(
+            &mut state,
+            Action::AppendChatContent {
+                content: "a systems ".to_string(),
+            },
+        );
+        reduce(
+            &mut state,
+            Action::AppendChatContent {
+                content: "programming language.".to_string(),
+            },
+        );
+
+        let worktree = active_worktree(&state);
+        assert_eq!(
+            worktree.chat.messages[1].content,
+            "Rust is a systems programming language."
+        );
+
+        // 5. message_stop received → COMPLETE
+        reduce(&mut state, Action::SetChatTyping { is_typing: false });
+
+        let worktree = active_worktree(&state);
+        assert!(!worktree.chat.is_typing);
+        assert_eq!(worktree.chat.messages.len(), 2);
+        assert_eq!(worktree.chat.messages[0].content, "What is Rust?");
+        assert_eq!(
+            worktree.chat.messages[1].content,
+            "Rust is a systems programming language."
+        );
+    }
+
+    #[test]
+    fn test_chat_fsm_error_flow() {
+        // Simulate error during chat: IDLE → SPAWNING → ERROR → IDLE
+        let mut state = state_with_project();
+
+        // 1. User sends message
+        reduce(
+            &mut state,
+            Action::AddChatMessage {
+                message: ChatMessageData {
+                    id: "user-1".to_string(),
+                    role: ChatRoleData::User,
+                    content: "Hello".to_string(),
+                    timestamp: "2024-12-27T00:00:00Z".to_string(),
+                    is_streaming: false,
+                },
+            },
+        );
+        reduce(&mut state, Action::SetChatTyping { is_typing: true });
+
+        // 2. Error occurs (CLI not found)
+        reduce(
+            &mut state,
+            Action::SetChatError {
+                error: "Claude Code CLI not found".to_string(),
+            },
+        );
+        reduce(&mut state, Action::SetChatTyping { is_typing: false });
+
+        let worktree = active_worktree(&state);
+        assert!(!worktree.chat.is_typing);
+        assert_eq!(
+            worktree.chat.error,
+            Some("Claude Code CLI not found".to_string())
+        );
+
+        // 3. User dismisses error → IDLE
+        reduce(&mut state, Action::ClearChatError);
+
+        let worktree = active_worktree(&state);
+        assert!(worktree.chat.error.is_none());
     }
 }
