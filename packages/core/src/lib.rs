@@ -247,6 +247,53 @@ pub fn env_default_patterns() -> Vec<String> {
 }
 
 // ============================================================================
+// MCP functions
+// ============================================================================
+
+/// Fetch available tools from MCP server
+#[napi]
+pub async fn fetch_mcp_tools() -> napi::Result<String> {
+    let state = get_app_state().read().await;
+
+    let port = if let Some(project) = state.active_project() {
+        if let Some(worktree) = project.active_worktree() {
+            worktree.mcp.port
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let Some(port) = port else {
+        return Ok(serde_json::json!({ "tools": [] }).to_string());
+    };
+
+    // Call MCP server's tools/list endpoint
+    let url = format!("http://localhost:{}/mcp", port);
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(&url)
+        .json(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/list",
+            "params": {}
+        }))
+        .send()
+        .await
+        .map_err(|e| napi::Error::from_reason(format!("HTTP error: {}", e)))?;
+
+    let body = response
+        .text()
+        .await
+        .map_err(|e| napi::Error::from_reason(format!("Read error: {}", e)))?;
+
+    Ok(body)
+}
+
+// ============================================================================
 // Context Engine functions
 // ============================================================================
 
@@ -1065,6 +1112,7 @@ async fn handle_async_action(action: Action) -> napi::Result<()> {
         // MCP log actions (sync)
         | Action::AddMcpLogEntry { .. }
         | Action::ClearMcpLogs
+        | Action::UpdateMcpTools { .. }
         // Chat actions (sync state updates only)
         | Action::AddChatMessage { .. }
         | Action::AppendChatContent { .. }
@@ -1199,13 +1247,27 @@ async fn handle_async_action(action: Action) -> napi::Result<()> {
 
     // Generate agent rules file if enabled
     let agent_rules_path = if let (Some(config), Some(proj_id)) = (&agent_rules_for_task, &project_id_for_task) {
-        if config.enabled && !config.custom_prompt.trim().is_empty() {
-            match agent_rules::generate_agent_rules_file(&proj_id, &config.custom_prompt) {
-                Ok(path) => Some(path),
-                Err(e) => {
-                    eprintln!("Failed to generate agent rules file: {}", e);
+        if config.enabled {
+            // Find the active profile
+            let active_profile = config.active_profile_id.as_ref()
+                .and_then(|id| {
+                    config.profiles.iter().find(|p| &p.id == id)
+                });
+
+            if let Some(profile) = active_profile {
+                if !profile.prompt.trim().is_empty() {
+                    match agent_rules::generate_agent_rules_file(&proj_id, &profile.prompt) {
+                        Ok(path) => Some(path),
+                        Err(e) => {
+                            eprintln!("Failed to generate agent rules file: {}", e);
+                            None
+                        }
+                    }
+                } else {
                     None
                 }
+            } else {
+                None
             }
         } else {
             None
@@ -1533,7 +1595,11 @@ async fn handle_async_action(action: Action) -> napi::Result<()> {
         // Agent Rules actions (sync - handled in reducer)
         Action::SetAgentRulesEnabled { .. }
         | Action::SetAgentRulesPrompt { .. }
-        | Action::SetAgentRulesTempFile { .. } => {
+        | Action::SetAgentRulesTempFile { .. }
+        | Action::CreateAgentProfile { .. }
+        | Action::UpdateAgentProfile { .. }
+        | Action::DeleteAgentProfile { .. }
+        | Action::SelectAgentProfile { .. } => {
             // These are pure state mutations, handled synchronously in reducer
             // No async operations needed
         }

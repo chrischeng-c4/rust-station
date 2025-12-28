@@ -23,6 +23,9 @@ const api = {
   worktree: {
     listBranches: (repoPath: string) => core.worktreeListBranches(repoPath),
   },
+  mcp: {
+    fetchTools: () => core.fetchMcpTools(),
+  },
 }
 
 // Dialog API for native dialogs
@@ -33,6 +36,17 @@ const dialogApi = {
    */
   openFolder: (): Promise<string | null> => {
     return ipcRenderer.invoke('dialog:openFolder')
+  },
+}
+
+// Screenshot API (dev mode)
+const screenshotApi = {
+  /**
+   * Capture a screenshot of the entire window and save to Downloads folder.
+   * @returns Result object with success flag and file path or error message
+   */
+  capture: (): Promise<{ success: boolean; filePath?: string; error?: string }> => {
+    return ipcRenderer.invoke('screenshot:capture')
   },
 }
 
@@ -78,6 +92,7 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld('api', api)
     contextBridge.exposeInMainWorld('stateApi', stateApi)
     contextBridge.exposeInMainWorld('dialogApi', dialogApi)
+    contextBridge.exposeInMainWorld('screenshotApi', screenshotApi)
   } catch (error) {
     console.error(error)
   }
@@ -90,4 +105,6 @@ if (process.contextIsolated) {
   window.stateApi = stateApi
   // @ts-ignore (define in dts)
   window.dialogApi = dialogApi
+  // @ts-ignore (define in dts)
+  window.screenshotApi = screenshotApi
 }

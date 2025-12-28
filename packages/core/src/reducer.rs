@@ -254,6 +254,21 @@ pub fn reduce(state: &mut AppState, action: Action) {
             }
         }
 
+        Action::UpdateMcpTools { tools } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.mcp.available_tools = tools
+                        .into_iter()
+                        .map(|t| crate::app_state::McpTool {
+                            name: t.name,
+                            description: t.description,
+                            input_schema: t.input_schema,
+                        })
+                        .collect();
+                }
+            }
+        }
+
         // ====================================================================
         // Chat Actions (worktree scope)
         // ====================================================================
@@ -657,18 +672,100 @@ pub fn reduce(state: &mut AppState, action: Action) {
         Action::SetAgentRulesEnabled { enabled } => {
             if let Some(project) = state.active_project_mut() {
                 project.agent_rules_config.enabled = enabled;
+
+                // Clear active_profile_id when disabled
+                if !enabled {
+                    project.agent_rules_config.active_profile_id = None;
+                }
             }
         }
 
         Action::SetAgentRulesPrompt { prompt } => {
             if let Some(project) = state.active_project_mut() {
-                project.agent_rules_config.custom_prompt = prompt;
+                // For backward compatibility: update first custom profile or create new one
+                if let Some(profile) = project.agent_rules_config.profiles
+                    .iter_mut()
+                    .find(|p| !p.is_builtin)
+                {
+                    profile.prompt = prompt;
+                    profile.updated_at = chrono::Utc::now().to_rfc3339();
+                } else {
+                    // Create a new custom profile
+                    let now = chrono::Utc::now().to_rfc3339();
+                    let new_profile = crate::app_state::AgentProfile {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        name: "Custom".to_string(),
+                        prompt,
+                        is_builtin: false,
+                        created_at: now.clone(),
+                        updated_at: now,
+                    };
+                    project.agent_rules_config.profiles.push(new_profile.clone());
+                    // Auto-select the new profile
+                    project.agent_rules_config.active_profile_id = Some(new_profile.id);
+                }
             }
         }
 
         Action::SetAgentRulesTempFile { path } => {
             if let Some(project) = state.active_project_mut() {
                 project.agent_rules_config.temp_file_path = path;
+            }
+        }
+
+        Action::CreateAgentProfile { name, prompt } => {
+            if let Some(project) = state.active_project_mut() {
+                let now = chrono::Utc::now().to_rfc3339();
+                let profile = crate::app_state::AgentProfile {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    name,
+                    prompt,
+                    is_builtin: false,
+                    created_at: now.clone(),
+                    updated_at: now,
+                };
+                project.agent_rules_config.profiles.push(profile);
+            }
+        }
+
+        Action::UpdateAgentProfile { id, name, prompt } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(profile) = project
+                    .agent_rules_config
+                    .profiles
+                    .iter_mut()
+                    .find(|p| p.id == id && !p.is_builtin)
+                {
+                    profile.name = name;
+                    profile.prompt = prompt;
+                    profile.updated_at = chrono::Utc::now().to_rfc3339();
+                }
+            }
+        }
+
+        Action::DeleteAgentProfile { id } => {
+            if let Some(project) = state.active_project_mut() {
+                // Remove profile only if it's not builtin
+                project
+                    .agent_rules_config
+                    .profiles
+                    .retain(|p| !(p.id == id && !p.is_builtin));
+
+                // Clear active_profile_id if deleted profile was active
+                if project.agent_rules_config.active_profile_id.as_ref() == Some(&id) {
+                    project.agent_rules_config.active_profile_id = None;
+                }
+            }
+        }
+
+        Action::SelectAgentProfile { profile_id } => {
+            if let Some(project) = state.active_project_mut() {
+                project.agent_rules_config.active_profile_id = profile_id.clone();
+
+                // Auto-enable agent rules if a profile is selected
+                if profile_id.is_some() {
+                    project.agent_rules_config.enabled = true;
+                }
             }
         }
 
@@ -2008,5 +2105,359 @@ mod tests {
 
         let worktree = active_worktree(&state);
         assert!(worktree.chat.error.is_none());
+    }
+
+    // ========================================================================
+    // Agent Profile Tests
+    // ========================================================================
+
+    #[test]
+    fn test_create_agent_profile() {
+        let mut state = state_with_project();
+
+        reduce(
+            &mut state,
+            Action::CreateAgentProfile {
+                name: "My Custom Profile".to_string(),
+                prompt: "You are a test expert".to_string(),
+            },
+        );
+
+        let project = state.active_project().unwrap();
+        assert_eq!(project.agent_rules_config.profiles.len(), 4); // 3 builtin + 1 custom
+
+        let custom_profile = project
+            .agent_rules_config
+            .profiles
+            .iter()
+            .find(|p| p.name == "My Custom Profile")
+            .unwrap();
+
+        assert!(!custom_profile.is_builtin);
+        assert_eq!(custom_profile.prompt, "You are a test expert");
+        assert!(!custom_profile.id.is_empty());
+    }
+
+    #[test]
+    fn test_update_agent_profile() {
+        let mut state = state_with_project();
+
+        // Create a custom profile
+        reduce(
+            &mut state,
+            Action::CreateAgentProfile {
+                name: "Original".to_string(),
+                prompt: "Original prompt".to_string(),
+            },
+        );
+
+        let profile_id = state
+            .active_project()
+            .unwrap()
+            .agent_rules_config
+            .profiles
+            .iter()
+            .find(|p| !p.is_builtin)
+            .unwrap()
+            .id
+            .clone();
+
+        // Update the profile
+        reduce(
+            &mut state,
+            Action::UpdateAgentProfile {
+                id: profile_id.clone(),
+                name: "Updated".to_string(),
+                prompt: "Updated prompt".to_string(),
+            },
+        );
+
+        let project = state.active_project().unwrap();
+        let updated_profile = project
+            .agent_rules_config
+            .profiles
+            .iter()
+            .find(|p| p.id == profile_id)
+            .unwrap();
+
+        assert_eq!(updated_profile.name, "Updated");
+        assert_eq!(updated_profile.prompt, "Updated prompt");
+    }
+
+    #[test]
+    fn test_update_builtin_profile_is_noop() {
+        let mut state = state_with_project();
+
+        let builtin_id = "builtin-rust-expert".to_string();
+        let original_prompt = state
+            .active_project()
+            .unwrap()
+            .agent_rules_config
+            .profiles
+            .iter()
+            .find(|p| p.id == builtin_id)
+            .unwrap()
+            .prompt
+            .clone();
+
+        // Try to update builtin profile (should be ignored)
+        reduce(
+            &mut state,
+            Action::UpdateAgentProfile {
+                id: builtin_id.clone(),
+                name: "Hacked".to_string(),
+                prompt: "Hacked prompt".to_string(),
+            },
+        );
+
+        let project = state.active_project().unwrap();
+        let builtin_profile = project
+            .agent_rules_config
+            .profiles
+            .iter()
+            .find(|p| p.id == builtin_id)
+            .unwrap();
+
+        // Should remain unchanged
+        assert_eq!(builtin_profile.name, "Rust Expert");
+        assert_eq!(builtin_profile.prompt, original_prompt);
+    }
+
+    #[test]
+    fn test_delete_agent_profile() {
+        let mut state = state_with_project();
+
+        // Create a custom profile
+        reduce(
+            &mut state,
+            Action::CreateAgentProfile {
+                name: "To Delete".to_string(),
+                prompt: "Will be deleted".to_string(),
+            },
+        );
+
+        let profile_id = state
+            .active_project()
+            .unwrap()
+            .agent_rules_config
+            .profiles
+            .iter()
+            .find(|p| !p.is_builtin)
+            .unwrap()
+            .id
+            .clone();
+
+        assert_eq!(
+            state.active_project().unwrap().agent_rules_config.profiles.len(),
+            4
+        );
+
+        // Delete the profile
+        reduce(
+            &mut state,
+            Action::DeleteAgentProfile { id: profile_id },
+        );
+
+        let project = state.active_project().unwrap();
+        assert_eq!(project.agent_rules_config.profiles.len(), 3); // Back to 3 builtin
+        assert!(project
+            .agent_rules_config
+            .profiles
+            .iter()
+            .all(|p| p.is_builtin));
+    }
+
+    #[test]
+    fn test_delete_builtin_profile_is_noop() {
+        let mut state = state_with_project();
+
+        let builtin_id = "builtin-rust-expert".to_string();
+        assert_eq!(
+            state.active_project().unwrap().agent_rules_config.profiles.len(),
+            3
+        );
+
+        // Try to delete builtin profile (should be ignored)
+        reduce(
+            &mut state,
+            Action::DeleteAgentProfile { id: builtin_id },
+        );
+
+        let project = state.active_project().unwrap();
+        assert_eq!(project.agent_rules_config.profiles.len(), 3); // Still 3
+        assert!(project
+            .agent_rules_config
+            .profiles
+            .iter()
+            .any(|p| p.id == "builtin-rust-expert"));
+    }
+
+    #[test]
+    fn test_delete_active_profile_clears_selection() {
+        let mut state = state_with_project();
+
+        // Create and select a custom profile
+        reduce(
+            &mut state,
+            Action::CreateAgentProfile {
+                name: "Active".to_string(),
+                prompt: "Active prompt".to_string(),
+            },
+        );
+
+        let profile_id = state
+            .active_project()
+            .unwrap()
+            .agent_rules_config
+            .profiles
+            .iter()
+            .find(|p| !p.is_builtin)
+            .unwrap()
+            .id
+            .clone();
+
+        reduce(
+            &mut state,
+            Action::SelectAgentProfile {
+                profile_id: Some(profile_id.clone()),
+            },
+        );
+
+        assert_eq!(
+            state
+                .active_project()
+                .unwrap()
+                .agent_rules_config
+                .active_profile_id,
+            Some(profile_id.clone())
+        );
+
+        // Delete the active profile
+        reduce(&mut state, Action::DeleteAgentProfile { id: profile_id });
+
+        // active_profile_id should be cleared
+        assert_eq!(
+            state
+                .active_project()
+                .unwrap()
+                .agent_rules_config
+                .active_profile_id,
+            None
+        );
+    }
+
+    #[test]
+    fn test_select_agent_profile() {
+        let mut state = state_with_project();
+
+        let builtin_id = "builtin-typescript-expert".to_string();
+
+        reduce(
+            &mut state,
+            Action::SelectAgentProfile {
+                profile_id: Some(builtin_id.clone()),
+            },
+        );
+
+        let project = state.active_project().unwrap();
+        assert_eq!(
+            project.agent_rules_config.active_profile_id,
+            Some(builtin_id)
+        );
+        assert!(project.agent_rules_config.enabled); // Auto-enabled
+    }
+
+    #[test]
+    fn test_select_none_keeps_enabled_state() {
+        let mut state = state_with_project();
+
+        // Enable and select a profile
+        reduce(
+            &mut state,
+            Action::SelectAgentProfile {
+                profile_id: Some("builtin-rust-expert".to_string()),
+            },
+        );
+
+        assert!(state
+            .active_project()
+            .unwrap()
+            .agent_rules_config
+            .enabled);
+
+        // Deselect (set to None)
+        reduce(
+            &mut state,
+            Action::SelectAgentProfile { profile_id: None },
+        );
+
+        let project = state.active_project().unwrap();
+        assert_eq!(project.agent_rules_config.active_profile_id, None);
+        assert!(project.agent_rules_config.enabled); // Remains enabled
+    }
+
+    #[test]
+    fn test_disable_agent_rules_clears_selection() {
+        let mut state = state_with_project();
+
+        // Select a profile
+        reduce(
+            &mut state,
+            Action::SelectAgentProfile {
+                profile_id: Some("builtin-rust-expert".to_string()),
+            },
+        );
+
+        assert!(state
+            .active_project()
+            .unwrap()
+            .agent_rules_config
+            .active_profile_id
+            .is_some());
+
+        // Disable agent rules
+        reduce(
+            &mut state,
+            Action::SetAgentRulesEnabled { enabled: false },
+        );
+
+        let project = state.active_project().unwrap();
+        assert!(!project.agent_rules_config.enabled);
+        assert_eq!(project.agent_rules_config.active_profile_id, None); // Cleared
+    }
+
+    #[test]
+    fn test_default_profiles_exist() {
+        let state = state_with_project();
+
+        let project = state.active_project().unwrap();
+        let profiles = &project.agent_rules_config.profiles;
+
+        assert_eq!(profiles.len(), 3);
+
+        // Check all 3 builtin profiles exist
+        let rust_expert = profiles
+            .iter()
+            .find(|p| p.id == "builtin-rust-expert")
+            .unwrap();
+        assert_eq!(rust_expert.name, "Rust Expert");
+        assert!(rust_expert.is_builtin);
+        assert!(rust_expert.prompt.contains("snake_case"));
+
+        let ts_expert = profiles
+            .iter()
+            .find(|p| p.id == "builtin-typescript-expert")
+            .unwrap();
+        assert_eq!(ts_expert.name, "TypeScript Expert");
+        assert!(ts_expert.is_builtin);
+        assert!(ts_expert.prompt.contains("TypeScript"));
+
+        let reviewer = profiles
+            .iter()
+            .find(|p| p.id == "builtin-code-reviewer")
+            .unwrap();
+        assert_eq!(reviewer.name, "Code Reviewer");
+        assert!(reviewer.is_builtin);
+        assert!(reviewer.prompt.contains("code reviewer"));
     }
 }

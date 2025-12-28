@@ -45,6 +45,9 @@ interface Api {
   worktree: {
     listBranches(repoPath: string): BranchInfo[]
   }
+  mcp: {
+    fetchTools(): Promise<string>
+  }
 }
 
 // Dialog API for native dialogs
@@ -54,6 +57,15 @@ interface DialogApi {
    * @returns The selected folder path, or null if canceled
    */
   openFolder(): Promise<string | null>
+}
+
+// Screenshot API (dev mode)
+interface ScreenshotApi {
+  /**
+   * Capture a screenshot of the entire window and save to Downloads folder.
+   * @returns Result object with success flag and file path or error message
+   */
+  capture(): Promise<{ success: boolean; filePath?: string; error?: string }>
 }
 
 // State-first API
@@ -85,5 +97,6 @@ declare global {
     api: Api
     stateApi: StateApi
     dialogApi: DialogApi
+    screenshotApi: ScreenshotApi
   }
 }

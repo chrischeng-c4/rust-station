@@ -104,6 +104,8 @@ export declare function worktreeListBranches(repoPath: string): Array<NapiBranch
 export declare function envListFiles(dir: string, patterns: Array<string>): Array<string>
 /** Get default env patterns */
 export declare function envDefaultPatterns(): Array<string>
+/** Fetch available tools from MCP server */
+export declare function fetchMcpTools(): Promise<string>
 /** AI Context for napi export */
 export interface NapiAiContext {
   /** Open files with content */

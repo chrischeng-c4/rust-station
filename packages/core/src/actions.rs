@@ -76,6 +76,9 @@ pub enum Action {
     /// Clear MCP logs
     ClearMcpLogs,
 
+    /// Update available MCP tools (internal, after fetch)
+    UpdateMcpTools { tools: Vec<McpToolData> },
+
     // ========================================================================
     // Chat Actions (worktree scope)
     // ========================================================================
@@ -228,11 +231,27 @@ pub enum Action {
     /// Toggle custom agent rules on/off
     SetAgentRulesEnabled { enabled: bool },
 
-    /// Update custom system prompt text
+    /// Update custom system prompt text (deprecated, use profile actions)
     SetAgentRulesPrompt { prompt: String },
 
     /// Set temp file path (internal, after generation)
     SetAgentRulesTempFile { path: Option<String> },
+
+    /// Create a new agent profile
+    CreateAgentProfile { name: String, prompt: String },
+
+    /// Update an existing agent profile
+    UpdateAgentProfile {
+        id: String,
+        name: String,
+        prompt: String,
+    },
+
+    /// Delete an agent profile
+    DeleteAgentProfile { id: String },
+
+    /// Select and activate an agent profile (None = disable)
+    SelectAgentProfile { profile_id: Option<String> },
 
     // ========================================================================
     // Notification Actions
@@ -348,6 +367,14 @@ pub struct McpLogEntryData {
     pub tool_name: Option<String>,
     pub payload: String,
     pub is_error: bool,
+}
+
+/// MCP tool data for actions
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct McpToolData {
+    pub name: String,
+    pub description: String,
+    pub input_schema: serde_json::Value,
 }
 
 /// Chat role for actions

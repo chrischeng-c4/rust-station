@@ -110,9 +110,19 @@ export interface EnvConfig {
 // Agent Rules (Project scope)
 // ============================================================================
 
+export interface AgentProfile {
+  id: string
+  name: string
+  prompt: string
+  is_builtin: boolean
+  created_at: string
+  updated_at: string
+}
+
 export interface AgentRulesConfig {
   enabled: boolean
-  custom_prompt: string
+  active_profile_id?: string
+  profiles: AgentProfile[]
   temp_file_path?: string
 }
 
@@ -147,12 +157,19 @@ export interface McpLogEntry {
   is_error: boolean
 }
 
+export interface McpTool {
+  name: string
+  description: string
+  input_schema: unknown
+}
+
 export interface McpState {
   status: McpStatus
   port?: number
   config_path?: string
   error?: string
   log_entries?: McpLogEntry[]
+  available_tools?: McpTool[]
 }
 
 // ============================================================================
@@ -372,6 +389,11 @@ export interface AddMcpLogEntryAction {
 
 export interface ClearMcpLogsAction {
   type: 'ClearMcpLogs'
+}
+
+export interface UpdateMcpToolsAction {
+  type: 'UpdateMcpTools'
+  payload: { tools: McpToolData[] }
 }
 
 // Chat Actions
@@ -607,6 +629,26 @@ export interface SetAgentRulesTempFileAction {
   payload: { path: string | null }
 }
 
+export interface CreateAgentProfileAction {
+  type: 'CreateAgentProfile'
+  payload: { name: string; prompt: string }
+}
+
+export interface UpdateAgentProfileAction {
+  type: 'UpdateAgentProfile'
+  payload: { id: string; name: string; prompt: string }
+}
+
+export interface DeleteAgentProfileAction {
+  type: 'DeleteAgentProfile'
+  payload: { id: string }
+}
+
+export interface SelectAgentProfileAction {
+  type: 'SelectAgentProfile'
+  payload: { profile_id?: string }
+}
+
 // Notification Actions
 export interface AddNotificationAction {
   type: 'AddNotification'
@@ -730,6 +772,12 @@ export interface McpLogEntryData {
   is_error: boolean
 }
 
+export interface McpToolData {
+  name: string
+  description: string
+  input_schema: unknown
+}
+
 export type ChatRoleData = 'user' | 'assistant' | 'system'
 
 export interface ChatMessageData {
@@ -778,6 +826,7 @@ export type Action =
   | SetMcpErrorAction
   | AddMcpLogEntryAction
   | ClearMcpLogsAction
+  | UpdateMcpToolsAction
   | SendChatMessageAction
   | AddChatMessageAction
   | AppendChatContentAction
@@ -824,6 +873,10 @@ export type Action =
   | SetAgentRulesEnabledAction
   | SetAgentRulesPromptAction
   | SetAgentRulesTempFileAction
+  | CreateAgentProfileAction
+  | UpdateAgentProfileAction
+  | DeleteAgentProfileAction
+  | SelectAgentProfileAction
   | AddNotificationAction
   | DismissNotificationAction
   | MarkNotificationReadAction

@@ -219,6 +219,17 @@ pub struct McpLogEntry {
 /// Maximum number of log entries to keep
 const MAX_MCP_LOG_ENTRIES: usize = 100;
 
+/// MCP tool information
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct McpTool {
+    /// Tool name (e.g. "read_file")
+    pub name: String,
+    /// Tool description
+    pub description: String,
+    /// Input schema (JSON Schema format)
+    pub input_schema: serde_json::Value,
+}
+
 /// MCP server state for a worktree
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct McpState {
@@ -236,6 +247,9 @@ pub struct McpState {
     /// Recent log entries (limited to MAX_MCP_LOG_ENTRIES)
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub log_entries: Vec<McpLogEntry>,
+    /// Available MCP tools (from tools/list)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub available_tools: Vec<McpTool>,
 }
 
 impl McpState {
@@ -494,13 +508,114 @@ pub struct EnvCopyResult {
 // Agent Rules Configuration (Project-level)
 // ============================================================================
 
+/// Agent profile with custom system prompt
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AgentProfile {
+    /// Unique identifier (UUID)
+    pub id: String,
+    /// Display name (e.g. "Rust Expert", "Code Reviewer")
+    pub name: String,
+    /// System prompt content
+    pub prompt: String,
+    /// Whether this is a built-in (immutable) profile
+    pub is_builtin: bool,
+    /// Creation timestamp (ISO 8601)
+    pub created_at: String,
+    /// Last update timestamp (ISO 8601)
+    pub updated_at: String,
+}
+
+impl AgentProfile {
+    /// Create the default Rust Expert profile
+    pub fn default_rust_expert() -> Self {
+        let now = chrono::Utc::now().to_rfc3339();
+        Self {
+            id: "builtin-rust-expert".to_string(),
+            name: "Rust Expert".to_string(),
+            prompt: r#"You are a Rust programming expert.
+
+Core Principles:
+- Always use snake_case for function and variable names
+- Prefer Result<T, E> over Option when errors are possible
+- Write comprehensive tests for all new functions
+- Use #[derive(Debug, Clone)] by default for structs
+- Avoid unwrap() in production code - use proper error handling
+
+Code Style:
+- Maximum line length: 100 characters
+- Use rustfmt and clippy
+- Add doc comments for public APIs
+- Use meaningful variable names"#.to_string(),
+            is_builtin: true,
+            created_at: now.clone(),
+            updated_at: now,
+        }
+    }
+
+    /// Create the default TypeScript Expert profile
+    pub fn default_typescript_expert() -> Self {
+        let now = chrono::Utc::now().to_rfc3339();
+        Self {
+            id: "builtin-typescript-expert".to_string(),
+            name: "TypeScript Expert".to_string(),
+            prompt: r#"You are a TypeScript/React programming expert.
+
+Core Principles:
+- Always use TypeScript with strict mode
+- Prefer functional components with hooks
+- Use proper typing - avoid 'any'
+- Follow React best practices
+- Use meaningful component and variable names
+
+Code Style:
+- Use ESLint and Prettier
+- Maximum line length: 100 characters
+- Use const for immutable values
+- Prefer async/await over .then()
+- Add JSDoc comments for complex functions"#.to_string(),
+            is_builtin: true,
+            created_at: now.clone(),
+            updated_at: now,
+        }
+    }
+
+    /// Create the default Code Reviewer profile
+    pub fn default_code_reviewer() -> Self {
+        let now = chrono::Utc::now().to_rfc3339();
+        Self {
+            id: "builtin-code-reviewer".to_string(),
+            name: "Code Reviewer".to_string(),
+            prompt: r#"You are a code reviewer focused on quality and best practices.
+
+Review Focus:
+- Check for potential bugs and edge cases
+- Verify proper error handling
+- Look for security vulnerabilities
+- Check code readability and maintainability
+- Suggest performance improvements
+- Verify test coverage
+
+Feedback Style:
+- Be constructive and specific
+- Provide examples when suggesting changes
+- Explain the reasoning behind suggestions
+- Prioritize critical issues over style preferences"#.to_string(),
+            is_builtin: true,
+            created_at: now.clone(),
+            updated_at: now,
+        }
+    }
+}
+
 /// Agent rules configuration for customizing Claude's system prompt
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AgentRulesConfig {
     /// Whether custom agent rules are enabled
     pub enabled: bool,
-    /// Custom system prompt text (overrides CLAUDE.md)
-    pub custom_prompt: String,
+    /// Currently active profile ID (None = use CLAUDE.md)
+    pub active_profile_id: Option<String>,
+    /// All available profiles (built-in + custom)
+    pub profiles: Vec<AgentProfile>,
     /// Generated temp file path (internal, for cleanup)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temp_file_path: Option<String>,
@@ -510,7 +625,12 @@ impl Default for AgentRulesConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            custom_prompt: String::new(),
+            active_profile_id: None,
+            profiles: vec![
+                AgentProfile::default_rust_expert(),
+                AgentProfile::default_typescript_expert(),
+                AgentProfile::default_code_reviewer(),
+            ],
             temp_file_path: None,
         }
     }
