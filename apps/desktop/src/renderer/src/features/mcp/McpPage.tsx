@@ -39,17 +39,25 @@ export function McpPage() {
       const fetchTools = async () => {
         try {
           const json = await window.api.mcp.fetchTools()
+          console.log('[MCP] Raw response:', json)
           const data = JSON.parse(json)
+          console.log('[MCP] Parsed data:', data)
+          console.log('[MCP] data.result:', data.result)
+          console.log('[MCP] data.result?.tools:', data.result?.tools)
+
           if (data.result?.tools) {
+            console.log('[MCP] Setting tools:', data.result.tools)
             setTools(data.result.tools)
             // Also dispatch to update state
             await dispatch({
               type: 'UpdateMcpTools',
               payload: { tools: data.result.tools }
             })
+          } else {
+            console.warn('[MCP] No tools found in response. Full data:', JSON.stringify(data, null, 2))
           }
         } catch (err) {
-          console.error('Failed to fetch MCP tools:', err)
+          console.error('[MCP] Failed to fetch MCP tools:', err)
         }
       }
       fetchTools()

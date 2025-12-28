@@ -253,7 +253,11 @@ pub fn env_default_patterns() -> Vec<String> {
 /// Fetch available tools from MCP server
 #[napi]
 pub async fn fetch_mcp_tools() -> napi::Result<String> {
-    let state = get_app_state().read().await;
+    // Check if state is initialized
+    let state_cell = APP_STATE.get().ok_or_else(|| {
+        napi::Error::from_reason("AppState not initialized. Call state_init first.")
+    })?;
+    let state = state_cell.read().await;
 
     let port = if let Some(project) = state.active_project() {
         if let Some(worktree) = project.active_worktree() {
@@ -266,11 +270,18 @@ pub async fn fetch_mcp_tools() -> napi::Result<String> {
     };
 
     let Some(port) = port else {
-        return Ok(serde_json::json!({ "tools": [] }).to_string());
+        eprintln!("[fetch_mcp_tools] No port available");
+        // Return JSON-RPC formatted empty response
+        return Ok(serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": { "tools": [] }
+        }).to_string());
     };
 
     // Call MCP server's tools/list endpoint
     let url = format!("http://localhost:{}/mcp", port);
+    eprintln!("[fetch_mcp_tools] Fetching tools from: {}", url);
     let client = reqwest::Client::new();
 
     let response = client
@@ -283,13 +294,20 @@ pub async fn fetch_mcp_tools() -> napi::Result<String> {
         }))
         .send()
         .await
-        .map_err(|e| napi::Error::from_reason(format!("HTTP error: {}", e)))?;
+        .map_err(|e| {
+            eprintln!("[fetch_mcp_tools] HTTP error: {}", e);
+            napi::Error::from_reason(format!("HTTP error: {}", e))
+        })?;
 
     let body = response
         .text()
         .await
-        .map_err(|e| napi::Error::from_reason(format!("Read error: {}", e)))?;
+        .map_err(|e| {
+            eprintln!("[fetch_mcp_tools] Read error: {}", e);
+            napi::Error::from_reason(format!("Read error: {}", e))
+        })?;
 
+    eprintln!("[fetch_mcp_tools] Response body: {}", body);
     Ok(body)
 }
 
