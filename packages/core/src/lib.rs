@@ -1513,6 +1513,7 @@ async fn handle_async_action(action: Action) -> napi::Result<()> {
 
         // Constitution Workflow actions (CESDD Phase 1)
         Action::StartConstitutionWorkflow
+        | Action::ClearConstitutionWorkflow
         | Action::AnswerConstitutionQuestion { .. }
         | Action::AppendConstitutionOutput { .. } => {
             // Sync actions - handled in reducer

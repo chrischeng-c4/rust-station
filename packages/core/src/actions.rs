@@ -109,6 +109,9 @@ pub enum Action {
     /// Start the Constitution initialization workflow
     StartConstitutionWorkflow,
 
+    /// Clear/reset the Constitution workflow (for fresh start)
+    ClearConstitutionWorkflow,
+
     /// Submit an answer to the current question and advance
     AnswerConstitutionQuestion { answer: String },
 

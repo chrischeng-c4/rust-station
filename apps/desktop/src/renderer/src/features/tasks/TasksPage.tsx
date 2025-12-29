@@ -69,12 +69,14 @@ export function TasksPage() {
     await dispatch({ type: 'ClearTaskOutput' })
   }, [dispatch])
 
-  // Handle selecting Constitution Init (sets active command and initializes workflow)
+  // Handle selecting Constitution Init (sets active command only, workflow starts from panel)
   const handleSelectConstitutionInit = useCallback(async () => {
     await dispatch({ type: 'SetActiveCommand', payload: { name: 'constitution-init' } })
     await dispatch({ type: 'ClearTaskOutput' })
-    // Initialize workflow state
-    await dispatch({ type: 'StartConstitutionWorkflow' })
+    // Clear any existing workflow so user can choose fresh
+    await dispatch({ type: 'ClearConstitutionWorkflow' })
+    // Note: Don't start workflow here - let user choose between
+    // "Apply Default Template" or "Create with Q&A" in ConstitutionPanel
   }, [dispatch])
 
   // Check if Claude Code is active

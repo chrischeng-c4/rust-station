@@ -367,6 +367,14 @@ pub fn reduce(state: &mut AppState, action: Action) {
             }
         }
 
+        Action::ClearConstitutionWorkflow => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.tasks.constitution_workflow = None;
+                }
+            }
+        }
+
         Action::AnswerConstitutionQuestion { answer } => {
             if let Some(project) = state.active_project_mut() {
                 if let Some(worktree) = project.active_worktree_mut() {
@@ -1003,6 +1011,7 @@ fn log_action_if_interesting(state: &mut AppState, action: &Action) {
 
         // Constitution workflow - interesting
         Action::StartConstitutionWorkflow => ("StartConstitutionWorkflow", true),
+        Action::ClearConstitutionWorkflow => ("ClearConstitutionWorkflow", true),
         Action::AnswerConstitutionQuestion { .. } => ("AnswerConstitutionQuestion", true),
         Action::GenerateConstitution => ("GenerateConstitution", true),
         Action::SaveConstitution => ("SaveConstitution", true),

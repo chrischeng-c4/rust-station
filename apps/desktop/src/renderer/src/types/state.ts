@@ -457,6 +457,10 @@ export interface StartConstitutionWorkflowAction {
   type: 'StartConstitutionWorkflow'
 }
 
+export interface ClearConstitutionWorkflowAction {
+  type: 'ClearConstitutionWorkflow'
+}
+
 export interface AnswerConstitutionQuestionAction {
   type: 'AnswerConstitutionQuestion'
   payload: { answer: string }
@@ -897,6 +901,7 @@ export type Action =
   | ClearChatErrorAction
   | ClearChatAction
   | StartConstitutionWorkflowAction
+  | ClearConstitutionWorkflowAction
   | AnswerConstitutionQuestionAction
   | GenerateConstitutionAction
   | AppendConstitutionOutputAction
