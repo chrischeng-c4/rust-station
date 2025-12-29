@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog, clipboard } from 'electron'
 import { join, resolve } from 'path'
 import { existsSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -101,6 +101,51 @@ function setupDialogIPC(): void {
 }
 
 // ============================================================================
+// Screenshot Handler (Dev Mode)
+// ============================================================================
+
+function setupScreenshotIPC(): void {
+  ipcMain.handle('screenshot:capture', async () => {
+    if (!mainWindow) {
+      return { success: false, error: 'No main window' }
+    }
+
+    try {
+      // Capture the entire window as PNG
+      const image = await mainWindow.webContents.capturePage()
+
+      // Generate filename with timestamp
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+      const filename = `rstn-screenshot-${timestamp}.png`
+
+      // Get downloads folder path
+      const downloadsPath = app.getPath('downloads')
+      const filePath = join(downloadsPath, filename)
+
+      // Write image to file
+      const { promises: fs } = await import('fs')
+      await fs.writeFile(filePath, image.toPNG())
+
+      // Copy image to clipboard
+      try {
+        clipboard.writeImage(image)
+        console.log('Screenshot saved to:', filePath, '(and copied to clipboard)')
+      } catch (clipboardError) {
+        console.warn('Clipboard copy failed:', clipboardError)
+      }
+
+      return { success: true, filePath }
+    } catch (error) {
+      console.error('Screenshot failed:', error)
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }
+    }
+  })
+}
+
+// ============================================================================
 // CLI Argument Parsing
 // ============================================================================
 
@@ -148,6 +193,7 @@ app.whenReady().then(async () => {
   initializeState()
   setupStateIPC()
   setupDialogIPC()
+  setupScreenshotIPC()
 
   // Open project from CLI if provided
   await openCliProject()

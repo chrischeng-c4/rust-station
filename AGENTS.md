@@ -99,6 +99,109 @@ See: `docs/README.md` for User Documentation.
 
 ---
 
+<automated-verification>
+## Automated Verification Principle
+
+**Critical Rule**: Everything MUST be checkable/testable without human intervention. If a feature cannot be verified programmatically, the design is fundamentally flawed and MUST be rejected.
+
+### Core Principles
+
+1. **No Manual Testing Required**
+   - Features MUST be testable through automated tests
+   - Debug workflows MUST be programmatically verifiable
+   - NEVER ask humans to "run the app and check" - you MUST write a test instead
+   - Proactively write tests BEFORE implementing features (TDD)
+
+2. **Self-Debugging Systems**
+   - Systems MUST provide introspection capabilities
+   - Logs MUST be machine-readable and parseable
+   - State MUST be queryable programmatically
+   - Health checks MUST be automatable
+   - Proactively add instrumentation when implementing features
+
+3. **Proactive Test-First Development**
+   - MUST write integration tests that verify end-to-end functionality
+   - MUST use property-based testing for complex logic
+   - MUST mock external dependencies to enable isolated testing
+   - Tests are the primary documentation of expected behavior
+
+### Anti-Patterns to Avoid
+
+❌ **BAD**: "Add debug logs and ask user to check console"
+✓ **GOOD**: Write a test that captures the logs and asserts on them
+
+❌ **BAD**: "Start the app manually to see if feature works"
+✓ **GOOD**: Write an E2E test that starts the app programmatically and verifies behavior
+
+❌ **BAD**: "Check if the API returns the right data"
+✓ **GOOD**: Write an integration test that calls the API and validates the response structure
+
+### Implementation Guidelines
+
+1. **For New Features**:
+   ```
+   1. Write test that exercises the feature
+   2. Implement the feature
+   3. Test passes → feature is verified
+   4. Test fails → fix implementation
+   ```
+
+2. **For Debugging**:
+   ```
+   1. Reproduce issue in automated test
+   2. Add instrumentation (structured logs, metrics)
+   3. Test queries instrumentation to verify behavior
+   4. Fix root cause
+   5. Test validates fix
+   ```
+
+3. **For Integration Points**:
+   - HTTP APIs: Use curl/httpie in test scripts
+   - Databases: Use SQL queries in test assertions
+   - File systems: Use find/grep in test validation
+   - Processes: Use ps/lsof in health checks
+
+### Benefits
+
+- **Reliability**: Tests catch regressions before humans see them
+- **Speed**: Automated tests run in seconds, manual testing takes minutes
+- **Documentation**: Tests document expected behavior better than comments
+- **Confidence**: Every change is verified before deployment
+
+### Examples
+
+**Good Example - HTTP API Test**:
+```bash
+# Test MCP server tools endpoint
+response=$(curl -s -X POST http://localhost:5000/mcp \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}')
+
+tools_count=$(echo "$response" | jq '.result.tools | length')
+[[ $tools_count -eq 4 ]] || exit 1  # Assert 4 tools exist
+```
+
+**Good Example - Integration Test**:
+```rust
+#[tokio::test]
+async fn test_fetch_mcp_tools_returns_valid_response() {
+    // Start MCP server
+    let server = start_mcp_server().await;
+
+    // Call fetch_mcp_tools
+    let result = fetch_mcp_tools().await.unwrap();
+    let data: Value = serde_json::from_str(&result).unwrap();
+
+    // Validate response structure
+    assert!(data["result"]["tools"].is_array());
+    assert_eq!(data["result"]["tools"].as_array().unwrap().len(), 4);
+}
+```
+
+</automated-verification>
+
+---
+
 <state-first-architecture>
 ## State-First Architecture
 

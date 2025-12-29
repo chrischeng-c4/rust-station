@@ -50,6 +50,10 @@ const createMockProject = (overrides?: Partial<ProjectState>): ProjectState => (
     source_worktree: null,
     last_copy_result: null,
   },
+  agent_rules_config: {
+    enabled: false,
+    profiles: [],
+  },
   ...overrides,
 })
 

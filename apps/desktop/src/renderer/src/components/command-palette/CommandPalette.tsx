@@ -184,12 +184,12 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
             <span>Tasks</span>
           </Command.Item>
           <Command.Item
-            value="view mcp inspector server"
+            value="view rstn-mcp integration server"
             onSelect={() => handleSetView('mcp')}
             className="command-item"
           >
             <Server className="command-icon" />
-            <span>MCP Inspector</span>
+            <span>rstn-mcp Integration</span>
           </Command.Item>
           <Command.Item
             value="view chat claude ai"

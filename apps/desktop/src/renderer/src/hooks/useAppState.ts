@@ -15,6 +15,7 @@ import type {
   ProjectState,
   WorktreeState,
   EnvConfig,
+  AgentRulesConfig,
   McpState,
   ChatState,
   TerminalState,

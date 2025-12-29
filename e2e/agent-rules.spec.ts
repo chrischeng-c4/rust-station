@@ -1,7 +1,9 @@
 import { test, expect } from './electron.fixture'
 
 test.describe('Agent Rules Management', () => {
-  test('should navigate to Agent Rules page when clicking Agent Rules button', async ({ page }) => {
+  test('should navigate to Agent Rules page when clicking Agent Rules button', async ({
+    page,
+  }) => {
     // Wait for app to load
     await page.waitForSelector('[data-testid="project-tabs"]', { timeout: 10000 }).catch(() => {})
 
@@ -15,39 +17,37 @@ test.describe('Agent Rules Management', () => {
       await agentRulesButton.click()
 
       // Should show Agent Rules heading
-      await expect(page.locator('h2', { hasText: /Agent Rules/i })).toBeVisible({ timeout: 5000 })
+      await expect(page.locator('h2', { hasText: /Agent Rules/i })).toBeVisible({
+        timeout: 5000,
+      })
     } else {
       // No project open - this is expected in clean state
       test.skip(true, 'No project open - Agent Rules button not visible')
     }
   })
 
-  test('should display Agent Rules page elements when navigated', async ({ page }) => {
-    // Wait for app to load
+  test('should display 3 built-in profiles by default', async ({ page }) => {
     await page.waitForTimeout(2000)
 
     const agentRulesButton = page.getByRole('button', { name: /Agent Rules/i })
     const isVisible = await agentRulesButton.isVisible().catch(() => false)
 
     if (!isVisible) {
-      test.skip(true, 'No project open - Agent Rules button not visible')
+      test.skip(true, 'No project open')
       return
     }
 
     await agentRulesButton.click()
+    await page.waitForTimeout(500)
 
-    // Verify key UI elements
-    await expect(page.locator('h2', { hasText: /Agent Rules/i })).toBeVisible({ timeout: 5000 })
+    // Check for built-in profiles in the All Profiles section
+    await expect(page.getByText('Rust Expert')).toBeVisible({ timeout: 3000 })
+    await expect(page.getByText('TypeScript Expert')).toBeVisible({ timeout: 3000 })
+    await expect(page.getByText('Code Reviewer')).toBeVisible({ timeout: 3000 })
 
-    // Should have Enable/Disable toggle
-    const toggleButton = page.getByRole('button', { name: /Enabled|Disabled/i })
-    await expect(toggleButton).toBeVisible()
-
-    // Should have Custom Prompt textarea
-    await expect(page.getByPlaceholder(/Enter custom instructions/i)).toBeVisible()
-
-    // Should have character counter
-    await expect(page.getByText(/0 characters/i)).toBeVisible()
+    // Verify they have built-in badges
+    const rustExpertCard = page.locator('text=Rust Expert').locator('..')
+    await expect(rustExpertCard.getByText('Built-in')).toBeVisible()
   })
 
   test('should toggle agent rules enabled state', async ({ page }) => {
@@ -87,7 +87,7 @@ test.describe('Agent Rules Management', () => {
     expect(updatedState).toBe(!initialState)
   })
 
-  test('should save custom prompt text to state', async ({ page }) => {
+  test('should select a built-in profile', async ({ page }) => {
     await page.waitForTimeout(2000)
 
     const agentRulesButton = page.getByRole('button', { name: /Agent Rules/i })
@@ -101,7 +101,7 @@ test.describe('Agent Rules Management', () => {
     await agentRulesButton.click()
     await page.waitForTimeout(500)
 
-    // Enable agent rules first (textarea is disabled when rules are disabled)
+    // Enable agent rules first
     const toggleButton = page.getByRole('button', { name: /Disabled/i })
     const isDisabled = await toggleButton.isVisible().catch(() => false)
     if (isDisabled) {
@@ -109,30 +109,33 @@ test.describe('Agent Rules Management', () => {
       await page.waitForTimeout(500)
     }
 
-    // Find the textarea (should now be enabled)
-    const textarea = page.getByPlaceholder(/Enter custom instructions/i)
-    await expect(textarea).toBeVisible({ timeout: 3000 })
-    await expect(textarea).toBeEnabled()
+    // Click the profile selector
+    const selector = page.getByRole('button', { name: /Select a profile/i })
+    await selector.click()
+    await page.waitForTimeout(300)
 
-    // Type a custom prompt
-    const testPrompt = 'You are a Rust expert. Always use snake_case.'
-    await textarea.fill(testPrompt)
+    // Select Rust Expert
+    await page.getByRole('menuitem', { name: /Rust Expert/i }).click()
+    await page.waitForTimeout(500)
 
-    // Trigger blur event to auto-save
-    await textarea.blur()
-    await page.waitForTimeout(1000)
-
-    // Verify the prompt was saved to state
-    const savedPrompt = await page.evaluate(async () => {
+    // Verify the profile is selected in state
+    const selectedProfile = await page.evaluate(async () => {
       const json = await (window as any).stateApi.getState()
       const parsed = JSON.parse(json)
-      return parsed.projects?.[0]?.agent_rules_config?.custom_prompt
+      const profileId = parsed.projects?.[0]?.agent_rules_config?.active_profile_id
+      const profiles = parsed.projects?.[0]?.agent_rules_config?.profiles || []
+      return profiles.find((p: any) => p.id === profileId)
     })
 
-    expect(savedPrompt).toBe(testPrompt)
+    expect(selectedProfile?.name).toBe('Rust Expert')
+    expect(selectedProfile?.is_builtin).toBe(true)
+
+    // Should show profile preview
+    await expect(page.getByText('Profile Preview')).toBeVisible()
+    await expect(page.getByText('snake_case')).toBeVisible() // Part of Rust Expert prompt
   })
 
-  test('should update character count when typing', async ({ page }) => {
+  test('should create a new custom profile', async ({ page }) => {
     await page.waitForTimeout(2000)
 
     const agentRulesButton = page.getByRole('button', { name: /Agent Rules/i })
@@ -146,7 +149,175 @@ test.describe('Agent Rules Management', () => {
     await agentRulesButton.click()
     await page.waitForTimeout(500)
 
-    // Enable agent rules first (textarea is disabled when rules are disabled)
+    // Click "New Profile" button
+    await page.getByRole('button', { name: /New Profile/i }).click()
+    await page.waitForTimeout(300)
+
+    // Should open dialog
+    await expect(page.getByRole('dialog')).toBeVisible()
+    await expect(page.getByText('Create New Profile')).toBeVisible()
+
+    // Fill in the form
+    await page.getByLabel(/Profile Name/i).fill('Test Custom Profile')
+    await page
+      .getByLabel(/System Prompt/i)
+      .fill('You are a test expert. Always write comprehensive tests.')
+
+    // Click Create Profile
+    await page.getByRole('button', { name: /Create Profile/i }).click()
+    await page.waitForTimeout(500)
+
+    // Verify the profile was created
+    const customProfile = await page.evaluate(async () => {
+      const json = await (window as any).stateApi.getState()
+      const parsed = JSON.parse(json)
+      const profiles = parsed.projects?.[0]?.agent_rules_config?.profiles || []
+      return profiles.find((p: any) => p.name === 'Test Custom Profile')
+    })
+
+    expect(customProfile).toBeDefined()
+    expect(customProfile.is_builtin).toBe(false)
+    expect(customProfile.prompt).toContain('test expert')
+
+    // Should appear in the profile list
+    await expect(page.getByText('Test Custom Profile')).toBeVisible()
+  })
+
+  test('should edit a custom profile', async ({ page }) => {
+    await page.waitForTimeout(2000)
+
+    const agentRulesButton = page.getByRole('button', { name: /Agent Rules/i })
+    const isVisible = await agentRulesButton.isVisible().catch(() => false)
+
+    if (!isVisible) {
+      test.skip(true, 'No project open')
+      return
+    }
+
+    await agentRulesButton.click()
+    await page.waitForTimeout(500)
+
+    // Create a profile first
+    await page.getByRole('button', { name: /New Profile/i }).click()
+    await page.waitForTimeout(300)
+    await page.getByLabel(/Profile Name/i).fill('To Edit')
+    await page.getByLabel(/System Prompt/i).fill('Original prompt')
+    await page.getByRole('button', { name: /Create Profile/i }).click()
+    await page.waitForTimeout(500)
+
+    // Find and click the edit button for the custom profile
+    const profileCard = page.locator('text=To Edit').locator('..')
+    const editButton = profileCard.getByRole('button').first() // First button is edit
+    await editButton.click()
+    await page.waitForTimeout(300)
+
+    // Should open dialog with "Edit Profile" title
+    await expect(page.getByText('Edit Profile')).toBeVisible()
+
+    // Update the profile
+    await page.getByLabel(/Profile Name/i).fill('Edited Profile')
+    await page.getByLabel(/System Prompt/i).fill('Updated prompt')
+    await page.getByRole('button', { name: /Save Changes/i }).click()
+    await page.waitForTimeout(500)
+
+    // Verify the profile was updated
+    const updatedProfile = await page.evaluate(async () => {
+      const json = await (window as any).stateApi.getState()
+      const parsed = JSON.parse(json)
+      const profiles = parsed.projects?.[0]?.agent_rules_config?.profiles || []
+      return profiles.find((p: any) => p.name === 'Edited Profile')
+    })
+
+    expect(updatedProfile).toBeDefined()
+    expect(updatedProfile.prompt).toBe('Updated prompt')
+  })
+
+  test('should delete a custom profile', async ({ page }) => {
+    await page.waitForTimeout(2000)
+
+    const agentRulesButton = page.getByRole('button', { name: /Agent Rules/i })
+    const isVisible = await agentRulesButton.isVisible().catch(() => false)
+
+    if (!isVisible) {
+      test.skip(true, 'No project open')
+      return
+    }
+
+    await agentRulesButton.click()
+    await page.waitForTimeout(500)
+
+    // Create a profile to delete
+    await page.getByRole('button', { name: /New Profile/i }).click()
+    await page.waitForTimeout(300)
+    await page.getByLabel(/Profile Name/i).fill('To Delete')
+    await page.getByLabel(/System Prompt/i).fill('Will be deleted')
+    await page.getByRole('button', { name: /Create Profile/i }).click()
+    await page.waitForTimeout(500)
+
+    // Get profile count before delete
+    const beforeCount = await page.evaluate(async () => {
+      const json = await (window as any).stateApi.getState()
+      const parsed = JSON.parse(json)
+      return parsed.projects?.[0]?.agent_rules_config?.profiles?.length || 0
+    })
+
+    // Setup dialog handler for confirmation
+    page.on('dialog', (dialog) => dialog.accept())
+
+    // Find and click the delete button
+    const profileCard = page.locator('text=To Delete').locator('..')
+    const deleteButton = profileCard.getByRole('button').last() // Last button is delete
+    await deleteButton.click()
+    await page.waitForTimeout(500)
+
+    // Verify the profile was deleted
+    const afterCount = await page.evaluate(async () => {
+      const json = await (window as any).stateApi.getState()
+      const parsed = JSON.parse(json)
+      return parsed.projects?.[0]?.agent_rules_config?.profiles?.length || 0
+    })
+
+    expect(afterCount).toBe(beforeCount - 1)
+    await expect(page.getByText('To Delete')).not.toBeVisible()
+  })
+
+  test('should not allow editing built-in profiles', async ({ page }) => {
+    await page.waitForTimeout(2000)
+
+    const agentRulesButton = page.getByRole('button', { name: /Agent Rules/i })
+    const isVisible = await agentRulesButton.isVisible().catch(() => false)
+
+    if (!isVisible) {
+      test.skip(true, 'No project open')
+      return
+    }
+
+    await agentRulesButton.click()
+    await page.waitForTimeout(500)
+
+    // Built-in profiles should not have edit/delete buttons
+    const rustExpertCard = page.locator('text=Rust Expert').locator('..')
+    const hasEditButton = await rustExpertCard.getByRole('button').count()
+
+    // Built-in profiles should only have "Built-in" text, no action buttons
+    expect(hasEditButton).toBe(0)
+  })
+
+  test('should show warning when agent rules are enabled with a profile', async ({ page }) => {
+    await page.waitForTimeout(2000)
+
+    const agentRulesButton = page.getByRole('button', { name: /Agent Rules/i })
+    const isVisible = await agentRulesButton.isVisible().catch(() => false)
+
+    if (!isVisible) {
+      test.skip(true, 'No project open')
+      return
+    }
+
+    await agentRulesButton.click()
+    await page.waitForTimeout(500)
+
+    // Enable and select a profile
     const toggleButton = page.getByRole('button', { name: /Disabled/i })
     const isDisabled = await toggleButton.isVisible().catch(() => false)
     if (isDisabled) {
@@ -154,20 +325,18 @@ test.describe('Agent Rules Management', () => {
       await page.waitForTimeout(500)
     }
 
-    const textarea = page.getByPlaceholder(/Enter custom instructions/i)
-    await expect(textarea).toBeVisible({ timeout: 3000 })
-    await expect(textarea).toBeEnabled()
+    const selector = page.getByRole('button', { name: /Select a profile/i })
+    await selector.click()
+    await page.waitForTimeout(300)
+    await page.getByRole('menuitem', { name: /Rust Expert/i }).click()
+    await page.waitForTimeout(500)
 
-    // Initially should show 0 characters (or whatever is already there)
-    // Type some text
-    const testText = 'Hello, this is a test'
-    await textarea.fill(testText)
-
-    // Character counter should update (21 characters)
-    await expect(page.getByText(`${testText.length} character`, { exact: false })).toBeVisible({ timeout: 3000 })
+    // Warning card should be visible
+    await expect(page.getByText(/Custom Rules Active/i)).toBeVisible({ timeout: 3000 })
+    await expect(page.getByText(/will.*replace.*CLAUDE\.md/i)).toBeVisible()
   })
 
-  test('should show warning when custom rules are enabled', async ({ page }) => {
+  test('should disable when active profile is set to None', async ({ page }) => {
     await page.waitForTimeout(2000)
 
     const agentRulesButton = page.getByRole('button', { name: /Agent Rules/i })
@@ -181,62 +350,34 @@ test.describe('Agent Rules Management', () => {
     await agentRulesButton.click()
     await page.waitForTimeout(500)
 
-    // Check if rules are currently enabled
-    const isEnabled = await page.evaluate(async () => {
-      const json = await (window as any).stateApi.getState()
-      const parsed = JSON.parse(json)
-      return parsed.projects?.[0]?.agent_rules_config?.enabled
-    })
-
-    // If not enabled, enable them
-    if (!isEnabled) {
-      const toggleButton = page.getByRole('button', { name: /Disabled/i })
-      await toggleButton.click()
-      await page.waitForTimeout(500)
-    }
-
-    // Warning card should be visible when enabled
-    await expect(page.getByText(/Your custom prompt will.*replace/i)).toBeVisible({ timeout: 3000 })
-  })
-
-  test('should persist custom prompt in backend state', async ({ page }) => {
-    await page.waitForTimeout(2000)
-
-    const agentRulesButton = page.getByRole('button', { name: /Agent Rules/i })
-    const isVisible = await agentRulesButton.isVisible().catch(() => false)
-
-    if (!isVisible) {
-      test.skip(true, 'No project open')
-      return
-    }
-
-    // Navigate to Agent Rules
-    await agentRulesButton.click()
-    await page.waitForTimeout(500)
-
-    // Enable agent rules first (textarea is disabled when rules are disabled)
-    const toggleButton = page.getByRole('button', { name: /Disabled/i })
-    const isDisabled = await toggleButton.isVisible().catch(() => false)
+    // Enable and select a profile first
+    let toggleButton = page.getByRole('button', { name: /Disabled/i })
+    let isDisabled = await toggleButton.isVisible().catch(() => false)
     if (isDisabled) {
       await toggleButton.click()
       await page.waitForTimeout(500)
     }
 
-    // Set a custom prompt
-    const textarea = page.getByPlaceholder(/Enter custom instructions/i)
-    await expect(textarea).toBeEnabled()
-    const testPrompt = `Test persistence ${Date.now()}`
-    await textarea.fill(testPrompt)
-    await textarea.blur()
-    await page.waitForTimeout(1000)
+    let selector = page.getByRole('button', { name: /Select a profile/i })
+    await selector.click()
+    await page.waitForTimeout(300)
+    await page.getByRole('menuitem', { name: /Rust Expert/i }).click()
+    await page.waitForTimeout(500)
 
-    // Verify the prompt was saved to backend state
-    const savedPrompt = await page.evaluate(async () => {
+    // Now select "None"
+    selector = page.getByRole('button', { name: /Rust Expert/i })
+    await selector.click()
+    await page.waitForTimeout(300)
+    await page.getByRole('menuitem', { name: /None \(use CLAUDE\.md\)/i }).click()
+    await page.waitForTimeout(500)
+
+    // Verify active_profile_id is cleared
+    const activeProfileId = await page.evaluate(async () => {
       const json = await (window as any).stateApi.getState()
       const parsed = JSON.parse(json)
-      return parsed.projects?.[0]?.agent_rules_config?.custom_prompt
+      return parsed.projects?.[0]?.agent_rules_config?.active_profile_id
     })
 
-    expect(savedPrompt).toBe(testPrompt)
+    expect(activeProfileId).toBeUndefined()
   })
 })
