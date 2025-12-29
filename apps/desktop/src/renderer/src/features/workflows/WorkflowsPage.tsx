@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { Scroll, ChevronRight, GitBranch } from 'lucide-react'
+import { Scroll, ChevronRight, GitBranch, BookOpen } from 'lucide-react'
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { ConstitutionPanel } from './ConstitutionPanel'
 import { ChangeManagementPanel } from './ChangeManagementPanel'
+import { ContextPanel } from './ContextPanel'
 
 /**
  * Available workflow definitions.
@@ -14,6 +15,12 @@ const WORKFLOWS = [
     name: 'Constitution Setup',
     description: 'Initialize or update project constitution for AI-assisted development',
     icon: Scroll,
+  },
+  {
+    id: 'living-context',
+    name: 'Living Context',
+    description: 'View and manage project context - tech stack, architecture, recent changes',
+    icon: BookOpen,
   },
   {
     id: 'change-management',
@@ -37,6 +44,8 @@ export function WorkflowsPage() {
     switch (selectedWorkflow) {
       case 'constitution-init':
         return <ConstitutionPanel />
+      case 'living-context':
+        return <ContextPanel />
       case 'change-management':
         return <ChangeManagementPanel />
       default:

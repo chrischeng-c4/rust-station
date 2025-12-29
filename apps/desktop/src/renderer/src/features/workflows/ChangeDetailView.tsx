@@ -1,4 +1,4 @@
-import { FileText, Play, Check, X, Clock } from 'lucide-react'
+import { FileText, Play, Check, X, Clock, Archive, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -33,6 +33,14 @@ export function ChangeDetailView({ change }: ChangeDetailViewProps) {
     dispatch({ type: 'CancelChange', payload: { change_id: change.id } })
   }
 
+  const handleSyncContext = () => {
+    dispatch({ type: 'SyncContext', payload: { change_id: change.id } })
+  }
+
+  const handleArchive = () => {
+    dispatch({ type: 'ArchiveChange', payload: { change_id: change.id } })
+  }
+
   const isPlanning = change.status === 'planning'
   const hasProposal = !!change.proposal
   const hasPlan = !!change.plan
@@ -40,6 +48,8 @@ export function ChangeDetailView({ change }: ChangeDetailViewProps) {
   const canGeneratePlan = hasProposal && !hasPlan && change.status !== 'planning'
   const canApprove = change.status === 'planned'
   const canCancel = !['done', 'archived', 'cancelled'].includes(change.status)
+  const canSyncAndArchive = change.status === 'done'
+  const isArchived = change.status === 'archived'
 
   return (
     <Card className="h-full">
@@ -132,6 +142,24 @@ export function ChangeDetailView({ change }: ChangeDetailViewProps) {
               <Check className="mr-2 h-4 w-4" />
               Approve Plan
             </Button>
+          )}
+          {canSyncAndArchive && (
+            <>
+              <Button onClick={handleSyncContext} variant="outline">
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Sync to Context
+              </Button>
+              <Button onClick={handleArchive} className="bg-blue-600 hover:bg-blue-700">
+                <Archive className="mr-2 h-4 w-4" />
+                Archive
+              </Button>
+            </>
+          )}
+          {isArchived && (
+            <Badge variant="secondary" className="px-3 py-1">
+              <Archive className="mr-2 h-4 w-4" />
+              Archived
+            </Badge>
           )}
           {canCancel && (
             <Button variant="destructive" onClick={handleCancelChange}>
