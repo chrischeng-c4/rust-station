@@ -15,7 +15,7 @@ export function ConstitutionPanel() {
   const { state, dispatch, isLoading } = useAppState()
   const [currentAnswer, setCurrentAnswer] = useState('')
 
-  const workflow = state.active_project?.worktrees?.[state.active_project?.active_worktree_index ?? 0]
+  const workflow = state?.active_project?.worktrees?.[state.active_project?.active_worktree_index ?? 0]
     ?.tasks?.constitution_workflow
 
   const questions = [
