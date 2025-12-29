@@ -112,6 +112,48 @@ pub enum Action {
     /// Clear/reset the Constitution workflow (for fresh start)
     ClearConstitutionWorkflow,
 
+    // ========================================================================
+    // Change Management Actions (CESDD Phase 2)
+    // ========================================================================
+    /// Create a new change from user intent
+    CreateChange { intent: String },
+
+    /// Generate proposal.md using Claude (starts streaming)
+    GenerateProposal { change_id: String },
+
+    /// Append content to proposal output (streaming from Claude)
+    AppendProposalOutput { change_id: String, content: String },
+
+    /// Mark proposal generation as complete
+    CompleteProposal { change_id: String },
+
+    /// Generate plan.md using Claude (starts streaming)
+    GeneratePlan { change_id: String },
+
+    /// Append content to plan output (streaming from Claude)
+    AppendPlanOutput { change_id: String, content: String },
+
+    /// Mark plan generation as complete
+    CompletePlan { change_id: String },
+
+    /// Approve the plan and transition to Implementing status
+    ApprovePlan { change_id: String },
+
+    /// Cancel a change (sets status to Cancelled)
+    CancelChange { change_id: String },
+
+    /// Select a change to view details
+    SelectChange { change_id: Option<String> },
+
+    /// Refresh changes list from .rstn/changes/
+    RefreshChanges,
+
+    /// Set changes list (internal, after refresh)
+    SetChanges { changes: Vec<ChangeData> },
+
+    /// Set changes loading state
+    SetChangesLoading { is_loading: bool },
+
     /// Submit an answer to the current question and advance
     AnswerConstitutionQuestion { answer: String },
 
@@ -503,6 +545,7 @@ pub enum NotificationTypeData {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum ActiveViewData {
+    Workflows,
     Tasks,
     Settings,
     Dockers,
@@ -546,6 +589,35 @@ pub struct DevLogData {
     pub summary: String,
     /// Full structured data (JSON, shown when expanded)
     pub data: serde_json::Value,
+}
+
+/// Change status for actions (CESDD Phase 2)
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum ChangeStatusData {
+    Proposed,
+    Planning,
+    Planned,
+    Implementing,
+    Testing,
+    Done,
+    Archived,
+    Cancelled,
+    Failed,
+}
+
+/// Change data for actions (CESDD Phase 2)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ChangeData {
+    pub id: String,
+    pub name: String,
+    pub status: ChangeStatusData,
+    pub intent: String,
+    pub proposal: Option<String>,
+    pub plan: Option<String>,
+    pub streaming_output: String,
+    pub created_at: String,
+    pub updated_at: String,
 }
 
 // ============================================================================
@@ -628,5 +700,41 @@ mod tests {
 
         let action: Action = serde_json::from_str(frontend_json).unwrap();
         assert!(matches!(action, Action::StartDockerService { service_id } if service_id == "rstn-postgres"));
+    }
+
+    #[test]
+    fn test_change_actions_serialization() {
+        // CreateChange
+        let action = Action::CreateChange {
+            intent: "Add user authentication".to_string(),
+        };
+        let json = serde_json::to_string(&action).unwrap();
+        let loaded: Action = serde_json::from_str(&json).unwrap();
+        assert_eq!(action, loaded);
+
+        // GenerateProposal
+        let action = Action::GenerateProposal {
+            change_id: "change-123".to_string(),
+        };
+        let json = serde_json::to_string(&action).unwrap();
+        assert!(json.contains("GenerateProposal"));
+
+        // SetChanges with ChangeData
+        let action = Action::SetChanges {
+            changes: vec![ChangeData {
+                id: "change-123".to_string(),
+                name: "feature-auth".to_string(),
+                status: ChangeStatusData::Proposed,
+                intent: "Add user authentication".to_string(),
+                proposal: None,
+                plan: None,
+                streaming_output: String::new(),
+                created_at: "2025-01-01T00:00:00Z".to_string(),
+                updated_at: "2025-01-01T00:00:00Z".to_string(),
+            }],
+        };
+        let json = serde_json::to_string(&action).unwrap();
+        let loaded: Action = serde_json::from_str(&json).unwrap();
+        assert_eq!(action, loaded);
     }
 }

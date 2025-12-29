@@ -18,7 +18,7 @@ export type FeatureTab = 'tasks' | 'dockers' | 'settings'
  * - dockers: Global scope
  * - env, agent_rules: Project scope
  */
-export type ActiveView = 'tasks' | 'settings' | 'dockers' | 'env' | 'mcp' | 'chat' | 'terminal' | 'agent_rules'
+export type ActiveView = 'tasks' | 'settings' | 'dockers' | 'env' | 'mcp' | 'chat' | 'terminal' | 'agent_rules' | 'workflows'
 
 // ============================================================================
 // Docker State
@@ -66,6 +66,39 @@ export interface DockersState {
   is_loading_logs: boolean
   pending_conflict: PendingConflict | null
   port_overrides: Record<string, number>
+}
+
+// ============================================================================
+// Change Management State (CESDD Phase 2)
+// ============================================================================
+
+export type ChangeStatus =
+  | 'proposed'
+  | 'planning'
+  | 'planned'
+  | 'implementing'
+  | 'testing'
+  | 'done'
+  | 'archived'
+  | 'cancelled'
+  | 'failed'
+
+export interface Change {
+  id: string
+  name: string
+  status: ChangeStatus
+  intent: string
+  proposal: string | null
+  plan: string | null
+  streaming_output: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ChangesState {
+  changes: Change[]
+  selected_change_id: string | null
+  is_loading: boolean
 }
 
 // ============================================================================
@@ -240,6 +273,7 @@ export interface WorktreeState {
   is_modified: boolean
   active_tab: FeatureTab
   tasks: TasksState
+  changes: ChangesState
   // NOTE: dockers moved to AppState.docker (global scope)
 }
 
@@ -490,6 +524,71 @@ export interface SetConstitutionExistsAction {
 
 export interface ApplyDefaultConstitutionAction {
   type: 'ApplyDefaultConstitution'
+}
+
+// Change Management Actions (CESDD Phase 2)
+export interface CreateChangeAction {
+  type: 'CreateChange'
+  payload: { intent: string }
+}
+
+export interface GenerateProposalAction {
+  type: 'GenerateProposal'
+  payload: { change_id: string }
+}
+
+export interface AppendProposalOutputAction {
+  type: 'AppendProposalOutput'
+  payload: { change_id: string; content: string }
+}
+
+export interface CompleteProposalAction {
+  type: 'CompleteProposal'
+  payload: { change_id: string }
+}
+
+export interface GeneratePlanAction {
+  type: 'GeneratePlan'
+  payload: { change_id: string }
+}
+
+export interface AppendPlanOutputAction {
+  type: 'AppendPlanOutput'
+  payload: { change_id: string; content: string }
+}
+
+export interface CompletePlanAction {
+  type: 'CompletePlan'
+  payload: { change_id: string }
+}
+
+export interface ApprovePlanAction {
+  type: 'ApprovePlan'
+  payload: { change_id: string }
+}
+
+export interface CancelChangeAction {
+  type: 'CancelChange'
+  payload: { change_id: string }
+}
+
+export interface SelectChangeAction {
+  type: 'SelectChange'
+  payload: { change_id: string | null }
+}
+
+export interface RefreshChangesAction {
+  type: 'RefreshChanges'
+}
+
+export interface SetChangesAction {
+  type: 'SetChanges'
+  payload: { changes: ChangeData[] }
+}
+
+export interface SetChangesLoadingAction {
+  type: 'SetChangesLoading'
+  payload: { is_loading: boolean }
 }
 
 // Docker Actions
@@ -849,7 +948,7 @@ export interface EnvCopyResultData {
 
 export type NotificationTypeData = 'info' | 'success' | 'warning' | 'error'
 
-export type ActiveViewData = 'tasks' | 'settings' | 'dockers' | 'env' | 'mcp' | 'chat' | 'terminal' | 'agent_rules'
+export type ActiveViewData = 'tasks' | 'settings' | 'dockers' | 'env' | 'mcp' | 'chat' | 'terminal' | 'agent_rules' | 'workflows'
 
 export type DevLogSourceData = 'rust' | 'frontend' | 'claude' | 'ipc'
 
@@ -860,6 +959,30 @@ export interface DevLogData {
   log_type: DevLogTypeData
   summary: string
   data: unknown
+}
+
+// Change Management Data Types (CESDD Phase 2)
+export type ChangeStatusData =
+  | 'proposed'
+  | 'planning'
+  | 'planned'
+  | 'implementing'
+  | 'testing'
+  | 'done'
+  | 'archived'
+  | 'cancelled'
+  | 'failed'
+
+export interface ChangeData {
+  id: string
+  name: string
+  status: ChangeStatusData
+  intent: string
+  proposal: string | null
+  plan: string | null
+  streaming_output: string
+  created_at: string
+  updated_at: string
 }
 
 // Dev Log Actions
@@ -909,6 +1032,19 @@ export type Action =
   | CheckConstitutionExistsAction
   | SetConstitutionExistsAction
   | ApplyDefaultConstitutionAction
+  | CreateChangeAction
+  | GenerateProposalAction
+  | AppendProposalOutputAction
+  | CompleteProposalAction
+  | GeneratePlanAction
+  | AppendPlanOutputAction
+  | CompletePlanAction
+  | ApprovePlanAction
+  | CancelChangeAction
+  | SelectChangeAction
+  | RefreshChangesAction
+  | SetChangesAction
+  | SetChangesLoadingAction
   | CheckDockerAvailabilityAction
   | SetDockerAvailableAction
   | RefreshDockerServicesAction

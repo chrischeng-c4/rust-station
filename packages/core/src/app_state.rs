@@ -282,6 +282,9 @@ pub struct WorktreeState {
     pub active_tab: FeatureTab,
     /// Tasks state for this worktree
     pub tasks: TasksState,
+    /// Changes state for CESDD Phase 2
+    #[serde(default)]
+    pub changes: ChangesState,
     // Note: Docker state moved to AppState.docker (global scope)
 }
 
@@ -299,6 +302,7 @@ impl WorktreeState {
             is_modified: false,
             active_tab: FeatureTab::Tasks,
             tasks: TasksState::default(),
+            changes: ChangesState::default(),
         }
     }
 }
@@ -503,8 +507,10 @@ pub enum FeatureTab {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ActiveView {
-    /// Tasks page (worktree scope)
+    /// Workflows page - guided, stateful workflows (worktree scope)
     #[default]
+    Workflows,
+    /// Tasks page - simple justfile commands (worktree scope)
     Tasks,
     /// Settings page (worktree scope)
     Settings,
@@ -774,6 +780,7 @@ pub enum NotificationType {
 impl From<crate::actions::ActiveViewData> for ActiveView {
     fn from(data: crate::actions::ActiveViewData) -> Self {
         match data {
+            crate::actions::ActiveViewData::Workflows => ActiveView::Workflows,
             crate::actions::ActiveViewData::Tasks => ActiveView::Tasks,
             crate::actions::ActiveViewData::Settings => ActiveView::Settings,
             crate::actions::ActiveViewData::Dockers => ActiveView::Dockers,
@@ -793,6 +800,38 @@ impl From<crate::actions::NotificationTypeData> for NotificationType {
             crate::actions::NotificationTypeData::Success => NotificationType::Success,
             crate::actions::NotificationTypeData::Warning => NotificationType::Warning,
             crate::actions::NotificationTypeData::Error => NotificationType::Error,
+        }
+    }
+}
+
+impl From<crate::actions::ChangeStatusData> for ChangeStatus {
+    fn from(data: crate::actions::ChangeStatusData) -> Self {
+        match data {
+            crate::actions::ChangeStatusData::Proposed => ChangeStatus::Proposed,
+            crate::actions::ChangeStatusData::Planning => ChangeStatus::Planning,
+            crate::actions::ChangeStatusData::Planned => ChangeStatus::Planned,
+            crate::actions::ChangeStatusData::Implementing => ChangeStatus::Implementing,
+            crate::actions::ChangeStatusData::Testing => ChangeStatus::Testing,
+            crate::actions::ChangeStatusData::Done => ChangeStatus::Done,
+            crate::actions::ChangeStatusData::Archived => ChangeStatus::Archived,
+            crate::actions::ChangeStatusData::Cancelled => ChangeStatus::Cancelled,
+            crate::actions::ChangeStatusData::Failed => ChangeStatus::Failed,
+        }
+    }
+}
+
+impl From<crate::actions::ChangeData> for Change {
+    fn from(data: crate::actions::ChangeData) -> Self {
+        Change {
+            id: data.id,
+            name: data.name,
+            status: data.status.into(),
+            intent: data.intent,
+            proposal: data.proposal,
+            plan: data.plan,
+            streaming_output: data.streaming_output,
+            created_at: data.created_at,
+            updated_at: data.updated_at,
         }
     }
 }
@@ -991,6 +1030,73 @@ pub enum TaskStatus {
     Running,
     Success,
     Error,
+}
+
+// ============================================================================
+// Changes State (CESDD Phase 2)
+// ============================================================================
+
+/// State for managing Changes (CESDD Transactional Layer)
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct ChangesState {
+    /// Active changes in .rstn/changes/
+    pub changes: Vec<Change>,
+    /// Currently selected change for detail view
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selected_change_id: Option<String>,
+    /// Whether changes are being loaded
+    pub is_loading: bool,
+}
+
+/// A single Change (feature, bugfix, refactor, etc.)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Change {
+    /// Unique identifier (e.g., "feature-auth", "bugfix-login")
+    pub id: String,
+    /// Human-readable title derived from intent
+    pub name: String,
+    /// Current status in the workflow
+    pub status: ChangeStatus,
+    /// User's original intent (input)
+    pub intent: String,
+    /// Generated proposal content (from proposal.md)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proposal: Option<String>,
+    /// Generated plan content (from plan.md)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plan: Option<String>,
+    /// Streaming output (during generation)
+    #[serde(default)]
+    pub streaming_output: String,
+    /// Creation timestamp (ISO 8601)
+    pub created_at: String,
+    /// Last update timestamp (ISO 8601)
+    pub updated_at: String,
+}
+
+/// Change status in CESDD workflow
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ChangeStatus {
+    /// Initial state - proposal.md created
+    #[default]
+    Proposed,
+    /// Claude is generating plan.md (streaming)
+    Planning,
+    /// plan.md complete, waiting for approval
+    Planned,
+    /// User approved, implementation in progress
+    Implementing,
+    /// Implementation complete, testing
+    Testing,
+    /// All done, ready for archival
+    Done,
+    /// Archived to Living Context
+    Archived,
+    /// User cancelled
+    Cancelled,
+    /// Build/test errors
+    Failed,
 }
 
 /// UI theme

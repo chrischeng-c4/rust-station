@@ -448,6 +448,186 @@ pub fn reduce(state: &mut AppState, action: Action) {
         }
 
         // ====================================================================
+        // Change Management Actions (CESDD Phase 2 - worktree scope)
+        // ====================================================================
+        Action::CreateChange { intent } => {
+            // Async action - file creation handled in lib.rs
+            // Creates .rstn/changes/<change-id>/
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.changes.is_loading = true;
+                }
+            }
+            let _ = intent; // Used by async handler
+        }
+
+        Action::GenerateProposal { change_id } => {
+            // Start proposal generation - set status to Planning
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(change) = worktree
+                        .changes
+                        .changes
+                        .iter_mut()
+                        .find(|c| c.id == change_id)
+                    {
+                        change.status = crate::app_state::ChangeStatus::Planning;
+                        change.streaming_output.clear();
+                    }
+                }
+            }
+        }
+
+        Action::AppendProposalOutput { change_id, content } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(change) = worktree
+                        .changes
+                        .changes
+                        .iter_mut()
+                        .find(|c| c.id == change_id)
+                    {
+                        change.streaming_output.push_str(&content);
+                    }
+                }
+            }
+        }
+
+        Action::CompleteProposal { change_id } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(change) = worktree
+                        .changes
+                        .changes
+                        .iter_mut()
+                        .find(|c| c.id == change_id)
+                    {
+                        // Move streaming output to proposal
+                        change.proposal = Some(std::mem::take(&mut change.streaming_output));
+                        change.status = crate::app_state::ChangeStatus::Proposed;
+                        change.updated_at = chrono::Utc::now().to_rfc3339();
+                    }
+                }
+            }
+        }
+
+        Action::GeneratePlan { change_id } => {
+            // Start plan generation
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(change) = worktree
+                        .changes
+                        .changes
+                        .iter_mut()
+                        .find(|c| c.id == change_id)
+                    {
+                        change.status = crate::app_state::ChangeStatus::Planning;
+                        change.streaming_output.clear();
+                    }
+                }
+            }
+        }
+
+        Action::AppendPlanOutput { change_id, content } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(change) = worktree
+                        .changes
+                        .changes
+                        .iter_mut()
+                        .find(|c| c.id == change_id)
+                    {
+                        change.streaming_output.push_str(&content);
+                    }
+                }
+            }
+        }
+
+        Action::CompletePlan { change_id } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(change) = worktree
+                        .changes
+                        .changes
+                        .iter_mut()
+                        .find(|c| c.id == change_id)
+                    {
+                        // Move streaming output to plan
+                        change.plan = Some(std::mem::take(&mut change.streaming_output));
+                        change.status = crate::app_state::ChangeStatus::Planned;
+                        change.updated_at = chrono::Utc::now().to_rfc3339();
+                    }
+                }
+            }
+        }
+
+        Action::ApprovePlan { change_id } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(change) = worktree
+                        .changes
+                        .changes
+                        .iter_mut()
+                        .find(|c| c.id == change_id)
+                    {
+                        change.status = crate::app_state::ChangeStatus::Implementing;
+                        change.updated_at = chrono::Utc::now().to_rfc3339();
+                    }
+                }
+            }
+        }
+
+        Action::CancelChange { change_id } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(change) = worktree
+                        .changes
+                        .changes
+                        .iter_mut()
+                        .find(|c| c.id == change_id)
+                    {
+                        change.status = crate::app_state::ChangeStatus::Cancelled;
+                        change.updated_at = chrono::Utc::now().to_rfc3339();
+                    }
+                }
+            }
+        }
+
+        Action::SelectChange { change_id } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.changes.selected_change_id = change_id;
+                }
+            }
+        }
+
+        Action::RefreshChanges => {
+            // Async trigger - actual file reading handled in lib.rs
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.changes.is_loading = true;
+                }
+            }
+        }
+
+        Action::SetChanges { changes } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.changes.changes = changes.into_iter().map(|c| c.into()).collect();
+                    worktree.changes.is_loading = false;
+                }
+            }
+        }
+
+        Action::SetChangesLoading { is_loading } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.changes.is_loading = is_loading;
+                }
+            }
+        }
+
+        // ====================================================================
         // Docker Actions (global scope - operate on state.docker)
         // ====================================================================
         Action::CheckDockerAvailability => {
@@ -1019,6 +1199,22 @@ fn log_action_if_interesting(state: &mut AppState, action: &Action) {
         Action::SetConstitutionExists { .. } => ("SetConstitutionExists", true),
         Action::ApplyDefaultConstitution => ("ApplyDefaultConstitution", true),
 
+        // Change Management - interesting (key state changes)
+        Action::CreateChange { .. } => ("CreateChange", true),
+        Action::GenerateProposal { .. } => ("GenerateProposal", true),
+        Action::CompleteProposal { .. } => ("CompleteProposal", true),
+        Action::GeneratePlan { .. } => ("GeneratePlan", true),
+        Action::CompletePlan { .. } => ("CompletePlan", true),
+        Action::ApprovePlan { .. } => ("ApprovePlan", true),
+        Action::CancelChange { .. } => ("CancelChange", true),
+        Action::SelectChange { .. } => ("SelectChange", true),
+        Action::RefreshChanges => ("RefreshChanges", true),
+        Action::SetChanges { .. } => ("SetChanges", true),
+        Action::SetChangesLoading { .. } => ("SetChangesLoading", false),
+        // High-frequency streaming actions - not interesting
+        Action::AppendProposalOutput { .. } => ("AppendProposalOutput", false),
+        Action::AppendPlanOutput { .. } => ("AppendPlanOutput", false),
+
         // Task execution - interesting
         Action::RunJustCommand { .. } => ("RunJustCommand", true),
         Action::SetTaskStatus { .. } => ("SetTaskStatus", true),
@@ -1544,8 +1740,8 @@ mod tests {
 
         let mut state = AppState::default();
 
-        // Default is tasks
-        assert_eq!(state.active_view, ActiveView::Tasks);
+        // Default is workflows
+        assert_eq!(state.active_view, ActiveView::Workflows);
 
         // Switch to dockers
         reduce(
@@ -1574,7 +1770,7 @@ mod tests {
         );
         assert_eq!(state.active_view, ActiveView::Settings);
 
-        // Switch back to tasks
+        // Switch to tasks
         reduce(
             &mut state,
             Action::SetActiveView {
@@ -1582,6 +1778,15 @@ mod tests {
             },
         );
         assert_eq!(state.active_view, ActiveView::Tasks);
+
+        // Switch to workflows
+        reduce(
+            &mut state,
+            Action::SetActiveView {
+                view: crate::actions::ActiveViewData::Workflows,
+            },
+        );
+        assert_eq!(state.active_view, ActiveView::Workflows);
     }
 
     // ========================================================================

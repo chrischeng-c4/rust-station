@@ -1786,6 +1786,189 @@ Be specific, actionable, and authoritative. Use "MUST", "MUST NOT" language."#,
             }
         }
 
+        // ====================================================================
+        // Change Management Actions (CESDD Phase 2 - async operations)
+        // ====================================================================
+        Action::CreateChange { intent } => {
+            // Get the active worktree path
+            let worktree_path = {
+                let state = get_app_state().read().await;
+                state
+                    .active_project()
+                    .and_then(|p| p.active_worktree())
+                    .map(|w| w.path.clone())
+            };
+
+            if let Some(wt_path) = worktree_path {
+                // Generate change ID and name from intent
+                let change_id = format!("change-{}", chrono::Utc::now().timestamp_millis());
+                let change_name = slugify(&intent);
+                let now = chrono::Utc::now().to_rfc3339();
+
+                // Create change directory: .rstn/changes/<change-name>/
+                let changes_dir = std::path::Path::new(&wt_path)
+                    .join(".rstn")
+                    .join("changes")
+                    .join(&change_name);
+                if let Err(e) = std::fs::create_dir_all(&changes_dir) {
+                    eprintln!("Failed to create changes directory: {}", e);
+                    return Ok(());
+                }
+
+                // Write intent.md
+                let intent_path = changes_dir.join("intent.md");
+                if let Err(e) = std::fs::write(&intent_path, &intent) {
+                    eprintln!("Failed to write intent.md: {}", e);
+                    return Ok(());
+                }
+
+                // Create the change in state
+                let change = app_state::Change {
+                    id: change_id,
+                    name: change_name,
+                    status: app_state::ChangeStatus::Proposed,
+                    intent: intent.clone(),
+                    proposal: None,
+                    plan: None,
+                    streaming_output: String::new(),
+                    created_at: now.clone(),
+                    updated_at: now,
+                };
+
+                {
+                    let mut state = get_app_state().write().await;
+                    if let Some(project) = state.active_project_mut() {
+                        if let Some(worktree) = project.active_worktree_mut() {
+                            worktree.changes.changes.push(change);
+                            worktree.changes.is_loading = false;
+                        }
+                    }
+                }
+                notify_state_update().await;
+            }
+        }
+
+        Action::GenerateProposal { change_id } => {
+            // Reduce first to set status to Planning
+            {
+                let mut state = get_app_state().write().await;
+                reduce(
+                    &mut state,
+                    Action::GenerateProposal {
+                        change_id: change_id.clone(),
+                    },
+                );
+            }
+            notify_state_update().await;
+
+            // TODO: Implement Claude CLI streaming for proposal generation
+            // For now, just mark as complete with placeholder
+            eprintln!("GenerateProposal: Claude CLI integration pending for change {}", change_id);
+        }
+
+        Action::AppendProposalOutput { .. } | Action::CompleteProposal { .. } => {
+            // Sync actions - handled in reducer
+        }
+
+        Action::GeneratePlan { change_id } => {
+            // Reduce first to set status to Planning
+            {
+                let mut state = get_app_state().write().await;
+                reduce(
+                    &mut state,
+                    Action::GeneratePlan {
+                        change_id: change_id.clone(),
+                    },
+                );
+            }
+            notify_state_update().await;
+
+            // TODO: Implement Claude CLI streaming for plan generation
+            eprintln!("GeneratePlan: Claude CLI integration pending for change {}", change_id);
+        }
+
+        Action::AppendPlanOutput { .. }
+        | Action::CompletePlan { .. }
+        | Action::ApprovePlan { .. }
+        | Action::CancelChange { .. }
+        | Action::SelectChange { .. }
+        | Action::SetChangesLoading { .. } => {
+            // Sync actions - handled in reducer
+        }
+
+        Action::RefreshChanges => {
+            // Get the active worktree path
+            let worktree_path = {
+                let state = get_app_state().read().await;
+                state
+                    .active_project()
+                    .and_then(|p| p.active_worktree())
+                    .map(|w| w.path.clone())
+            };
+
+            if let Some(wt_path) = worktree_path {
+                let changes_dir = std::path::Path::new(&wt_path)
+                    .join(".rstn")
+                    .join("changes");
+
+                let mut changes = Vec::new();
+
+                if changes_dir.exists() {
+                    if let Ok(entries) = std::fs::read_dir(&changes_dir) {
+                        for entry in entries.flatten() {
+                            if entry.path().is_dir() {
+                                let change_name = entry.file_name().to_string_lossy().to_string();
+                                let intent_path = entry.path().join("intent.md");
+                                let proposal_path = entry.path().join("proposal.md");
+                                let plan_path = entry.path().join("plan.md");
+
+                                let intent = std::fs::read_to_string(&intent_path)
+                                    .unwrap_or_default();
+                                let proposal = std::fs::read_to_string(&proposal_path).ok();
+                                let plan = std::fs::read_to_string(&plan_path).ok();
+
+                                // Determine status from files
+                                let status = if plan.is_some() {
+                                    app_state::ChangeStatus::Planned
+                                } else {
+                                    // Default to Proposed if no plan yet
+                                    app_state::ChangeStatus::Proposed
+                                };
+
+                                let now = chrono::Utc::now().to_rfc3339();
+                                changes.push(app_state::Change {
+                                    id: format!("change-{}", change_name),
+                                    name: change_name,
+                                    status,
+                                    intent,
+                                    proposal,
+                                    plan,
+                                    streaming_output: String::new(),
+                                    created_at: now.clone(),
+                                    updated_at: now,
+                                });
+                            }
+                        }
+                    }
+                }
+
+                {
+                    let mut state = get_app_state().write().await;
+                    if let Some(project) = state.active_project_mut() {
+                        if let Some(worktree) = project.active_worktree_mut() {
+                            worktree.changes.changes = changes;
+                            worktree.changes.is_loading = false;
+                        }
+                    }
+                }
+                notify_state_update().await;
+            }
+        }
+
+        Action::SetChanges { .. } => {
+            // Sync action - handled in reducer
+        }
+
         // Terminal actions (async - PTY operations)
         Action::SpawnTerminal { .. }
         | Action::ResizeTerminal { .. }
@@ -1797,4 +1980,20 @@ Be specific, actionable, and authoritative. Use "MUST", "MUST NOT" language."#,
     }
 
     Ok(())
+}
+
+/// Convert intent to a URL-friendly slug
+fn slugify(intent: &str) -> String {
+    intent
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .split('-')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
+        .chars()
+        .take(50)
+        .collect()
 }
