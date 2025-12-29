@@ -139,6 +139,18 @@ pub enum Action {
     /// Approve the plan and transition to Implementing status
     ApprovePlan { change_id: String },
 
+    /// Execute the plan using Claude Code (CESDD Phase 5)
+    ExecutePlan { change_id: String },
+
+    /// Append content to implementation output (streaming from Claude)
+    AppendImplementationOutput { change_id: String, content: String },
+
+    /// Mark implementation as complete (success)
+    CompleteImplementation { change_id: String },
+
+    /// Mark implementation as failed
+    FailImplementation { change_id: String, error: String },
+
     /// Cancel a change (sets status to Cancelled)
     CancelChange { change_id: String },
 

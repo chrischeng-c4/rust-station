@@ -571,7 +571,76 @@ pub fn reduce(state: &mut AppState, action: Action) {
                         .iter_mut()
                         .find(|c| c.id == change_id)
                     {
+                        // ApprovePlan transitions to Planned (ready for execution)
+                        change.status = crate::app_state::ChangeStatus::Planned;
+                        change.updated_at = chrono::Utc::now().to_rfc3339();
+                    }
+                }
+            }
+        }
+
+        // ====================================================================
+        // CESDD Phase 5: Implementation Actions
+        // ====================================================================
+        Action::ExecutePlan { change_id } => {
+            // Set status to Implementing (async handler does the actual work)
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(change) = worktree
+                        .changes
+                        .changes
+                        .iter_mut()
+                        .find(|c| c.id == change_id)
+                    {
                         change.status = crate::app_state::ChangeStatus::Implementing;
+                        change.streaming_output.clear();
+                        change.updated_at = chrono::Utc::now().to_rfc3339();
+                    }
+                }
+            }
+        }
+
+        Action::AppendImplementationOutput { change_id, content } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(change) = worktree
+                        .changes
+                        .changes
+                        .iter_mut()
+                        .find(|c| c.id == change_id)
+                    {
+                        change.streaming_output.push_str(&content);
+                    }
+                }
+            }
+        }
+
+        Action::CompleteImplementation { change_id } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(change) = worktree
+                        .changes
+                        .changes
+                        .iter_mut()
+                        .find(|c| c.id == change_id)
+                    {
+                        change.status = crate::app_state::ChangeStatus::Done;
+                        change.updated_at = chrono::Utc::now().to_rfc3339();
+                    }
+                }
+            }
+        }
+
+        Action::FailImplementation { change_id, error: _ } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(change) = worktree
+                        .changes
+                        .changes
+                        .iter_mut()
+                        .find(|c| c.id == change_id)
+                    {
+                        change.status = crate::app_state::ChangeStatus::Failed;
                         change.updated_at = chrono::Utc::now().to_rfc3339();
                     }
                 }
@@ -1366,6 +1435,9 @@ fn log_action_if_interesting(state: &mut AppState, action: &Action) {
         Action::GeneratePlan { .. } => ("GeneratePlan", true),
         Action::CompletePlan { .. } => ("CompletePlan", true),
         Action::ApprovePlan { .. } => ("ApprovePlan", true),
+        Action::ExecutePlan { .. } => ("ExecutePlan", true),
+        Action::CompleteImplementation { .. } => ("CompleteImplementation", true),
+        Action::FailImplementation { .. } => ("FailImplementation", true),
         Action::CancelChange { .. } => ("CancelChange", true),
         Action::SelectChange { .. } => ("SelectChange", true),
         Action::RefreshChanges => ("RefreshChanges", true),
@@ -1392,6 +1464,7 @@ fn log_action_if_interesting(state: &mut AppState, action: &Action) {
         Action::AppendProposalOutput { .. } => ("AppendProposalOutput", false),
         Action::AppendPlanOutput { .. } => ("AppendPlanOutput", false),
         Action::AppendContextSyncOutput { .. } => ("AppendContextSyncOutput", false),
+        Action::AppendImplementationOutput { .. } => ("AppendImplementationOutput", false),
 
         // Task execution - interesting
         Action::RunJustCommand { .. } => ("RunJustCommand", true),

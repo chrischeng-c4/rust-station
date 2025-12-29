@@ -684,6 +684,27 @@ export interface SetChangeArchivedAction {
   payload: { change_id: string }
 }
 
+// Implementation Actions (CESDD Phase 5)
+export interface ExecutePlanAction {
+  type: 'ExecutePlan'
+  payload: { change_id: string }
+}
+
+export interface AppendImplementationOutputAction {
+  type: 'AppendImplementationOutput'
+  payload: { change_id: string; content: string }
+}
+
+export interface CompleteImplementationAction {
+  type: 'CompleteImplementation'
+  payload: { change_id: string }
+}
+
+export interface FailImplementationAction {
+  type: 'FailImplementation'
+  payload: { change_id: string; error: string }
+}
+
 // Context file data for actions
 export interface ContextFileData {
   name: string
@@ -1161,6 +1182,10 @@ export type Action =
   | AppendContextSyncOutputAction
   | CompleteContextSyncAction
   | SetChangeArchivedAction
+  | ExecutePlanAction
+  | AppendImplementationOutputAction
+  | CompleteImplementationAction
+  | FailImplementationAction
   | CheckDockerAvailabilityAction
   | SetDockerAvailableAction
   | RefreshDockerServicesAction

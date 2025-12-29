@@ -2194,8 +2194,208 @@ Output ONLY the markdown content, no code blocks or extra formatting."#,
         | Action::ApprovePlan { .. }
         | Action::CancelChange { .. }
         | Action::SelectChange { .. }
-        | Action::SetChangesLoading { .. } => {
+        | Action::SetChangesLoading { .. }
+        | Action::AppendImplementationOutput { .. }
+        | Action::CompleteImplementation { .. }
+        | Action::FailImplementation { .. } => {
             // Sync actions - handled in reducer
+        }
+
+        // ====================================================================
+        // CESDD Phase 5: Implementation
+        // ====================================================================
+        Action::ExecutePlan { change_id } => {
+            // Get change data, plan content, and worktree path
+            let (change_data, plan_content, worktree_path, constitution_content, context_content) = {
+                let state = get_app_state().read().await;
+                let wt = state.active_project().and_then(|p| p.active_worktree());
+
+                let change = wt.and_then(|w| w.changes.changes.iter().find(|c| c.id == change_id)).cloned();
+                let plan = change.as_ref().and_then(|c| c.plan.clone());
+                let wt_path = wt.map(|w| w.path.clone());
+
+                // Get constitution and context for additional guidance
+                let constitution = wt_path.as_ref()
+                    .and_then(|p| constitution::read_constitution(std::path::Path::new(p)))
+                    .unwrap_or_default();
+                let context = wt_path.as_ref()
+                    .and_then(|p| context::read_context_combined(std::path::Path::new(p)))
+                    .unwrap_or_default();
+
+                (change, plan, wt_path, constitution, context)
+            };
+
+            let Some(change) = change_data else {
+                eprintln!("ExecutePlan: Change not found: {}", change_id);
+                return Ok(());
+            };
+            let Some(plan) = plan_content else {
+                eprintln!("ExecutePlan: No plan found for change: {}", change_id);
+                return Ok(());
+            };
+            let Some(wt_path) = worktree_path else {
+                eprintln!("ExecutePlan: No active worktree");
+                return Ok(());
+            };
+
+            // Set status to Implementing
+            {
+                let mut state = get_app_state().write().await;
+                if let Some(project) = state.active_project_mut() {
+                    if let Some(worktree) = project.active_worktree_mut() {
+                        if let Some(c) = worktree.changes.changes.iter_mut().find(|c| c.id == change_id) {
+                            c.status = app_state::ChangeStatus::Implementing;
+                            c.streaming_output.clear();
+                        }
+                    }
+                }
+            }
+            notify_state_update().await;
+
+            // Build prompt for implementation
+            let prompt = format!(
+                r#"You are an expert software engineer. Implement the following plan step by step.
+
+## Constitution (Development Rules)
+{constitution_content}
+
+## Project Context
+{context_content}
+
+## Feature Intent
+{intent}
+
+## Proposal
+{proposal}
+
+## Implementation Plan
+{plan}
+
+## Instructions
+1. Implement each step in the plan sequentially
+2. Follow the constitution rules strictly
+3. Write clean, tested code
+4. Report what you've done after each step
+
+Execute the plan now. Start implementing."#,
+                intent = change.intent,
+                proposal = change.proposal.as_deref().unwrap_or("(no proposal)"),
+            );
+
+            // Spawn Claude CLI with streaming
+            let cwd = std::path::Path::new(&wt_path);
+            let change_id_clone = change_id.clone();
+
+            match claude_cli::spawn_claude(&prompt, cwd, None, None) {
+                Ok(mut child) => {
+                    // Monitor stderr
+                    if let Some(stderr) = child.stderr.take() {
+                        tokio::spawn(async move {
+                            let reader = BufReader::new(stderr);
+                            let mut lines = reader.lines();
+                            while let Ok(Some(line)) = lines.next_line().await {
+                                let trimmed = line.trim();
+                                if !trimmed.is_empty() {
+                                    eprintln!("[Claude CLI stderr] {}", trimmed);
+                                }
+                            }
+                        });
+                    }
+
+                    // Create event stream
+                    match claude_cli::ClaudeEventStream::new(&mut child) {
+                        Ok(mut stream) => {
+                            loop {
+                                match tokio::time::timeout(
+                                    claude_cli::EVENT_TIMEOUT,
+                                    stream.next_event()
+                                ).await {
+                                    Ok(Some(Ok(event))) => {
+                                        // Extract text from streaming events
+                                        if let Some(text_chunk) = claude_cli::extract_text_delta(&event) {
+                                            {
+                                                let mut state = get_app_state().write().await;
+                                                reduce(&mut state, Action::AppendImplementationOutput {
+                                                    change_id: change_id_clone.clone(),
+                                                    content: text_chunk.to_string(),
+                                                });
+                                            }
+                                            notify_state_update().await;
+                                        }
+
+                                        if let Some(text_content) = claude_cli::extract_assistant_text(&event) {
+                                            {
+                                                let mut state = get_app_state().write().await;
+                                                reduce(&mut state, Action::AppendImplementationOutput {
+                                                    change_id: change_id_clone.clone(),
+                                                    content: text_content,
+                                                });
+                                            }
+                                            notify_state_update().await;
+                                        }
+
+                                        // Check for completion
+                                        if claude_cli::is_message_stop(&event) {
+                                            // Mark complete - implementation done!
+                                            {
+                                                let mut state = get_app_state().write().await;
+                                                reduce(&mut state, Action::CompleteImplementation {
+                                                    change_id: change_id_clone.clone(),
+                                                });
+                                            }
+                                            notify_state_update().await;
+                                            break;
+                                        }
+                                    }
+                                    Ok(Some(Err(e))) => {
+                                        eprintln!("ExecutePlan: Event parse error: {}", e);
+                                    }
+                                    Ok(None) => {
+                                        // Stream ended
+                                        {
+                                            let mut state = get_app_state().write().await;
+                                            reduce(&mut state, Action::CompleteImplementation {
+                                                change_id: change_id_clone.clone(),
+                                            });
+                                        }
+                                        notify_state_update().await;
+                                        break;
+                                    }
+                                    Err(_) => {
+                                        eprintln!("ExecutePlan: Timeout waiting for event");
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("ExecutePlan: Failed to create event stream: {}", e);
+                            {
+                                let mut state = get_app_state().write().await;
+                                reduce(&mut state, Action::FailImplementation {
+                                    change_id: change_id_clone,
+                                    error: e.to_string(),
+                                });
+                            }
+                            notify_state_update().await;
+                        }
+                    }
+
+                    // Wait for process to finish
+                    let _ = child.wait().await;
+                }
+                Err(e) => {
+                    eprintln!("ExecutePlan: Failed to spawn Claude CLI: {}", e);
+                    {
+                        let mut state = get_app_state().write().await;
+                        reduce(&mut state, Action::FailImplementation {
+                            change_id: change_id_clone,
+                            error: e.to_string(),
+                        });
+                    }
+                    notify_state_update().await;
+                }
+            }
         }
 
         Action::RefreshChanges => {

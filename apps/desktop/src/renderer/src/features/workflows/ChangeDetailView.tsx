@@ -1,4 +1,4 @@
-import { FileText, Play, Check, X, Clock, Archive, RefreshCw } from 'lucide-react'
+import { FileText, Play, Check, X, Clock, Archive, RefreshCw, Rocket } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -41,13 +41,19 @@ export function ChangeDetailView({ change }: ChangeDetailViewProps) {
     dispatch({ type: 'ArchiveChange', payload: { change_id: change.id } })
   }
 
+  const handleExecutePlan = () => {
+    dispatch({ type: 'ExecutePlan', payload: { change_id: change.id } })
+  }
+
   const isPlanning = change.status === 'planning'
+  const isImplementing = change.status === 'implementing'
   const hasProposal = !!change.proposal
   const hasPlan = !!change.plan
   const canGenerateProposal = change.status === 'proposed' && !hasProposal
   const canGeneratePlan = hasProposal && !hasPlan && change.status !== 'planning'
   const canApprove = change.status === 'planned'
-  const canCancel = !['done', 'archived', 'cancelled'].includes(change.status)
+  const canExecute = change.status === 'planned'
+  const canCancel = !['done', 'archived', 'cancelled', 'implementing'].includes(change.status)
   const canSyncAndArchive = change.status === 'done'
   const isArchived = change.status === 'archived'
 
@@ -75,6 +81,10 @@ export function ChangeDetailView({ change }: ChangeDetailViewProps) {
             <TabsTrigger value="plan" className="gap-1">
               <FileText className="h-4 w-4" />
               Plan
+            </TabsTrigger>
+            <TabsTrigger value="implementation" className="gap-1">
+              <Rocket className="h-4 w-4" />
+              Implementation
             </TabsTrigger>
           </TabsList>
 
@@ -133,6 +143,47 @@ export function ChangeDetailView({ change }: ChangeDetailViewProps) {
               </div>
             )}
           </TabsContent>
+
+          <TabsContent value="implementation" className="h-[calc(100%-50px)]">
+            {isImplementing && change.streaming_output ? (
+              <ScrollArea className="h-full rounded-md border p-4">
+                <div className="flex items-center gap-2 mb-2 text-blue-600">
+                  <Rocket className="h-4 w-4 animate-pulse" />
+                  <span className="text-sm font-medium">Implementing...</span>
+                </div>
+                <pre className="whitespace-pre-wrap text-sm">{change.streaming_output}</pre>
+              </ScrollArea>
+            ) : change.status === 'done' ? (
+              <ScrollArea className="h-full rounded-md border p-4">
+                <div className="flex items-center gap-2 mb-2 text-green-600">
+                  <Check className="h-4 w-4" />
+                  <span className="text-sm font-medium">Implementation Complete</span>
+                </div>
+                <pre className="whitespace-pre-wrap text-sm">{change.streaming_output}</pre>
+              </ScrollArea>
+            ) : change.status === 'failed' ? (
+              <ScrollArea className="h-full rounded-md border p-4">
+                <div className="flex items-center gap-2 mb-2 text-red-600">
+                  <X className="h-4 w-4" />
+                  <span className="text-sm font-medium">Implementation Failed</span>
+                </div>
+                <pre className="whitespace-pre-wrap text-sm">{change.streaming_output}</pre>
+              </ScrollArea>
+            ) : (
+              <div className="flex h-full flex-col items-center justify-center gap-4">
+                <Rocket className="h-12 w-12 text-muted-foreground" />
+                <p className="text-muted-foreground">
+                  {hasPlan ? 'Ready to implement' : 'Generate a plan first'}
+                </p>
+                {canExecute && (
+                  <Button onClick={handleExecutePlan} className="bg-blue-600 hover:bg-blue-700">
+                    <Rocket className="mr-2 h-4 w-4" />
+                    Execute Plan
+                  </Button>
+                )}
+              </div>
+            )}
+          </TabsContent>
         </Tabs>
 
         {/* Action Buttons */}
@@ -142,6 +193,18 @@ export function ChangeDetailView({ change }: ChangeDetailViewProps) {
               <Check className="mr-2 h-4 w-4" />
               Approve Plan
             </Button>
+          )}
+          {canExecute && (
+            <Button onClick={handleExecutePlan} className="bg-blue-600 hover:bg-blue-700">
+              <Rocket className="mr-2 h-4 w-4" />
+              Execute Plan
+            </Button>
+          )}
+          {isImplementing && (
+            <Badge variant="secondary" className="px-3 py-1">
+              <Rocket className="mr-2 h-4 w-4 animate-pulse" />
+              Implementing...
+            </Badge>
           )}
           {canSyncAndArchive && (
             <>
