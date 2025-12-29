@@ -184,6 +184,24 @@ pub enum Action {
     /// Set context initialization status (internal)
     SetContextInitialized { initialized: bool },
 
+    // ========================================================================
+    // Context Sync & Archive Actions (CESDD Phase 4)
+    // ========================================================================
+    /// Archive a completed change to .rstn/archive/
+    ArchiveChange { change_id: String },
+
+    /// Sync context: extract valuable info from proposal/plan and update context files
+    SyncContext { change_id: String },
+
+    /// Append content to context sync output (streaming from Claude)
+    AppendContextSyncOutput { change_id: String, content: String },
+
+    /// Mark context sync as complete
+    CompleteContextSync { change_id: String },
+
+    /// Set change status to Archived (internal, after archive completes)
+    SetChangeArchived { change_id: String },
+
     /// Submit an answer to the current question and advance
     AnswerConstitutionQuestion { answer: String },
 

@@ -11,9 +11,10 @@ use crate::actions::{
     TaskStatusData,
 };
 use crate::app_state::{
-    AppError, AppState, ConflictingContainer, DevLog, DevLogSource, DevLogType, DockerServiceInfo,
-    EnvCopyResult, JustCommandInfo, McpStatus, Notification, PendingConflict, PortConflict,
-    ProjectState, RecentProject, ServiceStatus, ServiceType, TaskStatus, WorktreeState,
+    AppError, AppState, ChangeStatus, ConflictingContainer, DevLog, DevLogSource, DevLogType,
+    DockerServiceInfo, EnvCopyResult, JustCommandInfo, McpStatus, Notification, PendingConflict,
+    PortConflict, ProjectState, RecentProject, ServiceStatus, ServiceType, TaskStatus,
+    WorktreeState,
 };
 use crate::persistence;
 use crate::worktree;
@@ -705,6 +706,88 @@ pub fn reduce(state: &mut AppState, action: Action) {
         }
 
         // ====================================================================
+        // Context Sync & Archive Actions (CESDD Phase 4)
+        // ====================================================================
+        Action::ArchiveChange { change_id } => {
+            // Mark change as being archived (async handler will do the work)
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    // The actual archiving is done in lib.rs async handler
+                    // This just sets loading state if needed
+                    if let Some(change) = worktree
+                        .changes
+                        .changes
+                        .iter_mut()
+                        .find(|c| c.id == change_id)
+                    {
+                        // Could add an is_archiving flag if needed
+                        let _ = change; // satisfy borrow checker
+                    }
+                }
+            }
+        }
+
+        Action::SyncContext { change_id } => {
+            // Context sync is handled by async handler in lib.rs
+            // This reducer handler is just for completeness
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.context.is_loading = true;
+                    let _ = change_id; // satisfy borrow checker
+                }
+            }
+        }
+
+        Action::AppendContextSyncOutput { change_id, content } => {
+            // Could store streaming output if we implement streaming context sync
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(change) = worktree
+                        .changes
+                        .changes
+                        .iter_mut()
+                        .find(|c| c.id == change_id)
+                    {
+                        change.streaming_output.push_str(&content);
+                    }
+                }
+            }
+        }
+
+        Action::CompleteContextSync { change_id } => {
+            // Mark context sync as complete
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.context.is_loading = false;
+                    // Clear streaming output
+                    if let Some(change) = worktree
+                        .changes
+                        .changes
+                        .iter_mut()
+                        .find(|c| c.id == change_id)
+                    {
+                        change.streaming_output.clear();
+                    }
+                }
+            }
+        }
+
+        Action::SetChangeArchived { change_id } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(change) = worktree
+                        .changes
+                        .changes
+                        .iter_mut()
+                        .find(|c| c.id == change_id)
+                    {
+                        change.status = ChangeStatus::Archived;
+                    }
+                }
+            }
+        }
+
+        // ====================================================================
         // Docker Actions (global scope - operate on state.docker)
         // ====================================================================
         Action::CheckDockerAvailability => {
@@ -1299,9 +1382,16 @@ fn log_action_if_interesting(state: &mut AppState, action: &Action) {
         Action::CheckContextExists => ("CheckContextExists", true),
         Action::SetContextInitialized { .. } => ("SetContextInitialized", true),
 
+        // Phase 4: Context Sync & Archive - interesting
+        Action::ArchiveChange { .. } => ("ArchiveChange", true),
+        Action::SyncContext { .. } => ("SyncContext", true),
+        Action::CompleteContextSync { .. } => ("CompleteContextSync", true),
+        Action::SetChangeArchived { .. } => ("SetChangeArchived", true),
+
         // High-frequency streaming actions - not interesting
         Action::AppendProposalOutput { .. } => ("AppendProposalOutput", false),
         Action::AppendPlanOutput { .. } => ("AppendPlanOutput", false),
+        Action::AppendContextSyncOutput { .. } => ("AppendContextSyncOutput", false),
 
         // Task execution - interesting
         Action::RunJustCommand { .. } => ("RunJustCommand", true),

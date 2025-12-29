@@ -8,10 +8,12 @@ extern crate napi_derive;
 pub mod actions;
 pub mod agent_rules;
 pub mod app_state;
+pub mod archive;
 pub mod claude_cli;
 pub mod constitution;
 pub mod context;
 pub mod context_engine;
+pub mod context_sync;
 pub mod docker;
 pub mod env;
 pub mod justfile;
@@ -2372,6 +2374,174 @@ Output ONLY the markdown content, no code blocks or extra formatting."#,
                 }
                 notify_state_update().await;
             }
+        }
+
+        // ====================================================================
+        // Context Sync & Archive Actions (CESDD Phase 4)
+        // ====================================================================
+        Action::ArchiveChange { change_id } => {
+            // Get worktree path and change name
+            let change_info = {
+                let state = get_app_state().read().await;
+                state
+                    .active_project()
+                    .and_then(|p| p.active_worktree())
+                    .and_then(|w| {
+                        let change = w.changes.changes.iter().find(|c| c.id == change_id)?;
+                        Some((w.path.clone(), change.name.clone()))
+                    })
+            };
+
+            if let Some((wt_path, change_name)) = change_info {
+                let path = std::path::Path::new(&wt_path);
+                match archive::archive_change(path, &change_name).await {
+                    Ok(()) => {
+                        // Update change status to Archived
+                        {
+                            let mut state = get_app_state().write().await;
+                            if let Some(project) = state.active_project_mut() {
+                                if let Some(worktree) = project.active_worktree_mut() {
+                                    if let Some(change) = worktree
+                                        .changes
+                                        .changes
+                                        .iter_mut()
+                                        .find(|c| c.id == change_id)
+                                    {
+                                        change.status = app_state::ChangeStatus::Archived;
+                                    }
+                                }
+                            }
+                        }
+                        notify_state_update().await;
+                    }
+                    Err(e) => {
+                        let mut state = get_app_state().write().await;
+                        state.error = Some(app_state::AppError::new(
+                            "ARCHIVE_ERROR",
+                            format!("Failed to archive change: {}", e),
+                        ));
+                    }
+                }
+            }
+        }
+
+        Action::SyncContext { change_id } => {
+            // Get worktree path, change info, and existing context
+            let sync_info = {
+                let state = get_app_state().read().await;
+                state
+                    .active_project()
+                    .and_then(|p| p.active_worktree())
+                    .and_then(|w| {
+                        let change = w.changes.changes.iter().find(|c| c.id == change_id)?;
+                        Some((w.path.clone(), change.name.clone()))
+                    })
+            };
+
+            if let Some((wt_path, change_name)) = sync_info {
+                let path = std::path::Path::new(&wt_path);
+
+                // Read proposal and plan
+                let proposal = archive::read_change_proposal(path, &change_name)
+                    .unwrap_or_default();
+                let plan = archive::read_change_plan(path, &change_name)
+                    .unwrap_or_default();
+
+                if proposal.is_empty() && plan.is_empty() {
+                    // Nothing to sync
+                    return Ok(());
+                }
+
+                // Read existing context
+                let existing_context = context::read_context_combined(path)
+                    .unwrap_or_default();
+
+                // Build prompt for Claude
+                let prompt = context_sync::build_context_sync_prompt(
+                    &proposal,
+                    &plan,
+                    &existing_context,
+                );
+
+                // Call Claude CLI for context extraction (non-streaming for simplicity)
+                let cwd = wt_path.clone();
+                let mut claude_cmd = tokio::process::Command::new("claude");
+                claude_cmd
+                    .arg("-p")
+                    .arg(&prompt)
+                    .arg("--output-format")
+                    .arg("text")
+                    .current_dir(&cwd);
+
+                match claude_cmd.output().await {
+                    Ok(output) => {
+                        if output.status.success() {
+                            let response = String::from_utf8_lossy(&output.stdout).to_string();
+
+                            // Parse the JSON response
+                            match context_sync::ContextSyncResponse::from_json(&response) {
+                                Ok(sync_response) => {
+                                    if sync_response.has_updates() {
+                                        // Update context files based on response
+                                        // For now, just update recent-changes.md
+                                        let recent_changes_update = context_sync::format_recent_changes(
+                                            &sync_response.recent_change_summary,
+                                            &sync_response.key_decisions,
+                                        );
+
+                                        if !recent_changes_update.is_empty() {
+                                            // Read current recent-changes.md
+                                            let recent_path = path
+                                                .join(".rstn")
+                                                .join("context")
+                                                .join("recent-changes.md");
+
+                                            if let Ok(current) = tokio::fs::read_to_string(&recent_path).await {
+                                                // Append new changes
+                                                let updated = format!("{}\n{}", current, recent_changes_update);
+                                                let _ = tokio::fs::write(&recent_path, updated).await;
+                                            }
+                                        }
+
+                                        // Refresh context after update
+                                        let files = context::read_context(path);
+                                        {
+                                            let mut state = get_app_state().write().await;
+                                            if let Some(project) = state.active_project_mut() {
+                                                if let Some(worktree) = project.active_worktree_mut() {
+                                                    worktree.context.files = files
+                                                        .into_iter()
+                                                        .map(|f| f.into())
+                                                        .collect();
+                                                    worktree.context.last_refreshed =
+                                                        Some(chrono::Utc::now().to_rfc3339());
+                                                }
+                                            }
+                                        }
+                                        notify_state_update().await;
+                                    }
+                                }
+                                Err(e) => {
+                                    // Log parse error but don't fail the operation
+                                    eprintln!("Failed to parse context sync response: {}", e);
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let mut state = get_app_state().write().await;
+                        state.error = Some(app_state::AppError::new(
+                            "CONTEXT_SYNC_ERROR",
+                            format!("Failed to run Claude for context sync: {}", e),
+                        ));
+                    }
+                }
+            }
+        }
+
+        Action::AppendContextSyncOutput { .. } | Action::CompleteContextSync { .. } | Action::SetChangeArchived { .. } => {
+            // These are handled by reducer (sync state updates)
+            // No async work needed
         }
 
         // Terminal actions (async - PTY operations)
