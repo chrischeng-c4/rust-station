@@ -421,6 +421,24 @@ pub fn reduce(state: &mut AppState, action: Action) {
             }
         }
 
+        Action::CheckConstitutionExists => {
+            // Async trigger - no immediate state change
+            // The async handler in lib.rs will check file and dispatch SetConstitutionExists
+        }
+
+        Action::SetConstitutionExists { exists } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.tasks.constitution_exists = Some(exists);
+                }
+            }
+        }
+
+        Action::ApplyDefaultConstitution => {
+            // Async action - file write handled in lib.rs
+            // No immediate state change needed
+        }
+
         // ====================================================================
         // Docker Actions (global scope - operate on state.docker)
         // ====================================================================
@@ -988,6 +1006,9 @@ fn log_action_if_interesting(state: &mut AppState, action: &Action) {
         Action::AnswerConstitutionQuestion { .. } => ("AnswerConstitutionQuestion", true),
         Action::GenerateConstitution => ("GenerateConstitution", true),
         Action::SaveConstitution => ("SaveConstitution", true),
+        Action::CheckConstitutionExists => ("CheckConstitutionExists", true),
+        Action::SetConstitutionExists { .. } => ("SetConstitutionExists", true),
+        Action::ApplyDefaultConstitution => ("ApplyDefaultConstitution", true),
 
         // Task execution - interesting
         Action::RunJustCommand { .. } => ("RunJustCommand", true),
@@ -2800,5 +2821,41 @@ mod tests {
         let workflow = worktree.tasks.constitution_workflow.as_ref().unwrap();
         assert_eq!(workflow.current_question, 1);
         assert_eq!(workflow.answers.get("tech_stack").unwrap(), "React + Rust");
+    }
+
+    #[test]
+    fn test_set_constitution_exists() {
+        let mut state = state_with_project();
+
+        // Initially null (not checked)
+        let worktree = active_worktree(&state);
+        assert!(worktree.tasks.constitution_exists.is_none());
+
+        // Set to true
+        reduce(&mut state, Action::SetConstitutionExists { exists: true });
+        let worktree = active_worktree(&state);
+        assert_eq!(worktree.tasks.constitution_exists, Some(true));
+
+        // Set to false
+        reduce(&mut state, Action::SetConstitutionExists { exists: false });
+        let worktree = active_worktree(&state);
+        assert_eq!(worktree.tasks.constitution_exists, Some(false));
+    }
+
+    #[test]
+    fn test_constitution_exists_serialization() {
+        let mut state = state_with_project();
+
+        // Set constitution exists
+        reduce(&mut state, Action::SetConstitutionExists { exists: true });
+
+        // Serialize to JSON
+        let json = serde_json::to_string(&state).unwrap();
+        assert!(json.contains("constitution_exists"));
+
+        // Deserialize back
+        let loaded: AppState = serde_json::from_str(&json).unwrap();
+        let worktree = loaded.active_project().unwrap().active_worktree().unwrap();
+        assert_eq!(worktree.tasks.constitution_exists, Some(true));
     }
 }

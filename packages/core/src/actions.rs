@@ -121,6 +121,15 @@ pub enum Action {
     /// Save the generated constitution to .rstn/constitution.md
     SaveConstitution,
 
+    /// Check if constitution file exists (async trigger)
+    CheckConstitutionExists,
+
+    /// Set constitution existence status (internal, after check)
+    SetConstitutionExists { exists: bool },
+
+    /// Apply default constitution template without Q&A
+    ApplyDefaultConstitution,
+
     // ========================================================================
     // Docker Actions
     // ========================================================================

@@ -9,6 +9,7 @@ pub mod actions;
 pub mod agent_rules;
 pub mod app_state;
 pub mod claude_cli;
+pub mod constitution;
 pub mod context_engine;
 pub mod docker;
 pub mod env;
@@ -44,6 +45,8 @@ static APP_STATE: OnceCell<Arc<RwLock<AppState>>> = OnceCell::const_new();
 
 // State update listener (callback to JavaScript)
 static STATE_LISTENER: OnceCell<ThreadsafeFunction<String>> = OnceCell::const_new();
+
+// DEFAULT_CONSTITUTION moved to constitution.rs module (modular templates)
 
 fn get_app_state() -> &'static Arc<RwLock<AppState>> {
     APP_STATE.get().expect("AppState not initialized. Call state_init first.")
@@ -854,6 +857,25 @@ async fn handle_async_action(action: Action) -> napi::Result<()> {
         Action::OpenProject { ref path } => {
             // After opening a project, refresh worktrees from git
             refresh_worktrees_for_path(path).await;
+
+            // Check constitution existence for the active worktree
+            // Supports both modular (.rstn/constitutions/) and legacy (.rstn/constitution.md)
+            let worktree_path = {
+                let state = get_app_state().read().await;
+                state
+                    .active_project()
+                    .and_then(|p| p.active_worktree())
+                    .map(|w| w.path.clone())
+            };
+            if let Some(wt_path) = worktree_path {
+                let exists = constitution::constitution_exists(std::path::Path::new(&wt_path));
+
+                {
+                    let mut state = get_app_state().write().await;
+                    reduce(&mut state, Action::SetConstitutionExists { exists });
+                }
+                notify_state_update().await;
+            }
         }
 
         Action::RefreshWorktrees => {
@@ -1704,6 +1726,62 @@ Be specific, actionable, and authoritative. Use "MUST", "MUST NOT" language."#,
 
                 // Update state to Complete (already done in reducer)
                 notify_state_update().await;
+            }
+        }
+
+        Action::CheckConstitutionExists => {
+            // Get the active worktree path
+            let worktree_path = {
+                let state = get_app_state().read().await;
+                state
+                    .active_project()
+                    .and_then(|p| p.active_worktree())
+                    .map(|w| w.path.clone())
+            };
+
+            if let Some(wt_path) = worktree_path {
+                // Check for modular (.rstn/constitutions/) or legacy (.rstn/constitution.md)
+                let exists = constitution::constitution_exists(std::path::Path::new(&wt_path));
+
+                {
+                    let mut state = get_app_state().write().await;
+                    reduce(&mut state, Action::SetConstitutionExists { exists });
+                }
+                notify_state_update().await;
+            }
+        }
+
+        Action::SetConstitutionExists { .. } => {
+            // Sync action - handled in reducer
+        }
+
+        Action::ApplyDefaultConstitution => {
+            // Get the active worktree path
+            let worktree_path = {
+                let state = get_app_state().read().await;
+                state
+                    .active_project()
+                    .and_then(|p| p.active_worktree())
+                    .map(|w| w.path.clone())
+            };
+
+            if let Some(wt_path) = worktree_path {
+                let project_path = std::path::Path::new(&wt_path);
+
+                // Create modular constitution with language detection
+                match constitution::create_modular_constitution(project_path).await {
+                    Ok(()) => {
+                        // Update state
+                        {
+                            let mut state = get_app_state().write().await;
+                            reduce(&mut state, Action::SetConstitutionExists { exists: true });
+                        }
+                        notify_state_update().await;
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to create modular constitution: {}", e);
+                    }
+                }
             }
         }
 

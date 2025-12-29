@@ -1,5 +1,5 @@
 import { useEffect, useCallback } from 'react'
-import { RefreshCw, AlertCircle } from 'lucide-react'
+import { RefreshCw, AlertCircle, CheckCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { LogPanel } from '@/components/LogPanel'
@@ -34,6 +34,7 @@ export function TasksPage() {
   const activeCommand = tasks?.active_command ?? null
   const isRefreshing = tasks?.is_loading ?? false
   const error = tasks?.error ?? null
+  const constitutionExists = tasks?.constitution_exists
 
   // Build justfile path from project path
   const justfilePath = projectPath ? `${projectPath}/justfile` : null
@@ -145,6 +146,17 @@ export function TasksPage() {
                         : handleRun
                   }
                   isClaudeCode={cmd.name === 'claude-code'}
+                  badge={
+                    cmd.name === 'constitution-init' ? (
+                      constitutionExists === null || constitutionExists === undefined ? (
+                        <RefreshCw className="h-3 w-3 animate-spin text-muted-foreground" />
+                      ) : constitutionExists ? (
+                        <CheckCircle className="h-3 w-3 text-green-500" />
+                      ) : (
+                        <AlertCircle className="h-3 w-3 text-amber-500" />
+                      )
+                    ) : undefined
+                  }
                 />
               ))}
               {commands.length === 0 && !isRefreshing && (

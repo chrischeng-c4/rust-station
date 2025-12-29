@@ -2,6 +2,7 @@ import { Play, Loader2, CheckCircle, XCircle, Bot, MessageSquare } from 'lucide-
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { JustCommand, TaskStatus } from '@/types/task'
+import type { ReactNode } from 'react'
 
 interface TaskCardProps {
   command: JustCommand
@@ -9,6 +10,8 @@ interface TaskCardProps {
   isActive?: boolean
   isClaudeCode?: boolean
   onRun?: (name: string) => void
+  /** Optional badge to display next to the command name */
+  badge?: ReactNode
 }
 
 export function TaskCard({
@@ -17,6 +20,7 @@ export function TaskCard({
   isActive = false,
   isClaudeCode = false,
   onRun,
+  badge,
 }: TaskCardProps) {
   const isRunning = status === 'running'
 
@@ -41,6 +45,7 @@ export function TaskCard({
           </span>
           {!isClaudeCode && status === 'success' && <CheckCircle className="h-4 w-4 text-green-500" />}
           {!isClaudeCode && status === 'error' && <XCircle className="h-4 w-4 text-red-500" />}
+          {badge}
         </div>
         {command.description && (
           <p className="mt-0.5 truncate text-xs text-muted-foreground">{command.description}</p>

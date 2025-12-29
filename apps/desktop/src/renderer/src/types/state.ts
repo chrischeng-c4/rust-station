@@ -108,6 +108,8 @@ export interface TasksState {
   error: string | null
   /** Constitution workflow state (CESDD Phase 1) */
   constitution_workflow: ConstitutionWorkflow | null
+  /** Whether .rstn/constitution.md exists (null = not checked yet) */
+  constitution_exists: boolean | null
 }
 
 // ============================================================================
@@ -471,6 +473,19 @@ export interface AppendConstitutionOutputAction {
 
 export interface SaveConstitutionAction {
   type: 'SaveConstitution'
+}
+
+export interface CheckConstitutionExistsAction {
+  type: 'CheckConstitutionExists'
+}
+
+export interface SetConstitutionExistsAction {
+  type: 'SetConstitutionExists'
+  payload: { exists: boolean }
+}
+
+export interface ApplyDefaultConstitutionAction {
+  type: 'ApplyDefaultConstitution'
 }
 
 // Docker Actions
@@ -886,6 +901,9 @@ export type Action =
   | GenerateConstitutionAction
   | AppendConstitutionOutputAction
   | SaveConstitutionAction
+  | CheckConstitutionExistsAction
+  | SetConstitutionExistsAction
+  | ApplyDefaultConstitutionAction
   | CheckDockerAvailabilityAction
   | SetDockerAvailableAction
   | RefreshDockerServicesAction
