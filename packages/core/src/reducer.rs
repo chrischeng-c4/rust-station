@@ -628,6 +628,83 @@ pub fn reduce(state: &mut AppState, action: Action) {
         }
 
         // ====================================================================
+        // Living Context Actions (CESDD Phase 3 - worktree scope)
+        // ====================================================================
+        Action::LoadContext => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.context.is_loading = true;
+                }
+            }
+        }
+
+        Action::SetContext { files } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.context.files = files.into_iter().map(|f| f.into()).collect();
+                    worktree.context.is_loading = false;
+                    worktree.context.is_initialized = true;
+                    worktree.context.last_refreshed =
+                        Some(chrono::Utc::now().to_rfc3339());
+                }
+            }
+        }
+
+        Action::SetContextLoading { is_loading } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.context.is_loading = is_loading;
+                }
+            }
+        }
+
+        Action::InitializeContext => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.context.is_loading = true;
+                }
+            }
+        }
+
+        Action::RefreshContext => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.context.is_loading = true;
+                }
+            }
+        }
+
+        Action::UpdateContextFile { name, content } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    // Find and update the file in state
+                    if let Some(file) = worktree.context.files.iter_mut().find(|f| f.name == name) {
+                        file.content = content;
+                        file.last_updated = chrono::Utc::now().to_rfc3339();
+                    }
+                }
+            }
+        }
+
+        Action::CheckContextExists => {
+            // Trigger async check - reducer just marks loading
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.context.is_loading = true;
+                }
+            }
+        }
+
+        Action::SetContextInitialized { initialized } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.context.is_initialized = initialized;
+                    worktree.context.is_loading = false;
+                }
+            }
+        }
+
+        // ====================================================================
         // Docker Actions (global scope - operate on state.docker)
         // ====================================================================
         Action::CheckDockerAvailability => {
@@ -1211,6 +1288,17 @@ fn log_action_if_interesting(state: &mut AppState, action: &Action) {
         Action::RefreshChanges => ("RefreshChanges", true),
         Action::SetChanges { .. } => ("SetChanges", true),
         Action::SetChangesLoading { .. } => ("SetChangesLoading", false),
+
+        // Living Context - interesting (key state changes)
+        Action::LoadContext => ("LoadContext", true),
+        Action::SetContext { .. } => ("SetContext", true),
+        Action::SetContextLoading { .. } => ("SetContextLoading", false),
+        Action::InitializeContext => ("InitializeContext", true),
+        Action::RefreshContext => ("RefreshContext", true),
+        Action::UpdateContextFile { .. } => ("UpdateContextFile", true),
+        Action::CheckContextExists => ("CheckContextExists", true),
+        Action::SetContextInitialized { .. } => ("SetContextInitialized", true),
+
         // High-frequency streaming actions - not interesting
         Action::AppendProposalOutput { .. } => ("AppendProposalOutput", false),
         Action::AppendPlanOutput { .. } => ("AppendPlanOutput", false),

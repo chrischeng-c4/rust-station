@@ -282,9 +282,12 @@ pub struct WorktreeState {
     pub active_tab: FeatureTab,
     /// Tasks state for this worktree
     pub tasks: TasksState,
-    /// Changes state for CESDD Phase 2
+    /// Changes state for CESDD Phase 2 (Transactional Layer)
     #[serde(default)]
     pub changes: ChangesState,
+    /// Living Context state for CESDD Phase 3 (Living Context Layer)
+    #[serde(default)]
+    pub context: ContextState,
     // Note: Docker state moved to AppState.docker (global scope)
 }
 
@@ -303,6 +306,7 @@ impl WorktreeState {
             active_tab: FeatureTab::Tasks,
             tasks: TasksState::default(),
             changes: ChangesState::default(),
+            context: ContextState::default(),
         }
     }
 }
@@ -836,6 +840,33 @@ impl From<crate::actions::ChangeData> for Change {
     }
 }
 
+impl From<crate::actions::ContextTypeData> for ContextType {
+    fn from(data: crate::actions::ContextTypeData) -> Self {
+        match data {
+            crate::actions::ContextTypeData::Product => ContextType::Product,
+            crate::actions::ContextTypeData::TechStack => ContextType::TechStack,
+            crate::actions::ContextTypeData::Architecture => ContextType::Architecture,
+            crate::actions::ContextTypeData::ApiContracts => ContextType::ApiContracts,
+            crate::actions::ContextTypeData::DataModels => ContextType::DataModels,
+            crate::actions::ContextTypeData::RecentChanges => ContextType::RecentChanges,
+            crate::actions::ContextTypeData::Custom => ContextType::Custom,
+        }
+    }
+}
+
+impl From<crate::actions::ContextFileData> for ContextFile {
+    fn from(data: crate::actions::ContextFileData) -> Self {
+        ContextFile {
+            name: data.name,
+            path: data.path,
+            content: data.content,
+            context_type: data.context_type.into(),
+            last_updated: data.last_updated,
+            token_estimate: data.token_estimate,
+        }
+    }
+}
+
 /// Recent project entry
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RecentProject {
@@ -1097,6 +1128,91 @@ pub enum ChangeStatus {
     Cancelled,
     /// Build/test errors
     Failed,
+}
+
+// ============================================================================
+// Living Context State (CESDD Layer 2)
+// ============================================================================
+
+/// State for Living Context Layer (CESDD Layer 2)
+/// Auto-curated by rstn, represents current system state
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct ContextState {
+    /// Context files loaded from .rstn/context/
+    pub files: Vec<ContextFile>,
+    /// Whether context is currently being loaded
+    pub is_loading: bool,
+    /// Whether context has been initialized
+    pub is_initialized: bool,
+    /// Last refresh timestamp (ISO 8601)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_refreshed: Option<String>,
+}
+
+/// A single context file from .rstn/context/
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ContextFile {
+    /// File name without extension (e.g., "tech-stack")
+    pub name: String,
+    /// Full path to the file
+    pub path: String,
+    /// File content (markdown)
+    pub content: String,
+    /// Type of context file
+    pub context_type: ContextType,
+    /// Last modified timestamp (ISO 8601)
+    pub last_updated: String,
+    /// Estimated token count for budget management
+    pub token_estimate: u32,
+}
+
+/// Type of context file
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum ContextType {
+    /// Product description - what the product does
+    #[default]
+    Product,
+    /// Technology stack decisions
+    TechStack,
+    /// System architecture overview
+    Architecture,
+    /// API contracts and boundaries
+    ApiContracts,
+    /// Core data models
+    DataModels,
+    /// Recent significant changes
+    RecentChanges,
+    /// Custom context file
+    Custom,
+}
+
+impl ContextType {
+    /// Get the expected filename for this context type
+    pub fn filename(&self) -> &'static str {
+        match self {
+            ContextType::Product => "product.md",
+            ContextType::TechStack => "tech-stack.md",
+            ContextType::Architecture => "system-architecture.md",
+            ContextType::ApiContracts => "api-contracts.md",
+            ContextType::DataModels => "data-models.md",
+            ContextType::RecentChanges => "recent-changes.md",
+            ContextType::Custom => "custom.md",
+        }
+    }
+
+    /// Parse context type from filename
+    pub fn from_filename(filename: &str) -> Self {
+        match filename {
+            "product.md" => ContextType::Product,
+            "tech-stack.md" => ContextType::TechStack,
+            "system-architecture.md" => ContextType::Architecture,
+            "api-contracts.md" => ContextType::ApiContracts,
+            "data-models.md" => ContextType::DataModels,
+            "recent-changes.md" => ContextType::RecentChanges,
+            _ => ContextType::Custom,
+        }
+    }
 }
 
 /// UI theme

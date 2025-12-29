@@ -102,6 +102,35 @@ export interface ChangesState {
 }
 
 // ============================================================================
+// Living Context State (CESDD Phase 3)
+// ============================================================================
+
+export type ContextType =
+  | 'product'
+  | 'tech-stack'
+  | 'architecture'
+  | 'api-contracts'
+  | 'data-models'
+  | 'recent-changes'
+  | 'custom'
+
+export interface ContextFile {
+  name: string
+  path: string
+  content: string
+  context_type: ContextType
+  last_updated: string
+  token_estimate: number
+}
+
+export interface ContextState {
+  files: ContextFile[]
+  is_loading: boolean
+  is_initialized: boolean
+  last_refreshed: string | null
+}
+
+// ============================================================================
 // Tasks State
 // ============================================================================
 
@@ -274,6 +303,7 @@ export interface WorktreeState {
   active_tab: FeatureTab
   tasks: TasksState
   changes: ChangesState
+  context: ContextState
   // NOTE: dockers moved to AppState.docker (global scope)
 }
 

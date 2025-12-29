@@ -310,6 +310,78 @@ pub fn constitution_exists(project_path: &Path) -> bool {
     legacy_file.exists()
 }
 
+/// Read constitution content from project
+///
+/// Reads all .md files from `.rstn/constitutions/` (modular system) or
+/// falls back to `.rstn/constitution.md` (legacy). Returns combined content.
+pub fn read_constitution(project_path: &Path) -> Option<String> {
+    let rstn_dir = project_path.join(".rstn");
+
+    // Try modular constitution first (new system)
+    let constitutions_dir = rstn_dir.join("constitutions");
+    if constitutions_dir.exists() && constitutions_dir.is_dir() {
+        let mut contents: Vec<(i32, String, String)> = Vec::new(); // (priority, name, content)
+
+        if let Ok(entries) = std::fs::read_dir(&constitutions_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().is_some_and(|ext| ext == "md") {
+                    if let Ok(content) = std::fs::read_to_string(&path) {
+                        // Extract priority from frontmatter (default 50)
+                        let priority = extract_priority(&content);
+                        let name = path
+                            .file_stem()
+                            .map(|s| s.to_string_lossy().to_string())
+                            .unwrap_or_default();
+                        contents.push((priority, name, content));
+                    }
+                }
+            }
+        }
+
+        if !contents.is_empty() {
+            // Sort by priority (higher first)
+            contents.sort_by(|a, b| b.0.cmp(&a.0));
+
+            // Combine all constitution files
+            let combined = contents
+                .into_iter()
+                .map(|(_, _, content)| content)
+                .collect::<Vec<_>>()
+                .join("\n\n---\n\n");
+
+            return Some(combined);
+        }
+    }
+
+    // Fallback: try legacy constitution.md
+    let legacy_file = rstn_dir.join("constitution.md");
+    if legacy_file.exists() {
+        return std::fs::read_to_string(&legacy_file).ok();
+    }
+
+    None
+}
+
+/// Extract priority from YAML frontmatter
+fn extract_priority(content: &str) -> i32 {
+    // Simple extraction: look for "priority: N" in frontmatter
+    if let Some(stripped) = content.strip_prefix("---") {
+        if let Some(end_idx) = stripped.find("---") {
+            let frontmatter = &stripped[..end_idx];
+            for line in frontmatter.lines() {
+                let line = line.trim();
+                if let Some(value) = line.strip_prefix("priority:") {
+                    if let Ok(priority) = value.trim().parse::<i32>() {
+                        return priority;
+                    }
+                }
+            }
+        }
+    }
+    50 // Default priority
+}
+
 /// Create modular constitution files
 pub async fn create_modular_constitution(project_path: &Path) -> Result<(), String> {
     let rstn_dir = project_path.join(".rstn");
@@ -465,5 +537,59 @@ mod tests {
         assert!(constitutions_dir.join("rust.md").exists());
         assert!(constitutions_dir.join("typescript.md").exists());
         assert!(!constitutions_dir.join("python.md").exists()); // No .py files
+    }
+
+    #[test]
+    fn test_read_constitution_none() {
+        let temp_dir = TempDir::new().unwrap();
+        assert!(read_constitution(temp_dir.path()).is_none());
+    }
+
+    #[test]
+    fn test_read_constitution_legacy() {
+        let temp_dir = TempDir::new().unwrap();
+        let rstn_dir = temp_dir.path().join(".rstn");
+        std::fs::create_dir_all(&rstn_dir).unwrap();
+        std::fs::write(rstn_dir.join("constitution.md"), "# Legacy Constitution").unwrap();
+
+        let content = read_constitution(temp_dir.path());
+        assert!(content.is_some());
+        assert!(content.unwrap().contains("Legacy Constitution"));
+    }
+
+    #[test]
+    fn test_read_constitution_modular() {
+        let temp_dir = TempDir::new().unwrap();
+        let constitutions_dir = temp_dir.path().join(".rstn").join("constitutions");
+        std::fs::create_dir_all(&constitutions_dir).unwrap();
+
+        // Write files with different priorities
+        std::fs::write(
+            constitutions_dir.join("global.md"),
+            "---\npriority: 100\n---\n# Global Rules",
+        )
+        .unwrap();
+        std::fs::write(
+            constitutions_dir.join("rust.md"),
+            "---\npriority: 50\n---\n# Rust Rules",
+        )
+        .unwrap();
+
+        let content = read_constitution(temp_dir.path());
+        assert!(content.is_some());
+        let content = content.unwrap();
+
+        // Global (priority 100) should come before Rust (priority 50)
+        let global_pos = content.find("Global Rules").unwrap();
+        let rust_pos = content.find("Rust Rules").unwrap();
+        assert!(global_pos < rust_pos);
+    }
+
+    #[test]
+    fn test_extract_priority() {
+        assert_eq!(extract_priority("---\npriority: 100\n---\ncontent"), 100);
+        assert_eq!(extract_priority("---\npriority: 50\n---\ncontent"), 50);
+        assert_eq!(extract_priority("no frontmatter"), 50); // default
+        assert_eq!(extract_priority("---\nname: test\n---\ncontent"), 50); // no priority
     }
 }
