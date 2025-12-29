@@ -8,9 +8,12 @@ extern crate napi_derive;
 pub mod actions;
 pub mod agent_rules;
 pub mod app_state;
+pub mod archive;
 pub mod claude_cli;
 pub mod constitution;
+pub mod context;
 pub mod context_engine;
+pub mod context_sync;
 pub mod docker;
 pub mod env;
 pub mod justfile;
@@ -1849,6 +1852,30 @@ Be specific, actionable, and authoritative. Use "MUST", "MUST NOT" language."#,
         }
 
         Action::GenerateProposal { change_id } => {
+            // Get change data and worktree path
+            let (change_data, worktree_path) = {
+                let state = get_app_state().read().await;
+                let change = state
+                    .active_project()
+                    .and_then(|p| p.active_worktree())
+                    .and_then(|w| w.changes.changes.iter().find(|c| c.id == change_id))
+                    .cloned();
+                let wt_path = state
+                    .active_project()
+                    .and_then(|p| p.active_worktree())
+                    .map(|w| w.path.clone());
+                (change, wt_path)
+            };
+
+            let Some(change) = change_data else {
+                eprintln!("GenerateProposal: Change not found: {}", change_id);
+                return Ok(());
+            };
+            let Some(wt_path) = worktree_path else {
+                eprintln!("GenerateProposal: No active worktree");
+                return Ok(());
+            };
+
             // Reduce first to set status to Planning
             {
                 let mut state = get_app_state().write().await;
@@ -1861,9 +1888,134 @@ Be specific, actionable, and authoritative. Use "MUST", "MUST NOT" language."#,
             }
             notify_state_update().await;
 
-            // TODO: Implement Claude CLI streaming for proposal generation
-            // For now, just mark as complete with placeholder
-            eprintln!("GenerateProposal: Claude CLI integration pending for change {}", change_id);
+            // Read constitution if available
+            let constitution_content = constitution::read_constitution(std::path::Path::new(&wt_path))
+                .unwrap_or_default();
+
+            // Build prompt for proposal generation
+            let prompt = format!(
+                r#"You are a senior software architect. Generate a proposal document for the following feature request.
+
+## Project Context
+{}
+
+## Feature Intent
+{}
+
+## Instructions
+Write a proposal.md document that includes:
+1. **Summary** - Brief overview of what will be built
+2. **Problem Statement** - What problem this solves
+3. **Proposed Solution** - High-level approach
+4. **Key Components** - Main parts/modules involved
+5. **Dependencies** - External dependencies or prerequisites
+6. **Risks & Mitigations** - Potential issues and how to address them
+
+Output ONLY the markdown content, no code blocks or extra formatting."#,
+                if constitution_content.is_empty() { "(No constitution found)".to_string() } else { constitution_content },
+                change.intent
+            );
+
+            // Spawn Claude CLI with streaming
+            let cwd = std::path::Path::new(&wt_path);
+            let change_id_clone = change_id.clone();
+
+            match claude_cli::spawn_claude(&prompt, cwd, None, None) {
+                Ok(mut child) => {
+                    // Monitor stderr
+                    if let Some(stderr) = child.stderr.take() {
+                        tokio::spawn(async move {
+                            let reader = BufReader::new(stderr);
+                            let mut lines = reader.lines();
+                            while let Ok(Some(line)) = lines.next_line().await {
+                                let trimmed = line.trim();
+                                if !trimmed.is_empty() {
+                                    eprintln!("[Claude CLI stderr] {}", trimmed);
+                                }
+                            }
+                        });
+                    }
+
+                    // Create event stream
+                    match claude_cli::ClaudeEventStream::new(&mut child) {
+                        Ok(mut stream) => {
+                            let mut full_output = String::new();
+
+                            loop {
+                                match tokio::time::timeout(
+                                    claude_cli::EVENT_TIMEOUT,
+                                    stream.next_event()
+                                ).await {
+                                    Ok(Some(Ok(event))) => {
+                                        // Extract text from streaming events
+                                        if let Some(text_chunk) = claude_cli::extract_text_delta(&event) {
+                                            full_output.push_str(text_chunk);
+                                            {
+                                                let mut state = get_app_state().write().await;
+                                                reduce(&mut state, Action::AppendProposalOutput {
+                                                    change_id: change_id_clone.clone(),
+                                                    content: text_chunk.to_string(),
+                                                });
+                                            }
+                                            notify_state_update().await;
+                                        }
+
+                                        if let Some(text_content) = claude_cli::extract_assistant_text(&event) {
+                                            full_output.push_str(&text_content);
+                                            {
+                                                let mut state = get_app_state().write().await;
+                                                reduce(&mut state, Action::AppendProposalOutput {
+                                                    change_id: change_id_clone.clone(),
+                                                    content: text_content,
+                                                });
+                                            }
+                                            notify_state_update().await;
+                                        }
+
+                                        // Check for completion
+                                        if claude_cli::is_message_stop(&event) {
+                                            // Write proposal.md to change directory
+                                            let proposal_path = std::path::Path::new(&wt_path)
+                                                .join(".rstn")
+                                                .join("changes")
+                                                .join(&change.name)
+                                                .join("proposal.md");
+                                            if let Err(e) = std::fs::write(&proposal_path, &full_output) {
+                                                eprintln!("Failed to write proposal.md: {}", e);
+                                            }
+
+                                            // Mark complete
+                                            {
+                                                let mut state = get_app_state().write().await;
+                                                reduce(&mut state, Action::CompleteProposal {
+                                                    change_id: change_id_clone.clone(),
+                                                });
+                                            }
+                                            notify_state_update().await;
+                                            break;
+                                        }
+                                    }
+                                    Ok(Some(Err(e))) => {
+                                        eprintln!("GenerateProposal stream error: {}", e);
+                                        break;
+                                    }
+                                    Ok(None) => break,
+                                    Err(_) => {
+                                        eprintln!("GenerateProposal timeout");
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to create Claude event stream: {}", e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Failed to spawn Claude CLI: {}", e);
+                }
+            }
         }
 
         Action::AppendProposalOutput { .. } | Action::CompleteProposal { .. } => {
@@ -1871,6 +2023,34 @@ Be specific, actionable, and authoritative. Use "MUST", "MUST NOT" language."#,
         }
 
         Action::GeneratePlan { change_id } => {
+            // Get change data and worktree path
+            let (change_data, worktree_path) = {
+                let state = get_app_state().read().await;
+                let change = state
+                    .active_project()
+                    .and_then(|p| p.active_worktree())
+                    .and_then(|w| w.changes.changes.iter().find(|c| c.id == change_id))
+                    .cloned();
+                let wt_path = state
+                    .active_project()
+                    .and_then(|p| p.active_worktree())
+                    .map(|w| w.path.clone());
+                (change, wt_path)
+            };
+
+            let Some(change) = change_data else {
+                eprintln!("GeneratePlan: Change not found: {}", change_id);
+                return Ok(());
+            };
+            let Some(wt_path) = worktree_path else {
+                eprintln!("GeneratePlan: No active worktree");
+                return Ok(());
+            };
+            let Some(proposal) = change.proposal.as_ref() else {
+                eprintln!("GeneratePlan: No proposal found for change: {}", change_id);
+                return Ok(());
+            };
+
             // Reduce first to set status to Planning
             {
                 let mut state = get_app_state().write().await;
@@ -1883,8 +2063,130 @@ Be specific, actionable, and authoritative. Use "MUST", "MUST NOT" language."#,
             }
             notify_state_update().await;
 
-            // TODO: Implement Claude CLI streaming for plan generation
-            eprintln!("GeneratePlan: Claude CLI integration pending for change {}", change_id);
+            // Build prompt for plan generation
+            let prompt = format!(
+                r#"You are a senior software architect. Generate an implementation plan for the following proposal.
+
+## Feature Intent
+{}
+
+## Proposal
+{}
+
+## Instructions
+Write a plan.md document that includes:
+1. **Implementation Steps** - Numbered list of concrete tasks
+2. **File Changes** - Which files to create/modify
+3. **Testing Strategy** - How to verify the implementation
+4. **Rollout Plan** - How to deploy safely
+
+Be specific and actionable. Each step should be small enough to implement in one session.
+
+Output ONLY the markdown content, no code blocks or extra formatting."#,
+                change.intent,
+                proposal
+            );
+
+            // Spawn Claude CLI with streaming
+            let cwd = std::path::Path::new(&wt_path);
+            let change_id_clone = change_id.clone();
+
+            match claude_cli::spawn_claude(&prompt, cwd, None, None) {
+                Ok(mut child) => {
+                    // Monitor stderr
+                    if let Some(stderr) = child.stderr.take() {
+                        tokio::spawn(async move {
+                            let reader = BufReader::new(stderr);
+                            let mut lines = reader.lines();
+                            while let Ok(Some(line)) = lines.next_line().await {
+                                let trimmed = line.trim();
+                                if !trimmed.is_empty() {
+                                    eprintln!("[Claude CLI stderr] {}", trimmed);
+                                }
+                            }
+                        });
+                    }
+
+                    // Create event stream
+                    match claude_cli::ClaudeEventStream::new(&mut child) {
+                        Ok(mut stream) => {
+                            let mut full_output = String::new();
+
+                            loop {
+                                match tokio::time::timeout(
+                                    claude_cli::EVENT_TIMEOUT,
+                                    stream.next_event()
+                                ).await {
+                                    Ok(Some(Ok(event))) => {
+                                        // Extract text from streaming events
+                                        if let Some(text_chunk) = claude_cli::extract_text_delta(&event) {
+                                            full_output.push_str(text_chunk);
+                                            {
+                                                let mut state = get_app_state().write().await;
+                                                reduce(&mut state, Action::AppendPlanOutput {
+                                                    change_id: change_id_clone.clone(),
+                                                    content: text_chunk.to_string(),
+                                                });
+                                            }
+                                            notify_state_update().await;
+                                        }
+
+                                        if let Some(text_content) = claude_cli::extract_assistant_text(&event) {
+                                            full_output.push_str(&text_content);
+                                            {
+                                                let mut state = get_app_state().write().await;
+                                                reduce(&mut state, Action::AppendPlanOutput {
+                                                    change_id: change_id_clone.clone(),
+                                                    content: text_content,
+                                                });
+                                            }
+                                            notify_state_update().await;
+                                        }
+
+                                        // Check for completion
+                                        if claude_cli::is_message_stop(&event) {
+                                            // Write plan.md to change directory
+                                            let plan_path = std::path::Path::new(&wt_path)
+                                                .join(".rstn")
+                                                .join("changes")
+                                                .join(&change.name)
+                                                .join("plan.md");
+                                            if let Err(e) = std::fs::write(&plan_path, &full_output) {
+                                                eprintln!("Failed to write plan.md: {}", e);
+                                            }
+
+                                            // Mark complete
+                                            {
+                                                let mut state = get_app_state().write().await;
+                                                reduce(&mut state, Action::CompletePlan {
+                                                    change_id: change_id_clone.clone(),
+                                                });
+                                            }
+                                            notify_state_update().await;
+                                            break;
+                                        }
+                                    }
+                                    Ok(Some(Err(e))) => {
+                                        eprintln!("GeneratePlan stream error: {}", e);
+                                        break;
+                                    }
+                                    Ok(None) => break,
+                                    Err(_) => {
+                                        eprintln!("GeneratePlan timeout");
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to create Claude event stream: {}", e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Failed to spawn Claude CLI: {}", e);
+                }
+            }
         }
 
         Action::AppendPlanOutput { .. }
@@ -1892,8 +2194,208 @@ Be specific, actionable, and authoritative. Use "MUST", "MUST NOT" language."#,
         | Action::ApprovePlan { .. }
         | Action::CancelChange { .. }
         | Action::SelectChange { .. }
-        | Action::SetChangesLoading { .. } => {
+        | Action::SetChangesLoading { .. }
+        | Action::AppendImplementationOutput { .. }
+        | Action::CompleteImplementation { .. }
+        | Action::FailImplementation { .. } => {
             // Sync actions - handled in reducer
+        }
+
+        // ====================================================================
+        // CESDD Phase 5: Implementation
+        // ====================================================================
+        Action::ExecutePlan { change_id } => {
+            // Get change data, plan content, and worktree path
+            let (change_data, plan_content, worktree_path, constitution_content, context_content) = {
+                let state = get_app_state().read().await;
+                let wt = state.active_project().and_then(|p| p.active_worktree());
+
+                let change = wt.and_then(|w| w.changes.changes.iter().find(|c| c.id == change_id)).cloned();
+                let plan = change.as_ref().and_then(|c| c.plan.clone());
+                let wt_path = wt.map(|w| w.path.clone());
+
+                // Get constitution and context for additional guidance
+                let constitution = wt_path.as_ref()
+                    .and_then(|p| constitution::read_constitution(std::path::Path::new(p)))
+                    .unwrap_or_default();
+                let context = wt_path.as_ref()
+                    .and_then(|p| context::read_context_combined(std::path::Path::new(p)))
+                    .unwrap_or_default();
+
+                (change, plan, wt_path, constitution, context)
+            };
+
+            let Some(change) = change_data else {
+                eprintln!("ExecutePlan: Change not found: {}", change_id);
+                return Ok(());
+            };
+            let Some(plan) = plan_content else {
+                eprintln!("ExecutePlan: No plan found for change: {}", change_id);
+                return Ok(());
+            };
+            let Some(wt_path) = worktree_path else {
+                eprintln!("ExecutePlan: No active worktree");
+                return Ok(());
+            };
+
+            // Set status to Implementing
+            {
+                let mut state = get_app_state().write().await;
+                if let Some(project) = state.active_project_mut() {
+                    if let Some(worktree) = project.active_worktree_mut() {
+                        if let Some(c) = worktree.changes.changes.iter_mut().find(|c| c.id == change_id) {
+                            c.status = app_state::ChangeStatus::Implementing;
+                            c.streaming_output.clear();
+                        }
+                    }
+                }
+            }
+            notify_state_update().await;
+
+            // Build prompt for implementation
+            let prompt = format!(
+                r#"You are an expert software engineer. Implement the following plan step by step.
+
+## Constitution (Development Rules)
+{constitution_content}
+
+## Project Context
+{context_content}
+
+## Feature Intent
+{intent}
+
+## Proposal
+{proposal}
+
+## Implementation Plan
+{plan}
+
+## Instructions
+1. Implement each step in the plan sequentially
+2. Follow the constitution rules strictly
+3. Write clean, tested code
+4. Report what you've done after each step
+
+Execute the plan now. Start implementing."#,
+                intent = change.intent,
+                proposal = change.proposal.as_deref().unwrap_or("(no proposal)"),
+            );
+
+            // Spawn Claude CLI with streaming
+            let cwd = std::path::Path::new(&wt_path);
+            let change_id_clone = change_id.clone();
+
+            match claude_cli::spawn_claude(&prompt, cwd, None, None) {
+                Ok(mut child) => {
+                    // Monitor stderr
+                    if let Some(stderr) = child.stderr.take() {
+                        tokio::spawn(async move {
+                            let reader = BufReader::new(stderr);
+                            let mut lines = reader.lines();
+                            while let Ok(Some(line)) = lines.next_line().await {
+                                let trimmed = line.trim();
+                                if !trimmed.is_empty() {
+                                    eprintln!("[Claude CLI stderr] {}", trimmed);
+                                }
+                            }
+                        });
+                    }
+
+                    // Create event stream
+                    match claude_cli::ClaudeEventStream::new(&mut child) {
+                        Ok(mut stream) => {
+                            loop {
+                                match tokio::time::timeout(
+                                    claude_cli::EVENT_TIMEOUT,
+                                    stream.next_event()
+                                ).await {
+                                    Ok(Some(Ok(event))) => {
+                                        // Extract text from streaming events
+                                        if let Some(text_chunk) = claude_cli::extract_text_delta(&event) {
+                                            {
+                                                let mut state = get_app_state().write().await;
+                                                reduce(&mut state, Action::AppendImplementationOutput {
+                                                    change_id: change_id_clone.clone(),
+                                                    content: text_chunk.to_string(),
+                                                });
+                                            }
+                                            notify_state_update().await;
+                                        }
+
+                                        if let Some(text_content) = claude_cli::extract_assistant_text(&event) {
+                                            {
+                                                let mut state = get_app_state().write().await;
+                                                reduce(&mut state, Action::AppendImplementationOutput {
+                                                    change_id: change_id_clone.clone(),
+                                                    content: text_content,
+                                                });
+                                            }
+                                            notify_state_update().await;
+                                        }
+
+                                        // Check for completion
+                                        if claude_cli::is_message_stop(&event) {
+                                            // Mark complete - implementation done!
+                                            {
+                                                let mut state = get_app_state().write().await;
+                                                reduce(&mut state, Action::CompleteImplementation {
+                                                    change_id: change_id_clone.clone(),
+                                                });
+                                            }
+                                            notify_state_update().await;
+                                            break;
+                                        }
+                                    }
+                                    Ok(Some(Err(e))) => {
+                                        eprintln!("ExecutePlan: Event parse error: {}", e);
+                                    }
+                                    Ok(None) => {
+                                        // Stream ended
+                                        {
+                                            let mut state = get_app_state().write().await;
+                                            reduce(&mut state, Action::CompleteImplementation {
+                                                change_id: change_id_clone.clone(),
+                                            });
+                                        }
+                                        notify_state_update().await;
+                                        break;
+                                    }
+                                    Err(_) => {
+                                        eprintln!("ExecutePlan: Timeout waiting for event");
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("ExecutePlan: Failed to create event stream: {}", e);
+                            {
+                                let mut state = get_app_state().write().await;
+                                reduce(&mut state, Action::FailImplementation {
+                                    change_id: change_id_clone,
+                                    error: e.to_string(),
+                                });
+                            }
+                            notify_state_update().await;
+                        }
+                    }
+
+                    // Wait for process to finish
+                    let _ = child.wait().await;
+                }
+                Err(e) => {
+                    eprintln!("ExecutePlan: Failed to spawn Claude CLI: {}", e);
+                    {
+                        let mut state = get_app_state().write().await;
+                        reduce(&mut state, Action::FailImplementation {
+                            change_id: change_id_clone,
+                            error: e.to_string(),
+                        });
+                    }
+                    notify_state_update().await;
+                }
+            }
         }
 
         Action::RefreshChanges => {
@@ -1967,6 +2469,279 @@ Be specific, actionable, and authoritative. Use "MUST", "MUST NOT" language."#,
 
         Action::SetChanges { .. } => {
             // Sync action - handled in reducer
+        }
+
+        // ====================================================================
+        // Living Context Actions (CESDD Phase 3)
+        // ====================================================================
+        Action::LoadContext | Action::RefreshContext => {
+            // Get worktree path
+            let worktree_path = {
+                let state = get_app_state().read().await;
+                state
+                    .active_project()
+                    .and_then(|p| p.active_worktree())
+                    .map(|w| w.path.clone())
+            };
+
+            if let Some(wt_path) = worktree_path {
+                let files = context::read_context(std::path::Path::new(&wt_path));
+
+                // Update state directly
+                {
+                    let mut state = get_app_state().write().await;
+                    if let Some(project) = state.active_project_mut() {
+                        if let Some(worktree) = project.active_worktree_mut() {
+                            worktree.context.files = files;
+                            worktree.context.is_loading = false;
+                            worktree.context.is_initialized = !worktree.context.files.is_empty();
+                            worktree.context.last_refreshed =
+                                Some(chrono::Utc::now().to_rfc3339());
+                        }
+                    }
+                }
+                notify_state_update().await;
+            }
+        }
+
+        Action::SetContext { .. }
+        | Action::SetContextLoading { .. }
+        | Action::SetContextInitialized { .. }
+        | Action::UpdateContextFile { .. } => {
+            // Sync actions - handled in reducer
+        }
+
+        Action::InitializeContext => {
+            // Get worktree path
+            let worktree_path = {
+                let state = get_app_state().read().await;
+                state
+                    .active_project()
+                    .and_then(|p| p.active_worktree())
+                    .map(|w| w.path.clone())
+            };
+
+            if let Some(wt_path) = worktree_path {
+                match context::initialize_context(std::path::Path::new(&wt_path)).await {
+                    Ok(()) => {
+                        // Reload context after initialization
+                        let files = context::read_context(std::path::Path::new(&wt_path));
+                        {
+                            let mut state = get_app_state().write().await;
+                            if let Some(project) = state.active_project_mut() {
+                                if let Some(worktree) = project.active_worktree_mut() {
+                                    worktree.context.files = files;
+                                    worktree.context.is_loading = false;
+                                    worktree.context.is_initialized = true;
+                                    worktree.context.last_refreshed =
+                                        Some(chrono::Utc::now().to_rfc3339());
+                                }
+                            }
+                        }
+                        notify_state_update().await;
+                    }
+                    Err(e) => {
+                        let mut state = get_app_state().write().await;
+                        state.error = Some(app_state::AppError::new(
+                            "CONTEXT_INIT_ERROR",
+                            format!("Failed to initialize context: {}", e),
+                        ));
+                    }
+                }
+            }
+        }
+
+        Action::CheckContextExists => {
+            // Get worktree path
+            let worktree_path = {
+                let state = get_app_state().read().await;
+                state
+                    .active_project()
+                    .and_then(|p| p.active_worktree())
+                    .map(|w| w.path.clone())
+            };
+
+            if let Some(wt_path) = worktree_path {
+                let exists = context::context_exists(std::path::Path::new(&wt_path));
+                {
+                    let mut state = get_app_state().write().await;
+                    if let Some(project) = state.active_project_mut() {
+                        if let Some(worktree) = project.active_worktree_mut() {
+                            worktree.context.is_initialized = exists;
+                            worktree.context.is_loading = false;
+                        }
+                    }
+                }
+                notify_state_update().await;
+            }
+        }
+
+        // ====================================================================
+        // Context Sync & Archive Actions (CESDD Phase 4)
+        // ====================================================================
+        Action::ArchiveChange { change_id } => {
+            // Get worktree path and change name
+            let change_info = {
+                let state = get_app_state().read().await;
+                state
+                    .active_project()
+                    .and_then(|p| p.active_worktree())
+                    .and_then(|w| {
+                        let change = w.changes.changes.iter().find(|c| c.id == change_id)?;
+                        Some((w.path.clone(), change.name.clone()))
+                    })
+            };
+
+            if let Some((wt_path, change_name)) = change_info {
+                let path = std::path::Path::new(&wt_path);
+                match archive::archive_change(path, &change_name).await {
+                    Ok(()) => {
+                        // Update change status to Archived
+                        {
+                            let mut state = get_app_state().write().await;
+                            if let Some(project) = state.active_project_mut() {
+                                if let Some(worktree) = project.active_worktree_mut() {
+                                    if let Some(change) = worktree
+                                        .changes
+                                        .changes
+                                        .iter_mut()
+                                        .find(|c| c.id == change_id)
+                                    {
+                                        change.status = app_state::ChangeStatus::Archived;
+                                    }
+                                }
+                            }
+                        }
+                        notify_state_update().await;
+                    }
+                    Err(e) => {
+                        let mut state = get_app_state().write().await;
+                        state.error = Some(app_state::AppError::new(
+                            "ARCHIVE_ERROR",
+                            format!("Failed to archive change: {}", e),
+                        ));
+                    }
+                }
+            }
+        }
+
+        Action::SyncContext { change_id } => {
+            // Get worktree path, change info, and existing context
+            let sync_info = {
+                let state = get_app_state().read().await;
+                state
+                    .active_project()
+                    .and_then(|p| p.active_worktree())
+                    .and_then(|w| {
+                        let change = w.changes.changes.iter().find(|c| c.id == change_id)?;
+                        Some((w.path.clone(), change.name.clone()))
+                    })
+            };
+
+            if let Some((wt_path, change_name)) = sync_info {
+                let path = std::path::Path::new(&wt_path);
+
+                // Read proposal and plan
+                let proposal = archive::read_change_proposal(path, &change_name)
+                    .unwrap_or_default();
+                let plan = archive::read_change_plan(path, &change_name)
+                    .unwrap_or_default();
+
+                if proposal.is_empty() && plan.is_empty() {
+                    // Nothing to sync
+                    return Ok(());
+                }
+
+                // Read existing context
+                let existing_context = context::read_context_combined(path)
+                    .unwrap_or_default();
+
+                // Build prompt for Claude
+                let prompt = context_sync::build_context_sync_prompt(
+                    &proposal,
+                    &plan,
+                    &existing_context,
+                );
+
+                // Call Claude CLI for context extraction (non-streaming for simplicity)
+                let cwd = wt_path.clone();
+                let mut claude_cmd = tokio::process::Command::new("claude");
+                claude_cmd
+                    .arg("-p")
+                    .arg(&prompt)
+                    .arg("--output-format")
+                    .arg("text")
+                    .current_dir(&cwd);
+
+                match claude_cmd.output().await {
+                    Ok(output) => {
+                        if output.status.success() {
+                            let response = String::from_utf8_lossy(&output.stdout).to_string();
+
+                            // Parse the JSON response
+                            match context_sync::ContextSyncResponse::from_json(&response) {
+                                Ok(sync_response) => {
+                                    if sync_response.has_updates() {
+                                        // Update context files based on response
+                                        // For now, just update recent-changes.md
+                                        let recent_changes_update = context_sync::format_recent_changes(
+                                            &sync_response.recent_change_summary,
+                                            &sync_response.key_decisions,
+                                        );
+
+                                        if !recent_changes_update.is_empty() {
+                                            // Read current recent-changes.md
+                                            let recent_path = path
+                                                .join(".rstn")
+                                                .join("context")
+                                                .join("recent-changes.md");
+
+                                            if let Ok(current) = tokio::fs::read_to_string(&recent_path).await {
+                                                // Append new changes
+                                                let updated = format!("{}\n{}", current, recent_changes_update);
+                                                let _ = tokio::fs::write(&recent_path, updated).await;
+                                            }
+                                        }
+
+                                        // Refresh context after update
+                                        let files = context::read_context(path);
+                                        {
+                                            let mut state = get_app_state().write().await;
+                                            if let Some(project) = state.active_project_mut() {
+                                                if let Some(worktree) = project.active_worktree_mut() {
+                                                    worktree.context.files = files
+                                                        .into_iter()
+                                                        .map(|f| f.into())
+                                                        .collect();
+                                                    worktree.context.last_refreshed =
+                                                        Some(chrono::Utc::now().to_rfc3339());
+                                                }
+                                            }
+                                        }
+                                        notify_state_update().await;
+                                    }
+                                }
+                                Err(e) => {
+                                    // Log parse error but don't fail the operation
+                                    eprintln!("Failed to parse context sync response: {}", e);
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let mut state = get_app_state().write().await;
+                        state.error = Some(app_state::AppError::new(
+                            "CONTEXT_SYNC_ERROR",
+                            format!("Failed to run Claude for context sync: {}", e),
+                        ));
+                    }
+                }
+            }
+        }
+
+        Action::AppendContextSyncOutput { .. } | Action::CompleteContextSync { .. } | Action::SetChangeArchived { .. } => {
+            // These are handled by reducer (sync state updates)
+            // No async work needed
         }
 
         // Terminal actions (async - PTY operations)

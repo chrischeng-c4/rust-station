@@ -11,9 +11,10 @@ use crate::actions::{
     TaskStatusData,
 };
 use crate::app_state::{
-    AppError, AppState, ConflictingContainer, DevLog, DevLogSource, DevLogType, DockerServiceInfo,
-    EnvCopyResult, JustCommandInfo, McpStatus, Notification, PendingConflict, PortConflict,
-    ProjectState, RecentProject, ServiceStatus, ServiceType, TaskStatus, WorktreeState,
+    AppError, AppState, ChangeStatus, ConflictingContainer, DevLog, DevLogSource, DevLogType,
+    DockerServiceInfo, EnvCopyResult, JustCommandInfo, McpStatus, Notification, PendingConflict,
+    PortConflict, ProjectState, RecentProject, ServiceStatus, ServiceType, TaskStatus,
+    WorktreeState,
 };
 use crate::persistence;
 use crate::worktree;
@@ -570,7 +571,76 @@ pub fn reduce(state: &mut AppState, action: Action) {
                         .iter_mut()
                         .find(|c| c.id == change_id)
                     {
+                        // ApprovePlan transitions to Planned (ready for execution)
+                        change.status = crate::app_state::ChangeStatus::Planned;
+                        change.updated_at = chrono::Utc::now().to_rfc3339();
+                    }
+                }
+            }
+        }
+
+        // ====================================================================
+        // CESDD Phase 5: Implementation Actions
+        // ====================================================================
+        Action::ExecutePlan { change_id } => {
+            // Set status to Implementing (async handler does the actual work)
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(change) = worktree
+                        .changes
+                        .changes
+                        .iter_mut()
+                        .find(|c| c.id == change_id)
+                    {
                         change.status = crate::app_state::ChangeStatus::Implementing;
+                        change.streaming_output.clear();
+                        change.updated_at = chrono::Utc::now().to_rfc3339();
+                    }
+                }
+            }
+        }
+
+        Action::AppendImplementationOutput { change_id, content } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(change) = worktree
+                        .changes
+                        .changes
+                        .iter_mut()
+                        .find(|c| c.id == change_id)
+                    {
+                        change.streaming_output.push_str(&content);
+                    }
+                }
+            }
+        }
+
+        Action::CompleteImplementation { change_id } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(change) = worktree
+                        .changes
+                        .changes
+                        .iter_mut()
+                        .find(|c| c.id == change_id)
+                    {
+                        change.status = crate::app_state::ChangeStatus::Done;
+                        change.updated_at = chrono::Utc::now().to_rfc3339();
+                    }
+                }
+            }
+        }
+
+        Action::FailImplementation { change_id, error: _ } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(change) = worktree
+                        .changes
+                        .changes
+                        .iter_mut()
+                        .find(|c| c.id == change_id)
+                    {
+                        change.status = crate::app_state::ChangeStatus::Failed;
                         change.updated_at = chrono::Utc::now().to_rfc3339();
                     }
                 }
@@ -623,6 +693,165 @@ pub fn reduce(state: &mut AppState, action: Action) {
             if let Some(project) = state.active_project_mut() {
                 if let Some(worktree) = project.active_worktree_mut() {
                     worktree.changes.is_loading = is_loading;
+                }
+            }
+        }
+
+        // ====================================================================
+        // Living Context Actions (CESDD Phase 3 - worktree scope)
+        // ====================================================================
+        Action::LoadContext => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.context.is_loading = true;
+                }
+            }
+        }
+
+        Action::SetContext { files } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.context.files = files.into_iter().map(|f| f.into()).collect();
+                    worktree.context.is_loading = false;
+                    worktree.context.is_initialized = true;
+                    worktree.context.last_refreshed =
+                        Some(chrono::Utc::now().to_rfc3339());
+                }
+            }
+        }
+
+        Action::SetContextLoading { is_loading } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.context.is_loading = is_loading;
+                }
+            }
+        }
+
+        Action::InitializeContext => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.context.is_loading = true;
+                }
+            }
+        }
+
+        Action::RefreshContext => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.context.is_loading = true;
+                }
+            }
+        }
+
+        Action::UpdateContextFile { name, content } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    // Find and update the file in state
+                    if let Some(file) = worktree.context.files.iter_mut().find(|f| f.name == name) {
+                        file.content = content;
+                        file.last_updated = chrono::Utc::now().to_rfc3339();
+                    }
+                }
+            }
+        }
+
+        Action::CheckContextExists => {
+            // Trigger async check - reducer just marks loading
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.context.is_loading = true;
+                }
+            }
+        }
+
+        Action::SetContextInitialized { initialized } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.context.is_initialized = initialized;
+                    worktree.context.is_loading = false;
+                }
+            }
+        }
+
+        // ====================================================================
+        // Context Sync & Archive Actions (CESDD Phase 4)
+        // ====================================================================
+        Action::ArchiveChange { change_id } => {
+            // Mark change as being archived (async handler will do the work)
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    // The actual archiving is done in lib.rs async handler
+                    // This just sets loading state if needed
+                    if let Some(change) = worktree
+                        .changes
+                        .changes
+                        .iter_mut()
+                        .find(|c| c.id == change_id)
+                    {
+                        // Could add an is_archiving flag if needed
+                        let _ = change; // satisfy borrow checker
+                    }
+                }
+            }
+        }
+
+        Action::SyncContext { change_id } => {
+            // Context sync is handled by async handler in lib.rs
+            // This reducer handler is just for completeness
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.context.is_loading = true;
+                    let _ = change_id; // satisfy borrow checker
+                }
+            }
+        }
+
+        Action::AppendContextSyncOutput { change_id, content } => {
+            // Could store streaming output if we implement streaming context sync
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(change) = worktree
+                        .changes
+                        .changes
+                        .iter_mut()
+                        .find(|c| c.id == change_id)
+                    {
+                        change.streaming_output.push_str(&content);
+                    }
+                }
+            }
+        }
+
+        Action::CompleteContextSync { change_id } => {
+            // Mark context sync as complete
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.context.is_loading = false;
+                    // Clear streaming output
+                    if let Some(change) = worktree
+                        .changes
+                        .changes
+                        .iter_mut()
+                        .find(|c| c.id == change_id)
+                    {
+                        change.streaming_output.clear();
+                    }
+                }
+            }
+        }
+
+        Action::SetChangeArchived { change_id } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(change) = worktree
+                        .changes
+                        .changes
+                        .iter_mut()
+                        .find(|c| c.id == change_id)
+                    {
+                        change.status = ChangeStatus::Archived;
+                    }
                 }
             }
         }
@@ -1206,14 +1435,36 @@ fn log_action_if_interesting(state: &mut AppState, action: &Action) {
         Action::GeneratePlan { .. } => ("GeneratePlan", true),
         Action::CompletePlan { .. } => ("CompletePlan", true),
         Action::ApprovePlan { .. } => ("ApprovePlan", true),
+        Action::ExecutePlan { .. } => ("ExecutePlan", true),
+        Action::CompleteImplementation { .. } => ("CompleteImplementation", true),
+        Action::FailImplementation { .. } => ("FailImplementation", true),
         Action::CancelChange { .. } => ("CancelChange", true),
         Action::SelectChange { .. } => ("SelectChange", true),
         Action::RefreshChanges => ("RefreshChanges", true),
         Action::SetChanges { .. } => ("SetChanges", true),
         Action::SetChangesLoading { .. } => ("SetChangesLoading", false),
+
+        // Living Context - interesting (key state changes)
+        Action::LoadContext => ("LoadContext", true),
+        Action::SetContext { .. } => ("SetContext", true),
+        Action::SetContextLoading { .. } => ("SetContextLoading", false),
+        Action::InitializeContext => ("InitializeContext", true),
+        Action::RefreshContext => ("RefreshContext", true),
+        Action::UpdateContextFile { .. } => ("UpdateContextFile", true),
+        Action::CheckContextExists => ("CheckContextExists", true),
+        Action::SetContextInitialized { .. } => ("SetContextInitialized", true),
+
+        // Phase 4: Context Sync & Archive - interesting
+        Action::ArchiveChange { .. } => ("ArchiveChange", true),
+        Action::SyncContext { .. } => ("SyncContext", true),
+        Action::CompleteContextSync { .. } => ("CompleteContextSync", true),
+        Action::SetChangeArchived { .. } => ("SetChangeArchived", true),
+
         // High-frequency streaming actions - not interesting
         Action::AppendProposalOutput { .. } => ("AppendProposalOutput", false),
         Action::AppendPlanOutput { .. } => ("AppendPlanOutput", false),
+        Action::AppendContextSyncOutput { .. } => ("AppendContextSyncOutput", false),
+        Action::AppendImplementationOutput { .. } => ("AppendImplementationOutput", false),
 
         // Task execution - interesting
         Action::RunJustCommand { .. } => ("RunJustCommand", true),

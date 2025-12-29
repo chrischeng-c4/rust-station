@@ -102,6 +102,35 @@ export interface ChangesState {
 }
 
 // ============================================================================
+// Living Context State (CESDD Phase 3)
+// ============================================================================
+
+export type ContextType =
+  | 'product'
+  | 'tech-stack'
+  | 'architecture'
+  | 'api-contracts'
+  | 'data-models'
+  | 'recent-changes'
+  | 'custom'
+
+export interface ContextFile {
+  name: string
+  path: string
+  content: string
+  context_type: ContextType
+  last_updated: string
+  token_estimate: number
+}
+
+export interface ContextState {
+  files: ContextFile[]
+  is_loading: boolean
+  is_initialized: boolean
+  last_refreshed: string | null
+}
+
+// ============================================================================
 // Tasks State
 // ============================================================================
 
@@ -274,6 +303,7 @@ export interface WorktreeState {
   active_tab: FeatureTab
   tasks: TasksState
   changes: ChangesState
+  context: ContextState
   // NOTE: dockers moved to AppState.docker (global scope)
 }
 
@@ -589,6 +619,100 @@ export interface SetChangesAction {
 export interface SetChangesLoadingAction {
   type: 'SetChangesLoading'
   payload: { is_loading: boolean }
+}
+
+// Living Context Actions (CESDD Phase 3)
+export interface LoadContextAction {
+  type: 'LoadContext'
+}
+
+export interface SetContextAction {
+  type: 'SetContext'
+  payload: { files: ContextFileData[] }
+}
+
+export interface SetContextLoadingAction {
+  type: 'SetContextLoading'
+  payload: { is_loading: boolean }
+}
+
+export interface InitializeContextAction {
+  type: 'InitializeContext'
+}
+
+export interface RefreshContextAction {
+  type: 'RefreshContext'
+}
+
+export interface UpdateContextFileAction {
+  type: 'UpdateContextFile'
+  payload: { name: string; content: string }
+}
+
+export interface CheckContextExistsAction {
+  type: 'CheckContextExists'
+}
+
+export interface SetContextInitializedAction {
+  type: 'SetContextInitialized'
+  payload: { initialized: boolean }
+}
+
+// Context Sync & Archive Actions (CESDD Phase 4)
+export interface ArchiveChangeAction {
+  type: 'ArchiveChange'
+  payload: { change_id: string }
+}
+
+export interface SyncContextAction {
+  type: 'SyncContext'
+  payload: { change_id: string }
+}
+
+export interface AppendContextSyncOutputAction {
+  type: 'AppendContextSyncOutput'
+  payload: { change_id: string; content: string }
+}
+
+export interface CompleteContextSyncAction {
+  type: 'CompleteContextSync'
+  payload: { change_id: string }
+}
+
+export interface SetChangeArchivedAction {
+  type: 'SetChangeArchived'
+  payload: { change_id: string }
+}
+
+// Implementation Actions (CESDD Phase 5)
+export interface ExecutePlanAction {
+  type: 'ExecutePlan'
+  payload: { change_id: string }
+}
+
+export interface AppendImplementationOutputAction {
+  type: 'AppendImplementationOutput'
+  payload: { change_id: string; content: string }
+}
+
+export interface CompleteImplementationAction {
+  type: 'CompleteImplementation'
+  payload: { change_id: string }
+}
+
+export interface FailImplementationAction {
+  type: 'FailImplementation'
+  payload: { change_id: string; error: string }
+}
+
+// Context file data for actions
+export interface ContextFileData {
+  name: string
+  path: string
+  content: string
+  context_type: ContextType
+  last_updated: string
+  token_estimate: number
 }
 
 // Docker Actions
@@ -1045,6 +1169,23 @@ export type Action =
   | RefreshChangesAction
   | SetChangesAction
   | SetChangesLoadingAction
+  | LoadContextAction
+  | SetContextAction
+  | SetContextLoadingAction
+  | InitializeContextAction
+  | RefreshContextAction
+  | UpdateContextFileAction
+  | CheckContextExistsAction
+  | SetContextInitializedAction
+  | ArchiveChangeAction
+  | SyncContextAction
+  | AppendContextSyncOutputAction
+  | CompleteContextSyncAction
+  | SetChangeArchivedAction
+  | ExecutePlanAction
+  | AppendImplementationOutputAction
+  | CompleteImplementationAction
+  | FailImplementationAction
   | CheckDockerAvailabilityAction
   | SetDockerAvailableAction
   | RefreshDockerServicesAction

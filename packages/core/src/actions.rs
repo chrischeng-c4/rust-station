@@ -139,6 +139,18 @@ pub enum Action {
     /// Approve the plan and transition to Implementing status
     ApprovePlan { change_id: String },
 
+    /// Execute the plan using Claude Code (CESDD Phase 5)
+    ExecutePlan { change_id: String },
+
+    /// Append content to implementation output (streaming from Claude)
+    AppendImplementationOutput { change_id: String, content: String },
+
+    /// Mark implementation as complete (success)
+    CompleteImplementation { change_id: String },
+
+    /// Mark implementation as failed
+    FailImplementation { change_id: String, error: String },
+
     /// Cancel a change (sets status to Cancelled)
     CancelChange { change_id: String },
 
@@ -153,6 +165,54 @@ pub enum Action {
 
     /// Set changes loading state
     SetChangesLoading { is_loading: bool },
+
+    // ========================================================================
+    // Living Context Actions (CESDD Phase 3)
+    // ========================================================================
+    /// Load context files from .rstn/context/
+    LoadContext,
+
+    /// Set context files (internal, after load)
+    SetContext { files: Vec<ContextFileData> },
+
+    /// Set context loading state
+    SetContextLoading { is_loading: bool },
+
+    /// Initialize context directory with default template files
+    InitializeContext,
+
+    /// Refresh context from disk (re-read all files)
+    RefreshContext,
+
+    /// Update a single context file content (for auto-curation)
+    UpdateContextFile {
+        name: String,
+        content: String,
+    },
+
+    /// Check if context directory exists
+    CheckContextExists,
+
+    /// Set context initialization status (internal)
+    SetContextInitialized { initialized: bool },
+
+    // ========================================================================
+    // Context Sync & Archive Actions (CESDD Phase 4)
+    // ========================================================================
+    /// Archive a completed change to .rstn/archive/
+    ArchiveChange { change_id: String },
+
+    /// Sync context: extract valuable info from proposal/plan and update context files
+    SyncContext { change_id: String },
+
+    /// Append content to context sync output (streaming from Claude)
+    AppendContextSyncOutput { change_id: String, content: String },
+
+    /// Mark context sync as complete
+    CompleteContextSync { change_id: String },
+
+    /// Set change status to Archived (internal, after archive completes)
+    SetChangeArchived { change_id: String },
 
     /// Submit an answer to the current question and advance
     AnswerConstitutionQuestion { answer: String },
@@ -618,6 +678,30 @@ pub struct ChangeData {
     pub streaming_output: String,
     pub created_at: String,
     pub updated_at: String,
+}
+
+/// Context type for actions (CESDD Phase 3)
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ContextTypeData {
+    Product,
+    TechStack,
+    Architecture,
+    ApiContracts,
+    DataModels,
+    RecentChanges,
+    Custom,
+}
+
+/// Context file data for actions (CESDD Phase 3)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ContextFileData {
+    pub name: String,
+    pub path: String,
+    pub content: String,
+    pub context_type: ContextTypeData,
+    pub last_updated: String,
+    pub token_estimate: u32,
 }
 
 // ============================================================================
