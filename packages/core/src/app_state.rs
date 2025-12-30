@@ -828,6 +828,7 @@ impl From<crate::actions::ChangeData> for Change {
             updated_at: data.updated_at,
             proposal_review_session_id: data.proposal_review_session_id,
             plan_review_session_id: data.plan_review_session_id,
+            context_files: data.context_files,
         }
     }
 }
@@ -1012,6 +1013,15 @@ pub struct TasksState {
     /// Constitution content (None = not read yet)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub constitution_content: Option<String>,
+    /// Whether project root has CLAUDE.md (None = not checked yet)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claude_md_exists: Option<bool>,
+    /// CLAUDE.md content for preview (None = not read yet)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claude_md_content: Option<String>,
+    /// User skipped importing CLAUDE.md
+    #[serde(default)]
+    pub claude_md_skipped: bool,
     /// ReviewGate sessions (CESDD ReviewGate Layer)
     #[serde(default)]
     pub review_gate: ReviewGateState,
@@ -1040,6 +1050,9 @@ pub struct ConstitutionWorkflow {
     pub output: String,
     /// Current workflow status
     pub status: WorkflowStatus,
+    /// Whether to include CLAUDE.md content as reference during generation
+    #[serde(default)]
+    pub use_claude_md_reference: bool,
 }
 
 /// Justfile command info
@@ -1107,6 +1120,9 @@ pub struct Change {
     /// ReviewGate session ID for plan review (CESDD ReviewGate)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plan_review_session_id: Option<String>,
+    /// Source files selected for context injection (relative paths from project root)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub context_files: Vec<String>,
 }
 
 /// Change status in CESDD workflow

@@ -97,6 +97,8 @@ export interface Change {
   proposal_review_session_id: string | null
   /** ReviewGate session ID for plan review */
   plan_review_session_id: string | null
+  /** Source files selected for context injection */
+  context_files: string[]
 }
 
 export interface ChangesState {
@@ -173,6 +175,8 @@ export interface ConstitutionWorkflow {
   output: string
   /** Current workflow status */
   status: WorkflowStatus
+  /** Whether to include CLAUDE.md content as reference during generation */
+  use_claude_md_reference: boolean
 }
 
 export interface TasksState {
@@ -188,6 +192,12 @@ export interface TasksState {
   constitution_exists: boolean | null
   /** Constitution content (null = not read yet) */
   constitution_content: string | null
+  /** Whether project root has CLAUDE.md (null = not checked yet) */
+  claude_md_exists: boolean | null
+  /** CLAUDE.md content for preview (null = not read yet) */
+  claude_md_content: string | null
+  /** User skipped importing CLAUDE.md */
+  claude_md_skipped: boolean
   /** ReviewGate sessions (CESDD ReviewGate Layer) */
   review_gate: ReviewGateState
 }
@@ -642,6 +652,33 @@ export interface SetConstitutionContentAction {
   payload: { content: string | null }
 }
 
+export interface SetClaudeMdExistsAction {
+  type: 'SetClaudeMdExists'
+  exists: boolean
+}
+
+export interface ReadClaudeMdAction {
+  type: 'ReadClaudeMd'
+}
+
+export interface SetClaudeMdContentAction {
+  type: 'SetClaudeMdContent'
+  content: string | null
+}
+
+export interface ImportClaudeMdAction {
+  type: 'ImportClaudeMd'
+}
+
+export interface SkipClaudeMdImportAction {
+  type: 'SkipClaudeMdImport'
+}
+
+export interface SetUseClaudeMdReferenceAction {
+  type: 'SetUseClaudeMdReference'
+  payload: { use_reference: boolean }
+}
+
 // ReviewGate Actions (CESDD ReviewGate Layer)
 export interface StartReviewAction {
   type: 'StartReview'
@@ -794,6 +831,24 @@ export interface SetChangesAction {
 export interface SetChangesLoadingAction {
   type: 'SetChangesLoading'
   payload: { is_loading: boolean }
+}
+
+// Context Files Actions (CESDD Phase A2 - File Reading)
+export interface AddContextFileAction {
+  type: 'AddContextFile'
+  change_id: string
+  path: string
+}
+
+export interface RemoveContextFileAction {
+  type: 'RemoveContextFile'
+  change_id: string
+  path: string
+}
+
+export interface ClearContextFilesAction {
+  type: 'ClearContextFiles'
+  change_id: string
 }
 
 // ReviewGate Workflow Integration Actions (CESDD Phase B5)
@@ -1316,6 +1371,8 @@ export interface ChangeData {
   proposal_review_session_id: string | null
   /** ReviewGate session ID for plan review */
   plan_review_session_id: string | null
+  /** Source files selected for context injection */
+  context_files: string[]
 }
 
 // Dev Log Actions
@@ -1367,6 +1424,12 @@ export type Action =
   | ApplyDefaultConstitutionAction
   | ReadConstitutionAction
   | SetConstitutionContentAction
+  | SetClaudeMdExistsAction
+  | ReadClaudeMdAction
+  | SetClaudeMdContentAction
+  | ImportClaudeMdAction
+  | SkipClaudeMdImportAction
+  | SetUseClaudeMdReferenceAction
   | StartReviewAction
   | AddReviewCommentAction
   | ResolveReviewCommentAction
@@ -1392,6 +1455,9 @@ export type Action =
   | RefreshChangesAction
   | SetChangesAction
   | SetChangesLoadingAction
+  | AddContextFileAction
+  | RemoveContextFileAction
+  | ClearContextFilesAction
   | StartProposalReviewAction
   | StartPlanReviewAction
   | LoadContextAction

@@ -357,12 +357,15 @@ pub fn reduce(state: &mut AppState, action: Action) {
         Action::StartConstitutionWorkflow => {
             if let Some(project) = state.active_project_mut() {
                 if let Some(worktree) = project.active_worktree_mut() {
+                    // Default to true if CLAUDE.md exists
+                    let use_claude_md = worktree.tasks.claude_md_exists.unwrap_or(false);
                     worktree.tasks.constitution_workflow =
                         Some(crate::app_state::ConstitutionWorkflow {
                             current_question: 0,
                             answers: std::collections::HashMap::new(),
                             output: String::new(),
                             status: crate::app_state::WorkflowStatus::Collecting,
+                            use_claude_md_reference: use_claude_md,
                         });
                 }
             }
@@ -452,10 +455,52 @@ pub fn reduce(state: &mut AppState, action: Action) {
             // Async trigger - the async handler in lib.rs will read file and dispatch SetConstitutionContent
         }
 
+        Action::ReadClaudeMd => {
+            // Async trigger - the async handler in lib.rs will read file and dispatch SetClaudeMdContent
+        }
+
+        Action::ImportClaudeMd => {
+            // Async trigger - the async handler in lib.rs will copy CLAUDE.md to .rstn/constitution.md
+        }
+
         Action::SetConstitutionContent { content } => {
             if let Some(project) = state.active_project_mut() {
                 if let Some(worktree) = project.active_worktree_mut() {
                     worktree.tasks.constitution_content = content;
+                }
+            }
+        }
+
+        Action::SetClaudeMdExists { exists } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.tasks.claude_md_exists = Some(exists);
+                }
+            }
+        }
+
+        Action::SetClaudeMdContent { content } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.tasks.claude_md_content = content;
+                }
+            }
+        }
+
+        Action::SkipClaudeMdImport => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.tasks.claude_md_skipped = true;
+                }
+            }
+        }
+
+        Action::SetUseClaudeMdReference { use_reference } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(workflow) = &mut worktree.tasks.constitution_workflow {
+                        workflow.use_claude_md_reference = use_reference;
+                    }
                 }
             }
         }
@@ -1053,6 +1098,57 @@ pub fn reduce(state: &mut AppState, action: Action) {
             if let Some(project) = state.active_project_mut() {
                 if let Some(worktree) = project.active_worktree_mut() {
                     worktree.changes.is_loading = is_loading;
+                }
+            }
+        }
+
+        Action::AddContextFile { change_id, path } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(change) = worktree
+                        .changes
+                        .changes
+                        .iter_mut()
+                        .find(|c| c.id == change_id)
+                    {
+                        // Only add if not already present
+                        if !change.context_files.contains(&path) {
+                            change.context_files.push(path);
+                            change.updated_at = chrono::Utc::now().to_rfc3339();
+                        }
+                    }
+                }
+            }
+        }
+
+        Action::RemoveContextFile { change_id, path } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(change) = worktree
+                        .changes
+                        .changes
+                        .iter_mut()
+                        .find(|c| c.id == change_id)
+                    {
+                        change.context_files.retain(|p| p != &path);
+                        change.updated_at = chrono::Utc::now().to_rfc3339();
+                    }
+                }
+            }
+        }
+
+        Action::ClearContextFiles { change_id } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(change) = worktree
+                        .changes
+                        .changes
+                        .iter_mut()
+                        .find(|c| c.id == change_id)
+                    {
+                        change.context_files.clear();
+                        change.updated_at = chrono::Utc::now().to_rfc3339();
+                    }
                 }
             }
         }
@@ -1928,6 +2024,12 @@ fn log_action_if_interesting(state: &mut AppState, action: &Action) {
         Action::ApplyDefaultConstitution => ("ApplyDefaultConstitution", true),
         Action::ReadConstitution => ("ReadConstitution", true),
         Action::SetConstitutionContent { .. } => ("SetConstitutionContent", true),
+        Action::SetClaudeMdExists { .. } => ("SetClaudeMdExists", true),
+        Action::ReadClaudeMd => ("ReadClaudeMd", true),
+        Action::SetClaudeMdContent { .. } => ("SetClaudeMdContent", true),
+        Action::ImportClaudeMd => ("ImportClaudeMd", true),
+        Action::SkipClaudeMdImport => ("SkipClaudeMdImport", true),
+        Action::SetUseClaudeMdReference { .. } => ("SetUseClaudeMdReference", true),
 
         // ReviewGate - interesting (key state changes)
         Action::StartReview { .. } => ("StartReview", true),
@@ -1958,6 +2060,9 @@ fn log_action_if_interesting(state: &mut AppState, action: &Action) {
         Action::RefreshChanges => ("RefreshChanges", true),
         Action::SetChanges { .. } => ("SetChanges", true),
         Action::SetChangesLoading { .. } => ("SetChangesLoading", false),
+        Action::AddContextFile { .. } => ("AddContextFile", true),
+        Action::RemoveContextFile { .. } => ("RemoveContextFile", true),
+        Action::ClearContextFiles { .. } => ("ClearContextFiles", true),
         Action::StartProposalReview { .. } => ("StartProposalReview", true),
         Action::StartPlanReview { .. } => ("StartPlanReview", true),
 
@@ -4164,6 +4269,7 @@ mod tests {
                 updated_at: "2025-01-01T00:00:00Z".to_string(),
                 proposal_review_session_id: None,
                 plan_review_session_id: None,
+                context_files: Vec::new(),
             };
             worktree.changes.changes.push(change);
             "change-123".to_string()
@@ -4217,6 +4323,7 @@ mod tests {
                 updated_at: "2025-01-01T00:00:00Z".to_string(),
                 proposal_review_session_id: None,
                 plan_review_session_id: None,
+                context_files: Vec::new(),
             };
             worktree.changes.changes.push(change);
         };
@@ -4258,6 +4365,7 @@ mod tests {
                 updated_at: "2025-01-01T00:00:00Z".to_string(),
                 proposal_review_session_id: None,
                 plan_review_session_id: None,
+                context_files: Vec::new(),
             };
             worktree.changes.changes.push(change);
             "change-789".to_string()

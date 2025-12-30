@@ -1,9 +1,11 @@
 import { useState, useCallback, useEffect } from 'react'
-import { FileText, RefreshCw, CheckCircle, ChevronRight, AlertCircle, Sparkles } from 'lucide-react'
+import { FileText, RefreshCw, CheckCircle, ChevronRight, AlertCircle, Sparkles, FileCode, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Textarea } from '@/components/ui/textarea'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { useAppState } from '@/hooks/useAppState'
 import ReactMarkdown from 'react-markdown'
 
@@ -11,6 +13,12 @@ import ReactMarkdown from 'react-markdown'
  * Constitution initialization workflow panel.
  * Guides user through questions and generates .rstn/constitution.md via Claude.
  * Also supports one-click default constitution application.
+ *
+ * Flow:
+ * 1. Check if constitution exists (.rstn/constitution.md)
+ * 2. Check if CLAUDE.md exists in project root
+ * 3. If CLAUDE.md exists but no constitution → show preview with import option
+ * 4. If neither exists → show "Apply Default" / "Create with Q&A" options
  */
 export function ConstitutionPanel() {
   const { state, dispatch, isLoading } = useAppState()
@@ -22,6 +30,11 @@ export function ConstitutionPanel() {
   const workflow = worktree?.tasks?.constitution_workflow
   const constitutionExists = worktree?.tasks?.constitution_exists
   const constitutionContent = worktree?.tasks?.constitution_content
+
+  // CLAUDE.md detection state
+  const claudeMdExists = worktree?.tasks?.claude_md_exists
+  const claudeMdContent = worktree?.tasks?.claude_md_content
+  const claudeMdSkipped = worktree?.tasks?.claude_md_skipped ?? false
 
   // Check constitution exists on mount and clear any stale workflow
   useEffect(() => {
@@ -38,6 +51,13 @@ export function ConstitutionPanel() {
       dispatch({ type: 'ReadConstitution' })
     }
   }, [constitutionExists, constitutionContent, dispatch])
+
+  // Read CLAUDE.md content when detected (for preview)
+  useEffect(() => {
+    if (claudeMdExists === true && !claudeMdContent && !claudeMdSkipped) {
+      dispatch({ type: 'ReadClaudeMd' })
+    }
+  }, [claudeMdExists, claudeMdContent, claudeMdSkipped, dispatch])
 
   const questions = [
     {
@@ -64,6 +84,21 @@ export function ConstitutionPanel() {
 
   const handleApplyDefault = useCallback(async () => {
     await dispatch({ type: 'ApplyDefaultConstitution' })
+  }, [dispatch])
+
+  const handleImportClaudeMd = useCallback(async () => {
+    await dispatch({ type: 'ImportClaudeMd' })
+  }, [dispatch])
+
+  const handleSkipClaudeMd = useCallback(async () => {
+    await dispatch({ type: 'SkipClaudeMdImport' })
+  }, [dispatch])
+
+  const handleToggleClaudeMdReference = useCallback(async (checked: boolean) => {
+    await dispatch({
+      type: 'SetUseClaudeMdReference',
+      payload: { use_reference: checked }
+    })
   }, [dispatch])
 
   const handleStartQA = useCallback(async () => {
@@ -100,6 +135,56 @@ export function ConstitutionPanel() {
       <div className="flex h-full items-center justify-center rounded-lg border">
         <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
         <span className="ml-2 text-sm text-muted-foreground">Checking constitution...</span>
+      </div>
+    )
+  }
+
+  // Found CLAUDE.md but no constitution - show import option with preview
+  if (claudeMdExists === true && constitutionExists === false && !claudeMdSkipped && !workflow) {
+    return (
+      <div className="flex h-full flex-col rounded-lg border">
+        <div className="flex items-center justify-between border-b bg-muted/40 px-4 py-2">
+          <div className="flex items-center gap-2">
+            <FileCode className="h-4 w-4 text-blue-500" />
+            <span className="text-sm font-medium">Found CLAUDE.md</span>
+          </div>
+        </div>
+        <div className="flex flex-1 flex-col p-4">
+          <Card className="flex-1 flex flex-col border-blue-500/50 bg-blue-50/50 dark:bg-blue-950/20">
+            <div className="p-4 border-b">
+              <h3 className="text-sm font-medium mb-1">Existing Project Instructions Found</h3>
+              <p className="text-xs text-muted-foreground">
+                Your project has a <code className="text-xs bg-muted px-1 rounded">CLAUDE.md</code> file.
+                Would you like to use it as your constitution?
+              </p>
+            </div>
+
+            {/* Preview */}
+            <ScrollArea className="flex-1 p-4">
+              {claudeMdContent ? (
+                <div className="prose prose-sm dark:prose-invert max-w-none">
+                  <ReactMarkdown>{claudeMdContent}</ReactMarkdown>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center py-8">
+                  <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground mr-2" />
+                  <span className="text-xs text-muted-foreground">Loading preview...</span>
+                </div>
+              )}
+            </ScrollArea>
+
+            {/* Actions */}
+            <div className="p-4 border-t bg-muted/20 flex gap-2">
+              <Button className="flex-1" onClick={handleImportClaudeMd}>
+                <CheckCircle className="mr-2 h-4 w-4" />
+                Use This
+              </Button>
+              <Button variant="outline" className="flex-1" onClick={handleSkipClaudeMd}>
+                Skip, Create New
+              </Button>
+            </div>
+          </Card>
+        </div>
       </div>
     )
   }
@@ -219,6 +304,45 @@ export function ConstitutionPanel() {
         </div>
 
         <ScrollArea className="flex-1 p-4">
+          {/* CLAUDE.md Reference Option */}
+          {claudeMdExists && (
+            <Card className="mb-4 p-3 border-blue-500/30 bg-blue-50/50 dark:bg-blue-950/20">
+              <div className="flex items-start gap-3">
+                <Checkbox
+                  id="use-claude-md"
+                  checked={workflow.use_claude_md_reference}
+                  onCheckedChange={(checked) =>
+                    handleToggleClaudeMdReference(!!checked)
+                  }
+                  className="mt-0.5"
+                />
+                <div className="flex-1 min-w-0">
+                  <label htmlFor="use-claude-md" className="text-sm font-medium cursor-pointer">
+                    Reference existing CLAUDE.md
+                  </label>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Include your project's CLAUDE.md as context for generation
+                  </p>
+                  {claudeMdContent && (
+                    <Collapsible>
+                      <CollapsibleTrigger className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 mt-2 hover:underline">
+                        <ChevronDown className="h-3 w-3" />
+                        Preview
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <ScrollArea className="h-32 mt-2 rounded border bg-muted/30 p-2">
+                          <div className="prose prose-xs dark:prose-invert max-w-none">
+                            <ReactMarkdown>{claudeMdContent}</ReactMarkdown>
+                          </div>
+                        </ScrollArea>
+                      </CollapsibleContent>
+                    </Collapsible>
+                  )}
+                </div>
+              </div>
+            </Card>
+          )}
+
           {/* Progress */}
           <div className="mb-4 space-y-2">
             {questions.map((q, idx) => (

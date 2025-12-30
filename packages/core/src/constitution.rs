@@ -310,6 +310,17 @@ pub fn constitution_exists(project_path: &Path) -> bool {
     legacy_file.exists()
 }
 
+/// Check if CLAUDE.md exists in project root
+pub fn claude_md_exists(project_path: &Path) -> bool {
+    project_path.join("CLAUDE.md").exists()
+}
+
+/// Read CLAUDE.md content from project root
+pub fn read_claude_md(project_path: &Path) -> Option<String> {
+    let claude_md_path = project_path.join("CLAUDE.md");
+    std::fs::read_to_string(claude_md_path).ok()
+}
+
 /// Read constitution content from project
 ///
 /// Reads all .md files from `.rstn/constitutions/` (modular system) or

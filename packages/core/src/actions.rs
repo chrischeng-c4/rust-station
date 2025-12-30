@@ -172,6 +172,15 @@ pub enum Action {
     /// Set changes loading state
     SetChangesLoading { is_loading: bool },
 
+    /// Add a source file to change context for Claude injection
+    AddContextFile { change_id: String, path: String },
+
+    /// Remove a source file from change context
+    RemoveContextFile { change_id: String, path: String },
+
+    /// Clear all context files for a change
+    ClearContextFiles { change_id: String },
+
     // ========================================================================
     // Living Context Actions (CESDD Phase 3)
     // ========================================================================
@@ -261,6 +270,24 @@ pub enum Action {
 
     /// Set constitution content (internal, after read)
     SetConstitutionContent { content: Option<String> },
+
+    /// Set CLAUDE.md existence status (internal, after check)
+    SetClaudeMdExists { exists: bool },
+
+    /// Read CLAUDE.md content for preview (async trigger)
+    ReadClaudeMd,
+
+    /// Set CLAUDE.md content (internal, after read)
+    SetClaudeMdContent { content: Option<String> },
+
+    /// Import CLAUDE.md to .rstn/constitution.md (async)
+    ImportClaudeMd,
+
+    /// Skip importing CLAUDE.md, show normal init flow
+    SkipClaudeMdImport,
+
+    /// Set whether to reference CLAUDE.md during constitution generation
+    SetUseClaudeMdReference { use_reference: bool },
 
     // ========================================================================
     // ReviewGate Actions (CESDD ReviewGate Layer)
@@ -765,6 +792,9 @@ pub struct ChangeData {
     pub proposal_review_session_id: Option<String>,
     /// ReviewGate session ID for plan review
     pub plan_review_session_id: Option<String>,
+    /// Source files selected for context injection
+    #[serde(default)]
+    pub context_files: Vec<String>,
 }
 
 /// Context type for actions (CESDD Phase 3)
@@ -981,6 +1011,7 @@ mod tests {
                 updated_at: "2025-01-01T00:00:00Z".to_string(),
                 proposal_review_session_id: None,
                 plan_review_session_id: None,
+                context_files: vec![],
             }],
         };
         let json = serde_json::to_string(&action).unwrap();

@@ -13,11 +13,16 @@ vi.mock('@/hooks/useAppState', () => ({
 // Helper to create mock state with Constitution workflow
 const createMockState = (options: {
   constitutionExists?: boolean | null
+  constitutionContent?: string | null
+  claudeMdExists?: boolean | null
+  claudeMdContent?: string | null
+  claudeMdSkipped?: boolean
   workflow?: {
     status: 'collecting' | 'generating' | 'complete'
     currentQuestion?: number
     answers?: Record<string, string>
     output?: string
+    useClaudeMdReference?: boolean
   } | null
 }) => ({
   active_project_index: 0,
@@ -39,12 +44,17 @@ const createMockState = (options: {
             is_loading: false,
             error: null,
             constitution_exists: options.constitutionExists ?? null,
+            constitution_content: options.constitutionContent ?? null,
+            claude_md_exists: options.claudeMdExists ?? null,
+            claude_md_content: options.claudeMdContent ?? null,
+            claude_md_skipped: options.claudeMdSkipped ?? false,
             constitution_workflow: options.workflow
               ? {
                   current_question: options.workflow.currentQuestion ?? 0,
                   answers: options.workflow.answers ?? {},
                   output: options.workflow.output ?? '',
                   status: options.workflow.status,
+                  use_claude_md_reference: options.workflow.useClaudeMdReference ?? false,
                 }
               : null,
           },
@@ -120,8 +130,7 @@ describe('ConstitutionPanel', () => {
       })
 
       render(<ConstitutionPanel />)
-      expect(screen.getByText(/Constitution Exists/)).toBeInTheDocument()
-      expect(screen.getByText(/\.rstn\/constitutions\//)).toBeInTheDocument()
+      expect(screen.getByText(/Constitution Active/)).toBeInTheDocument()
     })
 
     it('shows Regenerate button when constitution exists', () => {
@@ -132,7 +141,7 @@ describe('ConstitutionPanel', () => {
       })
 
       render(<ConstitutionPanel />)
-      expect(screen.getByRole('button', { name: /Regenerate with Q&A/ })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Regenerate/ })).toBeInTheDocument()
     })
   })
 
@@ -179,6 +188,173 @@ describe('ConstitutionPanel', () => {
 
       await waitFor(() => {
         expect(mockDispatch).toHaveBeenCalledWith({ type: 'StartConstitutionWorkflow' })
+      })
+    })
+  })
+
+  describe('CLAUDE.md Detection', () => {
+    it('shows CLAUDE.md preview when detected and no constitution exists', () => {
+      mockUseAppState.mockReturnValue({
+        state: createMockState({
+          constitutionExists: false,
+          claudeMdExists: true,
+          claudeMdContent: '# Project Rules\n\nThis is CLAUDE.md content',
+        }),
+        dispatch: mockDispatch,
+        isLoading: false,
+      })
+
+      render(<ConstitutionPanel />)
+      expect(screen.getByText(/Found CLAUDE.md/)).toBeInTheDocument()
+      expect(screen.getByText(/Existing Project Instructions Found/)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Use This/ })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Skip, Create New/ })).toBeInTheDocument()
+    })
+
+    it('shows loading spinner while CLAUDE.md content is being fetched', () => {
+      mockUseAppState.mockReturnValue({
+        state: createMockState({
+          constitutionExists: false,
+          claudeMdExists: true,
+          claudeMdContent: null,
+        }),
+        dispatch: mockDispatch,
+        isLoading: false,
+      })
+
+      render(<ConstitutionPanel />)
+      expect(screen.getByText(/Loading preview.../)).toBeInTheDocument()
+    })
+
+    it('calls dispatch to read CLAUDE.md when detected', async () => {
+      mockUseAppState.mockReturnValue({
+        state: createMockState({
+          constitutionExists: false,
+          claudeMdExists: true,
+          claudeMdContent: null,
+        }),
+        dispatch: mockDispatch,
+        isLoading: false,
+      })
+
+      render(<ConstitutionPanel />)
+
+      await waitFor(() => {
+        expect(mockDispatch).toHaveBeenCalledWith({ type: 'ReadClaudeMd' })
+      })
+    })
+
+    it('calls ImportClaudeMd when Use This is clicked', async () => {
+      mockUseAppState.mockReturnValue({
+        state: createMockState({
+          constitutionExists: false,
+          claudeMdExists: true,
+          claudeMdContent: '# CLAUDE.md content',
+        }),
+        dispatch: mockDispatch,
+        isLoading: false,
+      })
+
+      render(<ConstitutionPanel />)
+      const useButton = screen.getByRole('button', { name: /Use This/ })
+      fireEvent.click(useButton)
+
+      await waitFor(() => {
+        expect(mockDispatch).toHaveBeenCalledWith({ type: 'ImportClaudeMd' })
+      })
+    })
+
+    it('calls SkipClaudeMdImport when Skip is clicked', async () => {
+      mockUseAppState.mockReturnValue({
+        state: createMockState({
+          constitutionExists: false,
+          claudeMdExists: true,
+          claudeMdContent: '# CLAUDE.md content',
+        }),
+        dispatch: mockDispatch,
+        isLoading: false,
+      })
+
+      render(<ConstitutionPanel />)
+      const skipButton = screen.getByRole('button', { name: /Skip, Create New/ })
+      fireEvent.click(skipButton)
+
+      await waitFor(() => {
+        expect(mockDispatch).toHaveBeenCalledWith({ type: 'SkipClaudeMdImport' })
+      })
+    })
+
+    it('shows normal init options after user skips CLAUDE.md', () => {
+      mockUseAppState.mockReturnValue({
+        state: createMockState({
+          constitutionExists: false,
+          claudeMdExists: true,
+          claudeMdSkipped: true,
+        }),
+        dispatch: mockDispatch,
+        isLoading: false,
+      })
+
+      render(<ConstitutionPanel />)
+      expect(screen.getByText(/Initialize Constitution/)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Apply Default Template/ })).toBeInTheDocument()
+    })
+  })
+
+  describe('CLAUDE.md Reference in Q&A', () => {
+    it('shows reference checkbox when CLAUDE.md exists during Q&A', () => {
+      mockUseAppState.mockReturnValue({
+        state: createMockState({
+          constitutionExists: false,
+          claudeMdExists: true,
+          claudeMdContent: '# Project Rules\n\nSome rules here',
+          workflow: { status: 'collecting', currentQuestion: 0, useClaudeMdReference: true },
+        }),
+        dispatch: mockDispatch,
+        isLoading: false,
+      })
+
+      render(<ConstitutionPanel />)
+      expect(screen.getByLabelText(/Reference existing CLAUDE.md/)).toBeInTheDocument()
+      expect(screen.getByText(/Include your project's CLAUDE.md/)).toBeInTheDocument()
+    })
+
+    it('does not show reference checkbox when CLAUDE.md does not exist', () => {
+      mockUseAppState.mockReturnValue({
+        state: createMockState({
+          constitutionExists: false,
+          claudeMdExists: false,
+          workflow: { status: 'collecting', currentQuestion: 0 },
+        }),
+        dispatch: mockDispatch,
+        isLoading: false,
+      })
+
+      render(<ConstitutionPanel />)
+      expect(screen.queryByLabelText(/Reference existing CLAUDE.md/)).not.toBeInTheDocument()
+    })
+
+    it('calls dispatch when reference checkbox is toggled', async () => {
+      mockUseAppState.mockReturnValue({
+        state: createMockState({
+          constitutionExists: false,
+          claudeMdExists: true,
+          claudeMdContent: '# Rules',
+          workflow: { status: 'collecting', currentQuestion: 0, useClaudeMdReference: true },
+        }),
+        dispatch: mockDispatch,
+        isLoading: false,
+      })
+
+      render(<ConstitutionPanel />)
+      const checkbox = screen.getByLabelText(/Reference existing CLAUDE.md/)
+      fireEvent.click(checkbox)
+
+      await waitFor(() => {
+        expect(mockDispatch).toHaveBeenCalledWith({
+          type: 'SetUseClaudeMdReference',
+          payload: { use_reference: false },
+        })
       })
     })
   })
