@@ -8,7 +8,10 @@ import {
   getAppState
 } from './test-helpers'
 
-test.describe('Constitution Workflow - Full Integration', () => {
+// NOTE: These tests are for the legacy Tasks-tab-based Constitution workflow.
+// The Constitution workflow has moved to the Workflows tab.
+// See workflows-page.spec.ts for current Constitution tests.
+test.describe.skip('Constitution Workflow - Full Integration (LEGACY)', () => {
   let testProjectPath: string
   let consoleErrors: string[]
 
@@ -22,8 +25,10 @@ test.describe('Constitution Workflow - Full Integration', () => {
     // Setup console error capture
     consoleErrors = captureConsoleErrors(page)
 
-    // Tasks tab is selected by default when project opens
-    // No need to click it explicitly
+    // Workflows tab is now the default, so navigate to Tasks tab
+    const tasksTab = page.getByRole('tab', { name: 'Tasks' })
+    await tasksTab.click()
+    await page.waitForTimeout(500)
   })
 
   test.afterEach(async () => {

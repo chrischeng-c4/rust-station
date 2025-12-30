@@ -25,6 +25,10 @@ function createWindow(): void {
   })
 
   mainWindow.on('ready-to-show', () => {
+    // Skip showing window in headless test mode
+    if (process.env.NODE_ENV === 'test' && process.env.HEADLESS === 'true') {
+      return
+    }
     mainWindow?.show()
   })
 

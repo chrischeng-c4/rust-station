@@ -10,13 +10,15 @@ export const test = base.extend<{
     // Path to the built Electron app
     const appPath = path.join(__dirname, '../apps/desktop')
 
-    // Launch Electron app
+    // Launch Electron app (headless mode - window won't show)
     const electronApp = await electron.launch({
       args: [path.join(appPath, 'out/main/index.js')],
       cwd: appPath,
       env: {
         ...process.env,
         NODE_ENV: 'test',
+        // Enable headless mode (skips mainWindow.show())
+        HEADLESS: 'true',
       },
     })
 
