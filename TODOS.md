@@ -41,86 +41,67 @@ Expand file operation capabilities.
 
 ---
 
-## Track B: ReviewGate
+## Track B: ReviewGate (Complete)
 
 Human-in-the-loop 審核機制，讓 workflow 產出在落地前經過審核。
 
 **KB 文件**: `kb/architecture/14-review-gate.md`
 
-### Phase B1: Core Data Model (Complete)
+### Phase B1-B4: Core Implementation (Complete)
 
-建立 ReviewGate 的核心資料結構。
-
-- [x] `ReviewPolicy` enum (AutoApprove, AgentDecides, AlwaysReview)
-- [x] `ReviewContent` struct (content_type, content, file_changes)
-- [x] `ReviewSession` struct (id, status, comments, iteration)
-- [x] `ReviewComment` struct (target, content, resolved)
-- [x] Add to `app_state.rs` - `review_gate: ReviewGateState`
-- [x] Unit tests for serialization roundtrips
-- [x] TypeScript types in `state.ts`
-
-### Phase B2: Actions & Reducer (Complete)
-
-實作 ReviewGate 的 Actions。
-
-- [x] `StartReview` - 開始審核會話
-- [x] `AddReviewComment` - 新增留言
-- [x] `ResolveReviewComment` - 標記留言已解決
-- [x] `SubmitReviewFeedback` - 批次送出 feedback 給 CC
-- [x] `ApproveReview` - 批准
-- [x] `RejectReview` - 拒絕
-- [x] `UpdateReviewContent` - 更新審核內容
-- [x] `SetReviewStatus` - 設定狀態
-- [x] `SetReviewGateLoading/Error` - Loading/Error 狀態
-- [x] `SetActiveReviewSession` - 設定 active session
-- [x] `ClearReviewSession` - 清除 session
-- [x] Reducer handlers for all actions (reducer.rs)
-- [x] Async handlers stubs (lib.rs)
-- [x] Unit tests (11 tests passing)
-- [x] TypeScript action types
-
-### Phase B3: MCP Integration (Complete)
-
-rstn-mcp tools 供 CC 呼叫。
-
-- [x] `submit_for_review` - CC 送審內容
-  - Creates ReviewSession with content, file_changes, policy
-  - Returns session_id for subsequent calls
-- [x] `get_review_feedback` - CC 取得 feedback
-  - Returns session status (pending/reviewing/iterating/approved/rejected)
-  - Returns unresolved comments for iteration
-- [x] `update_review_content` - CC 更新內容進入下一輪
-  - Updates content after addressing feedback
-  - Increments iteration count
-  - Returns status back to 'reviewing'
-- [x] Tool schema definitions in `mcp_server.rs`
-- [x] Tool execution handlers using app state
-
-### Phase B4: UI Components (Complete)
-
-ReviewPanel UI 元件。
-
-- [x] `ReviewPanel` - 主要審核介面
-- [x] `ContentView` - Markdown 渲染 + Section 標記
-- [x] `FileChangesView` - 檔案變更清單 (integrated in ContentView)
-- [x] `CommentsSidebar` - 留言側邊欄
-- [x] `ActionBar` - Approve / Request Changes / Reject 按鈕
-- [x] WorkflowsPage integration
+- [x] Core Data Model (`ReviewPolicy`, `ReviewSession`, `ReviewComment`)
+- [x] Actions & Reducer (all review actions implemented)
+- [x] MCP Integration (`submit_for_review`, `get_review_feedback`, `update_review_content`)
+- [x] UI Components (`ReviewPanel`, `ContentView`, `CommentsSidebar`, `ActionBar`)
 
 ### Phase B5: Workflow Integration (Complete)
 
-整合到現有 workflow 系統。
-
-- [x] Add `proposal_review_session_id` and `plan_review_session_id` to Change struct
-- [x] `StartProposalReview` action - creates review session after proposal generation
-- [x] `StartPlanReview` action - creates review session after plan generation
-- [x] Modify `CompleteProposal` handler to auto-start proposal review
-- [x] Modify `CompletePlan` handler to auto-start plan review
-- [x] Change Management workflow 整合 ReviewGate
-- [x] Update ChangeDetailView UI to show review status badges
-- [x] TypeScript types for new actions
+- [x] Change Management workflow 整合 ReviewGate (inline middleware)
+- [x] Auto-start review after proposal/plan generation
+- [x] ChangeDetailView UI shows review status badges
 - [ ] Constitution workflow 整合 ReviewGate (future)
 - [ ] Context workflow 整合 ReviewGate (future)
+
+---
+
+## Track C: Living Context (Complete)
+
+CESDD Layer 2 - Auto-curated project context.
+
+### Phase C1: Context Files (Complete)
+
+- [x] `ContextState` with files array
+- [x] `InitializeContext` - create template files
+- [x] `RefreshContext` - reload from disk
+- [x] `ContextPanel` UI - display context files
+
+### Phase C2: AI-Powered Context (Complete)
+
+- [x] `GenerateContext` - AI analyzes codebase and generates context
+- [x] `context_generate.rs` - codebase summarization module
+- [x] Enhanced `SyncContext` - streaming output, multi-file updates
+- [x] UI: Two initialization options (AI generation vs templates)
+- [x] UI: Regenerate button (wand icon) in header
+- [x] Streaming progress display during generation/sync
+
+---
+
+## Track D: Testing
+
+### E2E Tests (In Progress)
+
+- [x] Constitution workflow tests (7/8 passing, 1 skipped for Claude CLI)
+- [x] Agent Rules tests (10/10 passing)
+- [x] Workflows page tests
+- [ ] Add Claude CLI mock for testing generation without real Claude
+- [ ] Docker workflow E2E tests
+- [ ] MCP workflow E2E tests
+- [ ] Living Context E2E tests
+
+### Known Limitations
+
+- napi-rs `stateInit()` requires Electron context (cannot test state in standalone Node.js)
+- Tests requiring Claude CLI are skipped in CI
 
 ---
 
