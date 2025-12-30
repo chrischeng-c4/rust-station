@@ -163,6 +163,12 @@ pub enum Action {
     /// Set changes list (internal, after refresh)
     SetChanges { changes: Vec<ChangeData> },
 
+    /// Start a ReviewGate review for a proposal (CESDD ReviewGate integration)
+    StartProposalReview { change_id: String },
+
+    /// Start a ReviewGate review for a plan (CESDD ReviewGate integration)
+    StartPlanReview { change_id: String },
+
     /// Set changes loading state
     SetChangesLoading { is_loading: bool },
 
@@ -234,6 +240,68 @@ pub enum Action {
 
     /// Apply default constitution template without Q&A
     ApplyDefaultConstitution,
+
+    /// Read constitution content (async trigger)
+    ReadConstitution,
+
+    /// Set constitution content (internal, after read)
+    SetConstitutionContent { content: Option<String> },
+
+    // ========================================================================
+    // ReviewGate Actions (CESDD ReviewGate Layer)
+    // ========================================================================
+    /// Start a new review session for workflow output
+    StartReview {
+        workflow_node_id: String,
+        content: ReviewContentData,
+        policy: ReviewPolicyData,
+    },
+
+    /// Add a comment to a review session
+    AddReviewComment {
+        session_id: String,
+        target: CommentTargetData,
+        content: String,
+    },
+
+    /// Mark a comment as resolved
+    ResolveReviewComment {
+        session_id: String,
+        comment_id: String,
+    },
+
+    /// Submit all unresolved feedback to Claude for iteration
+    SubmitReviewFeedback { session_id: String },
+
+    /// Approve the review content
+    ApproveReview { session_id: String },
+
+    /// Reject the review content
+    RejectReview { session_id: String, reason: String },
+
+    /// Update review content after Claude iteration (internal)
+    UpdateReviewContent {
+        session_id: String,
+        content: ReviewContentData,
+    },
+
+    /// Set review session status (internal)
+    SetReviewStatus {
+        session_id: String,
+        status: ReviewStatusData,
+    },
+
+    /// Set ReviewGate loading state (internal)
+    SetReviewGateLoading { is_loading: bool },
+
+    /// Set ReviewGate error (internal)
+    SetReviewGateError { error: Option<String> },
+
+    /// Set active review session (internal)
+    SetActiveReviewSession { session_id: Option<String> },
+
+    /// Clear a review session (internal, after complete)
+    ClearReviewSession { session_id: String },
 
     // ========================================================================
     // Docker Actions
@@ -678,6 +746,10 @@ pub struct ChangeData {
     pub streaming_output: String,
     pub created_at: String,
     pub updated_at: String,
+    /// ReviewGate session ID for proposal review
+    pub proposal_review_session_id: Option<String>,
+    /// ReviewGate session ID for plan review
+    pub plan_review_session_id: Option<String>,
 }
 
 /// Context type for actions (CESDD Phase 3)
@@ -702,6 +774,83 @@ pub struct ContextFileData {
     pub context_type: ContextTypeData,
     pub last_updated: String,
     pub token_estimate: u32,
+}
+
+// ============================================================================
+// ReviewGate Data Types
+// ============================================================================
+
+/// Review policy data for actions
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub enum ReviewPolicyData {
+    AutoApprove,
+    AgentDecides,
+    AlwaysReview,
+}
+
+/// Content type data for actions
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub enum ReviewContentTypeData {
+    Plan,
+    Proposal,
+    Code,
+    Artifact,
+}
+
+/// File action data for actions
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReviewFileActionData {
+    Create,
+    Modify,
+    Delete,
+}
+
+/// Review status data for actions
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReviewStatusData {
+    Pending,
+    Reviewing,
+    Iterating,
+    Approved,
+    Rejected,
+}
+
+/// Comment author data for actions
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CommentAuthorData {
+    User,
+    System,
+}
+
+/// Comment target data for actions
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum CommentTargetData {
+    Document,
+    Section { id: String },
+    File { path: String },
+}
+
+/// File change data for review content
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ReviewFileChangeData {
+    pub path: String,
+    pub action: ReviewFileActionData,
+    pub summary: String,
+}
+
+/// Review content data for actions
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ReviewContentData {
+    pub content_type: ReviewContentTypeData,
+    pub content: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub file_changes: Vec<ReviewFileChangeData>,
 }
 
 // ============================================================================
@@ -815,6 +964,8 @@ mod tests {
                 streaming_output: String::new(),
                 created_at: "2025-01-01T00:00:00Z".to_string(),
                 updated_at: "2025-01-01T00:00:00Z".to_string(),
+                proposal_review_session_id: None,
+                plan_review_session_id: None,
             }],
         };
         let json = serde_json::to_string(&action).unwrap();

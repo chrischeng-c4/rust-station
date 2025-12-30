@@ -16,6 +16,7 @@ pub mod context_engine;
 pub mod context_sync;
 pub mod docker;
 pub mod env;
+pub mod file_reader;
 pub mod justfile;
 pub mod mcp_config;
 pub mod mcp_server;
@@ -205,6 +206,40 @@ pub fn justfile_parse(path: String) -> napi::Result<Vec<justfile::JustCommand>> 
 pub fn justfile_run(command: String, cwd: String) -> napi::Result<String> {
     justfile::run_just_command(&command, &cwd)
         .map_err(napi::Error::from_reason)
+}
+
+// ============================================================================
+// File Reader functions
+// ============================================================================
+
+/// Read a file from allowed scopes (project root or ~/.rstn/).
+///
+/// # Arguments
+/// * `path` - Absolute path to the file
+/// * `project_root` - Project root directory (security scope)
+///
+/// # Security
+/// Only files within project_root or ~/.rstn/ can be read.
+///
+/// # Errors
+/// - FILE_NOT_FOUND: File does not exist
+/// - PERMISSION_DENIED: OS permission denied
+/// - SECURITY_VIOLATION: Path outside allowed scope
+/// - FILE_TOO_LARGE: File exceeds 10MB limit
+/// - NOT_UTF8: File is not valid UTF-8 text
+#[napi]
+pub fn file_read(path: String, project_root: String) -> napi::Result<String> {
+    file_reader::read_file(&path, &project_root).map_err(|e| {
+        let code = match &e {
+            file_reader::FileReadError::NotFound(_) => "FILE_NOT_FOUND",
+            file_reader::FileReadError::PermissionDenied(_) => "PERMISSION_DENIED",
+            file_reader::FileReadError::SecurityViolation(_) => "SECURITY_VIOLATION",
+            file_reader::FileReadError::FileTooLarge { .. } => "FILE_TOO_LARGE",
+            file_reader::FileReadError::NotUtf8 => "NOT_UTF8",
+            file_reader::FileReadError::Io(_) => "IO_ERROR",
+        };
+        napi::Error::from_reason(format!("{}: {}", code, e))
+    })
 }
 
 // ============================================================================
@@ -1759,6 +1794,84 @@ Be specific, actionable, and authoritative. Use "MUST", "MUST NOT" language."#,
             // Sync action - handled in reducer
         }
 
+        Action::ReadConstitution => {
+            // Get the active worktree path
+            let worktree_path = {
+                let state = get_app_state().read().await;
+                state
+                    .active_project()
+                    .and_then(|p| p.active_worktree())
+                    .map(|w| w.path.clone())
+            };
+
+            if let Some(wt_path) = worktree_path {
+                // Read constitution content (modular or legacy)
+                let content = constitution::read_constitution(std::path::Path::new(&wt_path));
+
+                {
+                    let mut state = get_app_state().write().await;
+                    reduce(&mut state, Action::SetConstitutionContent { content });
+                }
+                notify_state_update().await;
+            }
+        }
+
+        Action::SetConstitutionContent { .. } => {
+            // Sync action - handled in reducer
+        }
+
+        // ====================================================================
+        // ReviewGate Actions (CESDD ReviewGate Layer)
+        // ====================================================================
+        Action::StartReview { .. } => {
+            // Sync action - handled in reducer
+        }
+
+        Action::AddReviewComment { .. } => {
+            // Sync action - handled in reducer
+        }
+
+        Action::ResolveReviewComment { .. } => {
+            // Sync action - handled in reducer
+        }
+
+        Action::SubmitReviewFeedback { session_id: _ } => {
+            // TODO (Phase B3): Async action - collect feedback and send to Claude
+            // For now, just mark as handled in reducer
+        }
+
+        Action::ApproveReview { .. } => {
+            // Sync action - handled in reducer
+        }
+
+        Action::RejectReview { .. } => {
+            // Sync action - handled in reducer
+        }
+
+        Action::UpdateReviewContent { .. } => {
+            // Sync action - handled in reducer
+        }
+
+        Action::SetReviewStatus { .. } => {
+            // Sync action - handled in reducer
+        }
+
+        Action::SetReviewGateLoading { .. } => {
+            // Sync action - handled in reducer
+        }
+
+        Action::SetReviewGateError { .. } => {
+            // Sync action - handled in reducer
+        }
+
+        Action::SetActiveReviewSession { .. } => {
+            // Sync action - handled in reducer
+        }
+
+        Action::ClearReviewSession { .. } => {
+            // Sync action - handled in reducer
+        }
+
         Action::ApplyDefaultConstitution => {
             // Get the active worktree path
             let worktree_path = {
@@ -1836,6 +1949,8 @@ Be specific, actionable, and authoritative. Use "MUST", "MUST NOT" language."#,
                     streaming_output: String::new(),
                     created_at: now.clone(),
                     updated_at: now,
+                    proposal_review_session_id: None,
+                    plan_review_session_id: None,
                 };
 
                 {
@@ -1992,6 +2107,7 @@ Output ONLY the markdown content, no code blocks or extra formatting."#,
                                                 });
                                             }
                                             notify_state_update().await;
+                                            // ReviewGate review is auto-started in CompleteProposal reducer
                                             break;
                                         }
                                     }
@@ -2163,6 +2279,7 @@ Output ONLY the markdown content, no code blocks or extra formatting."#,
                                                 });
                                             }
                                             notify_state_update().await;
+                                            // ReviewGate review is auto-started in CompletePlan reducer
                                             break;
                                         }
                                     }
@@ -2197,7 +2314,9 @@ Output ONLY the markdown content, no code blocks or extra formatting."#,
         | Action::SetChangesLoading { .. }
         | Action::AppendImplementationOutput { .. }
         | Action::CompleteImplementation { .. }
-        | Action::FailImplementation { .. } => {
+        | Action::FailImplementation { .. }
+        | Action::StartProposalReview { .. }
+        | Action::StartPlanReview { .. } => {
             // Sync actions - handled in reducer
         }
 
@@ -2448,6 +2567,8 @@ Execute the plan now. Start implementing."#,
                                     streaming_output: String::new(),
                                     created_at: now.clone(),
                                     updated_at: now,
+                                    proposal_review_session_id: None,
+                                    plan_review_session_id: None,
                                 });
                             }
                         }

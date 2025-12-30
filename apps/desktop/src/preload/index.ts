@@ -26,6 +26,16 @@ const api = {
   mcp: {
     fetchTools: () => core.fetchMcpTools(),
   },
+  file: {
+    /**
+     * Read a file from allowed scopes (project root or ~/.rstn/).
+     * @param path - Absolute path to the file
+     * @param projectRoot - Project root directory (security scope)
+     * @returns File contents as UTF-8 string
+     * @throws Error with code: FILE_NOT_FOUND, PERMISSION_DENIED, SECURITY_VIOLATION, FILE_TOO_LARGE, NOT_UTF8
+     */
+    read: (path: string, projectRoot: string) => core.fileRead(path, projectRoot),
+  },
 }
 
 // Dialog API for native dialogs

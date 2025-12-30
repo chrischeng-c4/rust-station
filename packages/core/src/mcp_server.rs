@@ -117,6 +117,95 @@ fn get_available_tools() -> Vec<ToolInfo> {
                 "required": ["task_name"]
             }),
         },
+        // ====================================================================
+        // ReviewGate Tools (CESDD ReviewGate Layer)
+        // ====================================================================
+        ToolInfo {
+            name: "submit_for_review".to_string(),
+            description: "Submit content for human review. Returns a session_id that can be used to check feedback and update content.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "workflow_node_id": {
+                        "type": "string",
+                        "description": "ID of the workflow node triggering this review"
+                    },
+                    "content_type": {
+                        "type": "string",
+                        "enum": ["Plan", "Proposal", "Code", "Artifact"],
+                        "description": "Type of content being reviewed"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "The content to be reviewed (markdown format)"
+                    },
+                    "file_changes": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "path": { "type": "string" },
+                                "action": { "type": "string", "enum": ["create", "modify", "delete"] },
+                                "summary": { "type": "string" }
+                            },
+                            "required": ["path", "action", "summary"]
+                        },
+                        "description": "List of file changes (optional)"
+                    },
+                    "policy": {
+                        "type": "string",
+                        "enum": ["AutoApprove", "AgentDecides", "AlwaysReview"],
+                        "description": "Review policy (default: AlwaysReview)"
+                    }
+                },
+                "required": ["workflow_node_id", "content_type", "content"]
+            }),
+        },
+        ToolInfo {
+            name: "get_review_feedback".to_string(),
+            description: "Get user feedback (unresolved comments) for a review session. Call this after submitting for review to see if user has provided feedback.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "The review session ID returned by submit_for_review"
+                    }
+                },
+                "required": ["session_id"]
+            }),
+        },
+        ToolInfo {
+            name: "update_review_content".to_string(),
+            description: "Update the review content after addressing user feedback. This increments the iteration count and moves status back to 'reviewing'.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "The review session ID"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Updated content (markdown format)"
+                    },
+                    "file_changes": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "path": { "type": "string" },
+                                "action": { "type": "string", "enum": ["create", "modify", "delete"] },
+                                "summary": { "type": "string" }
+                            },
+                            "required": ["path", "action", "summary"]
+                        },
+                        "description": "Updated list of file changes (optional)"
+                    }
+                },
+                "required": ["session_id", "content"]
+            }),
+        },
     ]
 }
 
@@ -275,6 +364,298 @@ impl McpServerContext {
                 } else {
                     Err(format!("Task failed:\nstdout: {}\nstderr: {}", stdout, stderr))
                 }
+            }
+
+            // ================================================================
+            // ReviewGate Tools
+            // ================================================================
+            "submit_for_review" => {
+                let workflow_node_id = params
+                    .get("workflow_node_id")
+                    .and_then(|v| v.as_str())
+                    .ok_or("Missing 'workflow_node_id' parameter")?
+                    .to_string();
+
+                let content_type_str = params
+                    .get("content_type")
+                    .and_then(|v| v.as_str())
+                    .ok_or("Missing 'content_type' parameter")?;
+
+                let content = params
+                    .get("content")
+                    .and_then(|v| v.as_str())
+                    .ok_or("Missing 'content' parameter")?
+                    .to_string();
+
+                let policy_str = params
+                    .get("policy")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("AlwaysReview");
+
+                // Parse file_changes if provided
+                let file_changes: Vec<crate::actions::ReviewFileChangeData> = params
+                    .get("file_changes")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|fc| {
+                                let path = fc.get("path")?.as_str()?.to_string();
+                                let action_str = fc.get("action")?.as_str()?;
+                                let summary = fc.get("summary")?.as_str()?.to_string();
+                                let action = match action_str {
+                                    "create" => crate::actions::ReviewFileActionData::Create,
+                                    "modify" => crate::actions::ReviewFileActionData::Modify,
+                                    "delete" => crate::actions::ReviewFileActionData::Delete,
+                                    _ => return None,
+                                };
+                                Some(crate::actions::ReviewFileChangeData {
+                                    path,
+                                    action,
+                                    summary,
+                                })
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                // Parse content_type
+                let content_type = match content_type_str {
+                    "Plan" => crate::actions::ReviewContentTypeData::Plan,
+                    "Proposal" => crate::actions::ReviewContentTypeData::Proposal,
+                    "Code" => crate::actions::ReviewContentTypeData::Code,
+                    "Artifact" => crate::actions::ReviewContentTypeData::Artifact,
+                    _ => return Err(format!("Invalid content_type: {}", content_type_str)),
+                };
+
+                // Parse policy
+                let policy = match policy_str {
+                    "AutoApprove" => crate::actions::ReviewPolicyData::AutoApprove,
+                    "AgentDecides" => crate::actions::ReviewPolicyData::AgentDecides,
+                    "AlwaysReview" => crate::actions::ReviewPolicyData::AlwaysReview,
+                    _ => crate::actions::ReviewPolicyData::AlwaysReview,
+                };
+
+                // Create review content
+                let review_content = crate::actions::ReviewContentData {
+                    content_type,
+                    content,
+                    file_changes,
+                };
+
+                // Dispatch StartReview action
+                let action = crate::actions::Action::StartReview {
+                    workflow_node_id,
+                    content: review_content,
+                    policy,
+                };
+
+                {
+                    let mut state = crate::get_app_state().write().await;
+                    crate::reducer::reduce(&mut state, action);
+                }
+
+                // Get the session_id that was just created
+                let session_id = {
+                    let state = crate::get_app_state().read().await;
+                    state
+                        .active_project()
+                        .and_then(|p| p.active_worktree())
+                        .and_then(|w| w.tasks.review_gate.active_session_id.clone())
+                        .ok_or("Failed to create review session")?
+                };
+
+                // Notify state update
+                crate::notify_state_update().await;
+
+                Ok(serde_json::json!({
+                    "content": [{
+                        "type": "text",
+                        "text": format!("Review session created. Session ID: {}\n\nThe content has been submitted for human review. Call get_review_feedback with this session_id to check for user feedback.", session_id)
+                    }],
+                    "session_id": session_id
+                }))
+            }
+
+            "get_review_feedback" => {
+                let session_id = params
+                    .get("session_id")
+                    .and_then(|v| v.as_str())
+                    .ok_or("Missing 'session_id' parameter")?;
+
+                let state = crate::get_app_state().read().await;
+                let session = state
+                    .active_project()
+                    .and_then(|p| p.active_worktree())
+                    .and_then(|w| w.tasks.review_gate.sessions.get(session_id))
+                    .ok_or("Review session not found")?;
+
+                // Get session status
+                let status = match session.status {
+                    crate::app_state::ReviewStatus::Pending => "pending",
+                    crate::app_state::ReviewStatus::Reviewing => "reviewing",
+                    crate::app_state::ReviewStatus::Iterating => "iterating",
+                    crate::app_state::ReviewStatus::Approved => "approved",
+                    crate::app_state::ReviewStatus::Rejected => "rejected",
+                };
+
+                // Get unresolved comments
+                let unresolved_comments: Vec<_> = session
+                    .comments
+                    .iter()
+                    .filter(|c| !c.resolved)
+                    .map(|c| {
+                        let target = match &c.target {
+                            crate::app_state::CommentTarget::Document => "document".to_string(),
+                            crate::app_state::CommentTarget::Section { id } => {
+                                format!("section:{}", id)
+                            }
+                            crate::app_state::CommentTarget::File { path } => {
+                                format!("file:{}", path)
+                            }
+                        };
+                        serde_json::json!({
+                            "id": c.id,
+                            "target": target,
+                            "content": c.content,
+                            "author": match c.author {
+                                crate::app_state::CommentAuthor::User => "user",
+                                crate::app_state::CommentAuthor::System => "system",
+                            }
+                        })
+                    })
+                    .collect();
+
+                let response = serde_json::json!({
+                    "session_id": session_id,
+                    "status": status,
+                    "iteration": session.iteration,
+                    "unresolved_comments": unresolved_comments,
+                    "total_comments": session.comments.len(),
+                });
+
+                let message = if status == "approved" {
+                    "Review has been APPROVED. You may proceed with implementing the plan.".to_string()
+                } else if status == "rejected" {
+                    "Review has been REJECTED. Check the comments for the rejection reason.".to_string()
+                } else if unresolved_comments.is_empty() {
+                    format!("No feedback yet. Status: {}. The user is still reviewing.", status)
+                } else {
+                    format!(
+                        "Found {} unresolved comment(s). Address the feedback and call update_review_content.",
+                        unresolved_comments.len()
+                    )
+                };
+
+                Ok(serde_json::json!({
+                    "content": [{
+                        "type": "text",
+                        "text": format!("{}\n\n{}", message, serde_json::to_string_pretty(&response).unwrap())
+                    }],
+                    "feedback": response
+                }))
+            }
+
+            "update_review_content" => {
+                let session_id = params
+                    .get("session_id")
+                    .and_then(|v| v.as_str())
+                    .ok_or("Missing 'session_id' parameter")?
+                    .to_string();
+
+                let content = params
+                    .get("content")
+                    .and_then(|v| v.as_str())
+                    .ok_or("Missing 'content' parameter")?
+                    .to_string();
+
+                // Parse file_changes if provided
+                let file_changes: Vec<crate::actions::ReviewFileChangeData> = params
+                    .get("file_changes")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|fc| {
+                                let path = fc.get("path")?.as_str()?.to_string();
+                                let action_str = fc.get("action")?.as_str()?;
+                                let summary = fc.get("summary")?.as_str()?.to_string();
+                                let action = match action_str {
+                                    "create" => crate::actions::ReviewFileActionData::Create,
+                                    "modify" => crate::actions::ReviewFileActionData::Modify,
+                                    "delete" => crate::actions::ReviewFileActionData::Delete,
+                                    _ => return None,
+                                };
+                                Some(crate::actions::ReviewFileChangeData {
+                                    path,
+                                    action,
+                                    summary,
+                                })
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                // Get the current content_type from the session
+                let content_type = {
+                    let state = crate::get_app_state().read().await;
+                    let session = state
+                        .active_project()
+                        .and_then(|p| p.active_worktree())
+                        .and_then(|w| w.tasks.review_gate.sessions.get(&session_id))
+                        .ok_or("Review session not found")?;
+
+                    match session.content.content_type {
+                        crate::app_state::ReviewContentType::Plan => {
+                            crate::actions::ReviewContentTypeData::Plan
+                        }
+                        crate::app_state::ReviewContentType::Proposal => {
+                            crate::actions::ReviewContentTypeData::Proposal
+                        }
+                        crate::app_state::ReviewContentType::Code => {
+                            crate::actions::ReviewContentTypeData::Code
+                        }
+                        crate::app_state::ReviewContentType::Artifact => {
+                            crate::actions::ReviewContentTypeData::Artifact
+                        }
+                    }
+                };
+
+                // Dispatch UpdateReviewContent action
+                let action = crate::actions::Action::UpdateReviewContent {
+                    session_id: session_id.clone(),
+                    content: crate::actions::ReviewContentData {
+                        content_type,
+                        content,
+                        file_changes,
+                    },
+                };
+
+                {
+                    let mut state = crate::get_app_state().write().await;
+                    crate::reducer::reduce(&mut state, action);
+                }
+
+                // Get the new iteration count
+                let iteration = {
+                    let state = crate::get_app_state().read().await;
+                    state
+                        .active_project()
+                        .and_then(|p| p.active_worktree())
+                        .and_then(|w| w.tasks.review_gate.sessions.get(&session_id))
+                        .map(|s| s.iteration)
+                        .unwrap_or(0)
+                };
+
+                // Notify state update
+                crate::notify_state_update().await;
+
+                Ok(serde_json::json!({
+                    "content": [{
+                        "type": "text",
+                        "text": format!("Review content updated. Now on iteration {}. The user will review the updated content.", iteration)
+                    }],
+                    "session_id": session_id,
+                    "iteration": iteration
+                }))
             }
 
             _ => Err(format!("Unknown tool: {}", tool_name)),
@@ -563,13 +944,18 @@ mod tests {
     #[test]
     fn test_available_tools() {
         let tools = get_available_tools();
-        assert_eq!(tools.len(), 4);
+        assert_eq!(tools.len(), 7); // 4 base tools + 3 ReviewGate tools
 
         let tool_names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
+        // Base tools
         assert!(tool_names.contains(&"read_file"));
         assert!(tool_names.contains(&"list_directory"));
         assert!(tool_names.contains(&"get_project_context"));
         assert!(tool_names.contains(&"run_just_task"));
+        // ReviewGate tools
+        assert!(tool_names.contains(&"submit_for_review"));
+        assert!(tool_names.contains(&"get_review_feedback"));
+        assert!(tool_names.contains(&"update_review_content"));
     }
 
     #[tokio::test]
@@ -651,5 +1037,43 @@ mod tests {
 
         // Check it's stopped
         assert!(!manager.is_running("test-worktree").await);
+    }
+
+    // ========================================================================
+    // ReviewGate Tool Tests
+    // ========================================================================
+
+    #[test]
+    fn test_review_gate_tool_schemas() {
+        let tools = get_available_tools();
+
+        // Find submit_for_review tool
+        let submit_tool = tools.iter().find(|t| t.name == "submit_for_review").unwrap();
+        let schema = &submit_tool.input_schema;
+
+        // Check required fields
+        let required = schema.get("required").unwrap().as_array().unwrap();
+        assert!(required.contains(&serde_json::json!("workflow_node_id")));
+        assert!(required.contains(&serde_json::json!("content_type")));
+        assert!(required.contains(&serde_json::json!("content")));
+
+        // Find get_review_feedback tool
+        let feedback_tool = tools
+            .iter()
+            .find(|t| t.name == "get_review_feedback")
+            .unwrap();
+        let schema = &feedback_tool.input_schema;
+        let required = schema.get("required").unwrap().as_array().unwrap();
+        assert!(required.contains(&serde_json::json!("session_id")));
+
+        // Find update_review_content tool
+        let update_tool = tools
+            .iter()
+            .find(|t| t.name == "update_review_content")
+            .unwrap();
+        let schema = &update_tool.input_schema;
+        let required = schema.get("required").unwrap().as_array().unwrap();
+        assert!(required.contains(&serde_json::json!("session_id")));
+        assert!(required.contains(&serde_json::json!("content")));
     }
 }

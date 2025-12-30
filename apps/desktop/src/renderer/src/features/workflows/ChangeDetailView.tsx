@@ -1,21 +1,116 @@
-import { FileText, Play, Check, X, Clock, Archive, RefreshCw, Rocket } from 'lucide-react'
+import { FileText, Play, Check, X, Clock, Archive, RefreshCw, Rocket, ClipboardCheck, MessageSquare, ThumbsUp, ThumbsDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useAppState } from '@/hooks/useAppState'
-import type { Change } from '@/types/state'
+import type { Change, ReviewSession, ReviewStatus } from '@/types/state'
 
 interface ChangeDetailViewProps {
   change: Change
 }
 
 /**
+ * Get review session by ID from state
+ */
+function getReviewSession(
+  sessions: Record<string, ReviewSession> | undefined,
+  sessionId: string | null | undefined
+): ReviewSession | null {
+  if (!sessions || !sessionId) return null
+  return sessions[sessionId] ?? null
+}
+
+/**
+ * ReviewStatusBadge - Shows review status with icon
+ */
+function ReviewStatusBadge({ session, type }: { session: ReviewSession | null; type: 'proposal' | 'plan' }) {
+  if (!session) return null
+
+  const statusConfig: Record<ReviewStatus, { label: string; color: string; icon: typeof Clock }> = {
+    pending: { label: 'Pending Review', color: 'bg-gray-500/10 text-gray-700', icon: Clock },
+    reviewing: { label: 'In Review', color: 'bg-blue-500/10 text-blue-700', icon: ClipboardCheck },
+    iterating: { label: 'Iterating', color: 'bg-yellow-500/10 text-yellow-700', icon: RefreshCw },
+    approved: { label: 'Approved', color: 'bg-green-500/10 text-green-700', icon: Check },
+    rejected: { label: 'Rejected', color: 'bg-red-500/10 text-red-700', icon: X },
+  }
+
+  const config = statusConfig[session.status]
+  const Icon = config.icon
+
+  return (
+    <Badge variant="outline" className={`ml-2 gap-1 ${config.color}`}>
+      <Icon className="h-3 w-3" />
+      {type === 'proposal' ? 'Proposal' : 'Plan'}: {config.label}
+      {session.comments.filter((c) => !c.resolved).length > 0 && (
+        <span className="ml-1 flex items-center gap-0.5">
+          <MessageSquare className="h-3 w-3" />
+          {session.comments.filter((c) => !c.resolved).length}
+        </span>
+      )}
+    </Badge>
+  )
+}
+
+/**
+ * InlineReviewControls - Review action buttons shown inline in content tabs
+ */
+interface InlineReviewControlsProps {
+  session: ReviewSession
+  onApprove: () => void
+  onReject: () => void
+}
+
+function InlineReviewControls({ session, onApprove, onReject }: InlineReviewControlsProps) {
+  // Only show controls if review is in progress (not already approved/rejected)
+  if (session.status === 'approved' || session.status === 'rejected') {
+    return null
+  }
+
+  const unresolvedComments = session.comments.filter((c) => !c.resolved).length
+
+  return (
+    <div className="border-t bg-muted/30 p-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <ClipboardCheck className="h-4 w-4" />
+          <span>Review required</span>
+          {unresolvedComments > 0 && (
+            <Badge variant="secondary" className="gap-1">
+              <MessageSquare className="h-3 w-3" />
+              {unresolvedComments} comment{unresolvedComments > 1 ? 's' : ''}
+            </Badge>
+          )}
+        </div>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={onReject} className="gap-1">
+            <ThumbsDown className="h-3 w-3" />
+            Reject
+          </Button>
+          <Button size="sm" onClick={onApprove} className="gap-1 bg-green-600 hover:bg-green-700">
+            <ThumbsUp className="h-3 w-3" />
+            Approve
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/**
  * ChangeDetailView - Shows change details, proposal, and plan
  */
 export function ChangeDetailView({ change }: ChangeDetailViewProps) {
-  const { dispatch } = useAppState()
+  const { state, dispatch } = useAppState()
+
+  // Get review sessions linked to this change
+  const activeProject = state?.projects?.[state?.active_project_index ?? 0]
+  const worktree = activeProject?.worktrees?.[activeProject?.active_worktree_index ?? 0]
+  const reviewSessions = worktree?.tasks?.review_gate?.sessions
+
+  const proposalReviewSession = getReviewSession(reviewSessions, change.proposal_review_session_id)
+  const planReviewSession = getReviewSession(reviewSessions, change.plan_review_session_id)
 
   const handleGenerateProposal = () => {
     dispatch({ type: 'GenerateProposal', payload: { change_id: change.id } })
@@ -45,6 +140,31 @@ export function ChangeDetailView({ change }: ChangeDetailViewProps) {
     dispatch({ type: 'ExecutePlan', payload: { change_id: change.id } })
   }
 
+  // Review action handlers
+  const handleApproveProposalReview = () => {
+    if (proposalReviewSession) {
+      dispatch({ type: 'ApproveReview', payload: { session_id: proposalReviewSession.id } })
+    }
+  }
+
+  const handleRejectProposalReview = () => {
+    if (proposalReviewSession) {
+      dispatch({ type: 'RejectReview', payload: { session_id: proposalReviewSession.id, reason: 'Rejected by user' } })
+    }
+  }
+
+  const handleApprovePlanReview = () => {
+    if (planReviewSession) {
+      dispatch({ type: 'ApproveReview', payload: { session_id: planReviewSession.id } })
+    }
+  }
+
+  const handleRejectPlanReview = () => {
+    if (planReviewSession) {
+      dispatch({ type: 'RejectReview', payload: { session_id: planReviewSession.id, reason: 'Rejected by user' } })
+    }
+  }
+
   const isPlanning = change.status === 'planning'
   const isImplementing = change.status === 'implementing'
   const hasProposal = !!change.proposal
@@ -65,10 +185,19 @@ export function ChangeDetailView({ change }: ChangeDetailViewProps) {
             <CardTitle className="text-lg">{change.name}</CardTitle>
             <CardDescription className="mt-1">{change.intent}</CardDescription>
           </div>
-          <Badge variant="outline" className="capitalize">
-            {change.status}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="capitalize">
+              {change.status}
+            </Badge>
+          </div>
         </div>
+        {/* Review Status Badges */}
+        {(proposalReviewSession || planReviewSession) && (
+          <div className="mt-2 flex flex-wrap gap-2">
+            <ReviewStatusBadge session={proposalReviewSession} type="proposal" />
+            <ReviewStatusBadge session={planReviewSession} type="plan" />
+          </div>
+        )}
       </CardHeader>
 
       <CardContent className="h-[calc(100%-100px)]">
@@ -77,10 +206,16 @@ export function ChangeDetailView({ change }: ChangeDetailViewProps) {
             <TabsTrigger value="proposal" className="gap-1">
               <FileText className="h-4 w-4" />
               Proposal
+              {proposalReviewSession?.status === 'reviewing' && (
+                <span className="ml-1 h-2 w-2 rounded-full bg-blue-500" />
+              )}
             </TabsTrigger>
             <TabsTrigger value="plan" className="gap-1">
               <FileText className="h-4 w-4" />
               Plan
+              {planReviewSession?.status === 'reviewing' && (
+                <span className="ml-1 h-2 w-2 rounded-full bg-blue-500" />
+              )}
             </TabsTrigger>
             <TabsTrigger value="implementation" className="gap-1">
               <Rocket className="h-4 w-4" />
@@ -98,9 +233,19 @@ export function ChangeDetailView({ change }: ChangeDetailViewProps) {
                 <pre className="whitespace-pre-wrap text-sm">{change.streaming_output}</pre>
               </ScrollArea>
             ) : hasProposal ? (
-              <ScrollArea className="h-full rounded-md border p-4">
-                <pre className="whitespace-pre-wrap text-sm">{change.proposal}</pre>
-              </ScrollArea>
+              <div className="flex h-full flex-col rounded-md border">
+                <ScrollArea className="flex-1 p-4">
+                  <pre className="whitespace-pre-wrap text-sm">{change.proposal}</pre>
+                </ScrollArea>
+                {/* Inline Review Controls */}
+                {proposalReviewSession && (
+                  <InlineReviewControls
+                    session={proposalReviewSession}
+                    onApprove={handleApproveProposalReview}
+                    onReject={handleRejectProposalReview}
+                  />
+                )}
+              </div>
             ) : (
               <div className="flex h-full flex-col items-center justify-center gap-4">
                 <FileText className="h-12 w-12 text-muted-foreground" />
@@ -125,9 +270,19 @@ export function ChangeDetailView({ change }: ChangeDetailViewProps) {
                 <pre className="whitespace-pre-wrap text-sm">{change.streaming_output}</pre>
               </ScrollArea>
             ) : hasPlan ? (
-              <ScrollArea className="h-full rounded-md border p-4">
-                <pre className="whitespace-pre-wrap text-sm">{change.plan}</pre>
-              </ScrollArea>
+              <div className="flex h-full flex-col rounded-md border">
+                <ScrollArea className="flex-1 p-4">
+                  <pre className="whitespace-pre-wrap text-sm">{change.plan}</pre>
+                </ScrollArea>
+                {/* Inline Review Controls */}
+                {planReviewSession && (
+                  <InlineReviewControls
+                    session={planReviewSession}
+                    onApprove={handleApprovePlanReview}
+                    onReject={handleRejectPlanReview}
+                  />
+                )}
+              </div>
             ) : (
               <div className="flex h-full flex-col items-center justify-center gap-4">
                 <FileText className="h-12 w-12 text-muted-foreground" />

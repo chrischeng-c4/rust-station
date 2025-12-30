@@ -448,6 +448,320 @@ pub fn reduce(state: &mut AppState, action: Action) {
             // No immediate state change needed
         }
 
+        Action::ReadConstitution => {
+            // Async trigger - the async handler in lib.rs will read file and dispatch SetConstitutionContent
+        }
+
+        Action::SetConstitutionContent { content } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.tasks.constitution_content = content;
+                }
+            }
+        }
+
+        // ====================================================================
+        // ReviewGate Actions (CESDD ReviewGate Layer - worktree scope)
+        // ====================================================================
+        Action::StartReview {
+            workflow_node_id,
+            content,
+            policy,
+        } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    let session_id = uuid::Uuid::new_v4().to_string();
+                    let now = chrono::Utc::now().to_rfc3339();
+
+                    let session = crate::app_state::ReviewSession {
+                        id: session_id.clone(),
+                        workflow_node_id,
+                        status: crate::app_state::ReviewStatus::Reviewing,
+                        content: crate::app_state::ReviewContent {
+                            content_type: match content.content_type {
+                                crate::actions::ReviewContentTypeData::Plan => {
+                                    crate::app_state::ReviewContentType::Plan
+                                }
+                                crate::actions::ReviewContentTypeData::Proposal => {
+                                    crate::app_state::ReviewContentType::Proposal
+                                }
+                                crate::actions::ReviewContentTypeData::Code => {
+                                    crate::app_state::ReviewContentType::Code
+                                }
+                                crate::actions::ReviewContentTypeData::Artifact => {
+                                    crate::app_state::ReviewContentType::Artifact
+                                }
+                            },
+                            content: content.content,
+                            file_changes: content
+                                .file_changes
+                                .into_iter()
+                                .map(|fc| crate::app_state::ReviewFileChange {
+                                    path: fc.path,
+                                    action: match fc.action {
+                                        crate::actions::ReviewFileActionData::Create => {
+                                            crate::app_state::ReviewFileAction::Create
+                                        }
+                                        crate::actions::ReviewFileActionData::Modify => {
+                                            crate::app_state::ReviewFileAction::Modify
+                                        }
+                                        crate::actions::ReviewFileActionData::Delete => {
+                                            crate::app_state::ReviewFileAction::Delete
+                                        }
+                                    },
+                                    summary: fc.summary,
+                                })
+                                .collect(),
+                        },
+                        policy: match policy {
+                            crate::actions::ReviewPolicyData::AutoApprove => {
+                                crate::app_state::ReviewPolicy::AutoApprove
+                            }
+                            crate::actions::ReviewPolicyData::AgentDecides => {
+                                crate::app_state::ReviewPolicy::AgentDecides
+                            }
+                            crate::actions::ReviewPolicyData::AlwaysReview => {
+                                crate::app_state::ReviewPolicy::AlwaysReview
+                            }
+                        },
+                        comments: vec![],
+                        iteration: 1,
+                        created_at: now.clone(),
+                        updated_at: now,
+                    };
+
+                    worktree
+                        .tasks
+                        .review_gate
+                        .sessions
+                        .insert(session_id.clone(), session);
+                    worktree.tasks.review_gate.active_session_id = Some(session_id);
+                }
+            }
+        }
+
+        Action::AddReviewComment {
+            session_id,
+            target,
+            content,
+        } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(session) = worktree.tasks.review_gate.sessions.get_mut(&session_id)
+                    {
+                        let comment_id = uuid::Uuid::new_v4().to_string();
+                        let now = chrono::Utc::now().to_rfc3339();
+
+                        let comment = crate::app_state::ReviewComment {
+                            id: comment_id,
+                            target: match target {
+                                crate::actions::CommentTargetData::Document => {
+                                    crate::app_state::CommentTarget::Document
+                                }
+                                crate::actions::CommentTargetData::Section { id } => {
+                                    crate::app_state::CommentTarget::Section { id }
+                                }
+                                crate::actions::CommentTargetData::File { path } => {
+                                    crate::app_state::CommentTarget::File { path }
+                                }
+                            },
+                            content,
+                            author: crate::app_state::CommentAuthor::User,
+                            resolved: false,
+                            created_at: now.clone(),
+                        };
+
+                        session.comments.push(comment);
+                        session.updated_at = now;
+                    }
+                }
+            }
+        }
+
+        Action::ResolveReviewComment {
+            session_id,
+            comment_id,
+        } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(session) = worktree.tasks.review_gate.sessions.get_mut(&session_id)
+                    {
+                        if let Some(comment) =
+                            session.comments.iter_mut().find(|c| c.id == comment_id)
+                        {
+                            comment.resolved = true;
+                            session.updated_at = chrono::Utc::now().to_rfc3339();
+                        }
+                    }
+                }
+            }
+        }
+
+        Action::SubmitReviewFeedback { session_id } => {
+            // Set status to Iterating - async handler will collect feedback and send to Claude
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(session) = worktree.tasks.review_gate.sessions.get_mut(&session_id)
+                    {
+                        session.status = crate::app_state::ReviewStatus::Iterating;
+                        session.updated_at = chrono::Utc::now().to_rfc3339();
+                    }
+                    worktree.tasks.review_gate.is_loading = true;
+                }
+            }
+        }
+
+        Action::ApproveReview { session_id } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(session) = worktree.tasks.review_gate.sessions.get_mut(&session_id)
+                    {
+                        session.status = crate::app_state::ReviewStatus::Approved;
+                        session.updated_at = chrono::Utc::now().to_rfc3339();
+                    }
+                }
+            }
+        }
+
+        Action::RejectReview { session_id, reason } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(session) = worktree.tasks.review_gate.sessions.get_mut(&session_id)
+                    {
+                        session.status = crate::app_state::ReviewStatus::Rejected;
+                        session.updated_at = chrono::Utc::now().to_rfc3339();
+                        // Add rejection reason as a system comment
+                        let comment = crate::app_state::ReviewComment {
+                            id: uuid::Uuid::new_v4().to_string(),
+                            target: crate::app_state::CommentTarget::Document,
+                            content: format!("Rejected: {}", reason),
+                            author: crate::app_state::CommentAuthor::System,
+                            resolved: false,
+                            created_at: chrono::Utc::now().to_rfc3339(),
+                        };
+                        session.comments.push(comment);
+                    }
+                }
+            }
+        }
+
+        Action::UpdateReviewContent {
+            session_id,
+            content,
+        } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(session) = worktree.tasks.review_gate.sessions.get_mut(&session_id)
+                    {
+                        session.content = crate::app_state::ReviewContent {
+                            content_type: match content.content_type {
+                                crate::actions::ReviewContentTypeData::Plan => {
+                                    crate::app_state::ReviewContentType::Plan
+                                }
+                                crate::actions::ReviewContentTypeData::Proposal => {
+                                    crate::app_state::ReviewContentType::Proposal
+                                }
+                                crate::actions::ReviewContentTypeData::Code => {
+                                    crate::app_state::ReviewContentType::Code
+                                }
+                                crate::actions::ReviewContentTypeData::Artifact => {
+                                    crate::app_state::ReviewContentType::Artifact
+                                }
+                            },
+                            content: content.content,
+                            file_changes: content
+                                .file_changes
+                                .into_iter()
+                                .map(|fc| crate::app_state::ReviewFileChange {
+                                    path: fc.path,
+                                    action: match fc.action {
+                                        crate::actions::ReviewFileActionData::Create => {
+                                            crate::app_state::ReviewFileAction::Create
+                                        }
+                                        crate::actions::ReviewFileActionData::Modify => {
+                                            crate::app_state::ReviewFileAction::Modify
+                                        }
+                                        crate::actions::ReviewFileActionData::Delete => {
+                                            crate::app_state::ReviewFileAction::Delete
+                                        }
+                                    },
+                                    summary: fc.summary,
+                                })
+                                .collect(),
+                        };
+                        session.iteration += 1;
+                        session.status = crate::app_state::ReviewStatus::Reviewing;
+                        session.updated_at = chrono::Utc::now().to_rfc3339();
+                    }
+                    worktree.tasks.review_gate.is_loading = false;
+                }
+            }
+        }
+
+        Action::SetReviewStatus { session_id, status } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(session) = worktree.tasks.review_gate.sessions.get_mut(&session_id)
+                    {
+                        session.status = match status {
+                            crate::actions::ReviewStatusData::Pending => {
+                                crate::app_state::ReviewStatus::Pending
+                            }
+                            crate::actions::ReviewStatusData::Reviewing => {
+                                crate::app_state::ReviewStatus::Reviewing
+                            }
+                            crate::actions::ReviewStatusData::Iterating => {
+                                crate::app_state::ReviewStatus::Iterating
+                            }
+                            crate::actions::ReviewStatusData::Approved => {
+                                crate::app_state::ReviewStatus::Approved
+                            }
+                            crate::actions::ReviewStatusData::Rejected => {
+                                crate::app_state::ReviewStatus::Rejected
+                            }
+                        };
+                        session.updated_at = chrono::Utc::now().to_rfc3339();
+                    }
+                }
+            }
+        }
+
+        Action::SetReviewGateLoading { is_loading } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.tasks.review_gate.is_loading = is_loading;
+                }
+            }
+        }
+
+        Action::SetReviewGateError { error } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.tasks.review_gate.error = error;
+                    worktree.tasks.review_gate.is_loading = false;
+                }
+            }
+        }
+
+        Action::SetActiveReviewSession { session_id } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.tasks.review_gate.active_session_id = session_id;
+                }
+            }
+        }
+
+        Action::ClearReviewSession { session_id } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.tasks.review_gate.sessions.remove(&session_id);
+                    if worktree.tasks.review_gate.active_session_id == Some(session_id) {
+                        worktree.tasks.review_gate.active_session_id = None;
+                    }
+                }
+            }
+        }
+
         // ====================================================================
         // Change Management Actions (CESDD Phase 2 - worktree scope)
         // ====================================================================
@@ -504,9 +818,32 @@ pub fn reduce(state: &mut AppState, action: Action) {
                         .find(|c| c.id == change_id)
                     {
                         // Move streaming output to proposal
-                        change.proposal = Some(std::mem::take(&mut change.streaming_output));
+                        let proposal_content = std::mem::take(&mut change.streaming_output);
+                        change.proposal = Some(proposal_content.clone());
                         change.status = crate::app_state::ChangeStatus::Proposed;
                         change.updated_at = chrono::Utc::now().to_rfc3339();
+
+                        // Auto-start ReviewGate review for the proposal
+                        let session_id = uuid::Uuid::new_v4().to_string();
+                        let now = chrono::Utc::now().to_rfc3339();
+                        let session = crate::app_state::ReviewSession {
+                            id: session_id.clone(),
+                            workflow_node_id: format!("proposal-{}", change_id),
+                            status: crate::app_state::ReviewStatus::Reviewing,
+                            content: crate::app_state::ReviewContent {
+                                content_type: crate::app_state::ReviewContentType::Proposal,
+                                content: proposal_content,
+                                file_changes: vec![],
+                            },
+                            policy: crate::app_state::ReviewPolicy::AlwaysReview,
+                            comments: vec![],
+                            iteration: 1,
+                            created_at: now.clone(),
+                            updated_at: now,
+                        };
+                        change.proposal_review_session_id = Some(session_id.clone());
+                        worktree.tasks.review_gate.sessions.insert(session_id.clone(), session);
+                        worktree.tasks.review_gate.active_session_id = Some(session_id);
                     }
                 }
             }
@@ -554,9 +891,32 @@ pub fn reduce(state: &mut AppState, action: Action) {
                         .find(|c| c.id == change_id)
                     {
                         // Move streaming output to plan
-                        change.plan = Some(std::mem::take(&mut change.streaming_output));
+                        let plan_content = std::mem::take(&mut change.streaming_output);
+                        change.plan = Some(plan_content.clone());
                         change.status = crate::app_state::ChangeStatus::Planned;
                         change.updated_at = chrono::Utc::now().to_rfc3339();
+
+                        // Auto-start ReviewGate review for the plan
+                        let session_id = uuid::Uuid::new_v4().to_string();
+                        let now = chrono::Utc::now().to_rfc3339();
+                        let session = crate::app_state::ReviewSession {
+                            id: session_id.clone(),
+                            workflow_node_id: format!("plan-{}", change_id),
+                            status: crate::app_state::ReviewStatus::Reviewing,
+                            content: crate::app_state::ReviewContent {
+                                content_type: crate::app_state::ReviewContentType::Plan,
+                                content: plan_content,
+                                file_changes: vec![],
+                            },
+                            policy: crate::app_state::ReviewPolicy::AlwaysReview,
+                            comments: vec![],
+                            iteration: 1,
+                            created_at: now.clone(),
+                            updated_at: now,
+                        };
+                        change.plan_review_session_id = Some(session_id.clone());
+                        worktree.tasks.review_gate.sessions.insert(session_id.clone(), session);
+                        worktree.tasks.review_gate.active_session_id = Some(session_id);
                     }
                 }
             }
@@ -693,6 +1053,100 @@ pub fn reduce(state: &mut AppState, action: Action) {
             if let Some(project) = state.active_project_mut() {
                 if let Some(worktree) = project.active_worktree_mut() {
                     worktree.changes.is_loading = is_loading;
+                }
+            }
+        }
+
+        Action::StartProposalReview { change_id } => {
+            // Create a ReviewSession for the proposal and link it to the Change
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(change) = worktree
+                        .changes
+                        .changes
+                        .iter_mut()
+                        .find(|c| c.id == change_id)
+                    {
+                        if let Some(proposal) = &change.proposal {
+                            let session_id = uuid::Uuid::new_v4().to_string();
+                            let now = chrono::Utc::now().to_rfc3339();
+
+                            let session = crate::app_state::ReviewSession {
+                                id: session_id.clone(),
+                                workflow_node_id: format!("proposal-{}", change_id),
+                                status: crate::app_state::ReviewStatus::Reviewing,
+                                content: crate::app_state::ReviewContent {
+                                    content_type: crate::app_state::ReviewContentType::Proposal,
+                                    content: proposal.clone(),
+                                    file_changes: vec![],
+                                },
+                                policy: crate::app_state::ReviewPolicy::AlwaysReview,
+                                comments: vec![],
+                                iteration: 1,
+                                created_at: now.clone(),
+                                updated_at: now,
+                            };
+
+                            // Link session to change
+                            change.proposal_review_session_id = Some(session_id.clone());
+                            change.updated_at = chrono::Utc::now().to_rfc3339();
+
+                            // Add session to ReviewGateState
+                            worktree
+                                .tasks
+                                .review_gate
+                                .sessions
+                                .insert(session_id.clone(), session);
+                            worktree.tasks.review_gate.active_session_id = Some(session_id);
+                        }
+                    }
+                }
+            }
+        }
+
+        Action::StartPlanReview { change_id } => {
+            // Create a ReviewSession for the plan and link it to the Change
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(change) = worktree
+                        .changes
+                        .changes
+                        .iter_mut()
+                        .find(|c| c.id == change_id)
+                    {
+                        if let Some(plan) = &change.plan {
+                            let session_id = uuid::Uuid::new_v4().to_string();
+                            let now = chrono::Utc::now().to_rfc3339();
+
+                            let session = crate::app_state::ReviewSession {
+                                id: session_id.clone(),
+                                workflow_node_id: format!("plan-{}", change_id),
+                                status: crate::app_state::ReviewStatus::Reviewing,
+                                content: crate::app_state::ReviewContent {
+                                    content_type: crate::app_state::ReviewContentType::Plan,
+                                    content: plan.clone(),
+                                    file_changes: vec![],
+                                },
+                                policy: crate::app_state::ReviewPolicy::AlwaysReview,
+                                comments: vec![],
+                                iteration: 1,
+                                created_at: now.clone(),
+                                updated_at: now,
+                            };
+
+                            // Link session to change
+                            change.plan_review_session_id = Some(session_id.clone());
+                            change.updated_at = chrono::Utc::now().to_rfc3339();
+
+                            // Add session to ReviewGateState
+                            worktree
+                                .tasks
+                                .review_gate
+                                .sessions
+                                .insert(session_id.clone(), session);
+                            worktree.tasks.review_gate.active_session_id = Some(session_id);
+                        }
+                    }
                 }
             }
         }
@@ -1427,6 +1881,22 @@ fn log_action_if_interesting(state: &mut AppState, action: &Action) {
         Action::CheckConstitutionExists => ("CheckConstitutionExists", true),
         Action::SetConstitutionExists { .. } => ("SetConstitutionExists", true),
         Action::ApplyDefaultConstitution => ("ApplyDefaultConstitution", true),
+        Action::ReadConstitution => ("ReadConstitution", true),
+        Action::SetConstitutionContent { .. } => ("SetConstitutionContent", true),
+
+        // ReviewGate - interesting (key state changes)
+        Action::StartReview { .. } => ("StartReview", true),
+        Action::AddReviewComment { .. } => ("AddReviewComment", true),
+        Action::ResolveReviewComment { .. } => ("ResolveReviewComment", true),
+        Action::SubmitReviewFeedback { .. } => ("SubmitReviewFeedback", true),
+        Action::ApproveReview { .. } => ("ApproveReview", true),
+        Action::RejectReview { .. } => ("RejectReview", true),
+        Action::UpdateReviewContent { .. } => ("UpdateReviewContent", true),
+        Action::SetReviewStatus { .. } => ("SetReviewStatus", true),
+        Action::SetReviewGateLoading { .. } => ("SetReviewGateLoading", false),
+        Action::SetReviewGateError { .. } => ("SetReviewGateError", true),
+        Action::SetActiveReviewSession { .. } => ("SetActiveReviewSession", true),
+        Action::ClearReviewSession { .. } => ("ClearReviewSession", true),
 
         // Change Management - interesting (key state changes)
         Action::CreateChange { .. } => ("CreateChange", true),
@@ -1443,6 +1913,8 @@ fn log_action_if_interesting(state: &mut AppState, action: &Action) {
         Action::RefreshChanges => ("RefreshChanges", true),
         Action::SetChanges { .. } => ("SetChanges", true),
         Action::SetChangesLoading { .. } => ("SetChangesLoading", false),
+        Action::StartProposalReview { .. } => ("StartProposalReview", true),
+        Action::StartPlanReview { .. } => ("StartPlanReview", true),
 
         // Living Context - interesting (key state changes)
         Action::LoadContext => ("LoadContext", true),
@@ -3322,5 +3794,450 @@ mod tests {
         let loaded: AppState = serde_json::from_str(&json).unwrap();
         let worktree = loaded.active_project().unwrap().active_worktree().unwrap();
         assert_eq!(worktree.tasks.constitution_exists, Some(true));
+    }
+
+    // ========================================================================
+    // ReviewGate Tests
+    // ========================================================================
+
+    #[test]
+    fn test_start_review_creates_session() {
+        use crate::actions::{ReviewContentData, ReviewContentTypeData, ReviewPolicyData};
+
+        let mut state = state_with_project();
+
+        // Start a review session
+        reduce(
+            &mut state,
+            Action::StartReview {
+                workflow_node_id: "node-1".to_string(),
+                content: ReviewContentData {
+                    content_type: ReviewContentTypeData::Plan,
+                    content: "# Test Plan".to_string(),
+                    file_changes: vec![],
+                },
+                policy: ReviewPolicyData::AlwaysReview,
+            },
+        );
+
+        // Verify session was created
+        let worktree = state.active_project().unwrap().active_worktree().unwrap();
+        assert_eq!(worktree.tasks.review_gate.sessions.len(), 1);
+        assert!(worktree.tasks.review_gate.active_session_id.is_some());
+
+        let session_id = worktree.tasks.review_gate.active_session_id.clone().unwrap();
+        let session = worktree.tasks.review_gate.sessions.get(&session_id).unwrap();
+        assert_eq!(session.workflow_node_id, "node-1");
+        assert_eq!(session.status, crate::app_state::ReviewStatus::Reviewing);
+        assert_eq!(session.iteration, 1);
+    }
+
+    #[test]
+    fn test_add_review_comment() {
+        use crate::actions::{
+            CommentTargetData, ReviewContentData, ReviewContentTypeData, ReviewPolicyData,
+        };
+
+        let mut state = state_with_project();
+
+        // Start a review session
+        reduce(
+            &mut state,
+            Action::StartReview {
+                workflow_node_id: "node-1".to_string(),
+                content: ReviewContentData {
+                    content_type: ReviewContentTypeData::Plan,
+                    content: "# Test Plan".to_string(),
+                    file_changes: vec![],
+                },
+                policy: ReviewPolicyData::AlwaysReview,
+            },
+        );
+
+        let session_id = state
+            .active_project()
+            .unwrap()
+            .active_worktree()
+            .unwrap()
+            .tasks
+            .review_gate
+            .active_session_id
+            .clone()
+            .unwrap();
+
+        // Add a comment
+        reduce(
+            &mut state,
+            Action::AddReviewComment {
+                session_id: session_id.clone(),
+                target: CommentTargetData::Section {
+                    id: "step-1".to_string(),
+                },
+                content: "Need error handling".to_string(),
+            },
+        );
+
+        // Verify comment was added
+        let worktree = state.active_project().unwrap().active_worktree().unwrap();
+        let session = worktree.tasks.review_gate.sessions.get(&session_id).unwrap();
+        assert_eq!(session.comments.len(), 1);
+        assert_eq!(session.comments[0].content, "Need error handling");
+        assert!(!session.comments[0].resolved);
+    }
+
+    #[test]
+    fn test_resolve_review_comment() {
+        use crate::actions::{
+            CommentTargetData, ReviewContentData, ReviewContentTypeData, ReviewPolicyData,
+        };
+
+        let mut state = state_with_project();
+
+        // Start a review session
+        reduce(
+            &mut state,
+            Action::StartReview {
+                workflow_node_id: "node-1".to_string(),
+                content: ReviewContentData {
+                    content_type: ReviewContentTypeData::Plan,
+                    content: "# Test Plan".to_string(),
+                    file_changes: vec![],
+                },
+                policy: ReviewPolicyData::AlwaysReview,
+            },
+        );
+
+        let session_id = state
+            .active_project()
+            .unwrap()
+            .active_worktree()
+            .unwrap()
+            .tasks
+            .review_gate
+            .active_session_id
+            .clone()
+            .unwrap();
+
+        // Add a comment
+        reduce(
+            &mut state,
+            Action::AddReviewComment {
+                session_id: session_id.clone(),
+                target: CommentTargetData::Document,
+                content: "Fix this".to_string(),
+            },
+        );
+
+        let comment_id = state
+            .active_project()
+            .unwrap()
+            .active_worktree()
+            .unwrap()
+            .tasks
+            .review_gate
+            .sessions
+            .get(&session_id)
+            .unwrap()
+            .comments[0]
+            .id
+            .clone();
+
+        // Resolve the comment
+        reduce(
+            &mut state,
+            Action::ResolveReviewComment {
+                session_id: session_id.clone(),
+                comment_id,
+            },
+        );
+
+        // Verify comment was resolved
+        let worktree = state.active_project().unwrap().active_worktree().unwrap();
+        let session = worktree.tasks.review_gate.sessions.get(&session_id).unwrap();
+        assert!(session.comments[0].resolved);
+    }
+
+    #[test]
+    fn test_approve_review() {
+        use crate::actions::{ReviewContentData, ReviewContentTypeData, ReviewPolicyData};
+
+        let mut state = state_with_project();
+
+        // Start a review session
+        reduce(
+            &mut state,
+            Action::StartReview {
+                workflow_node_id: "node-1".to_string(),
+                content: ReviewContentData {
+                    content_type: ReviewContentTypeData::Plan,
+                    content: "# Test Plan".to_string(),
+                    file_changes: vec![],
+                },
+                policy: ReviewPolicyData::AlwaysReview,
+            },
+        );
+
+        let session_id = state
+            .active_project()
+            .unwrap()
+            .active_worktree()
+            .unwrap()
+            .tasks
+            .review_gate
+            .active_session_id
+            .clone()
+            .unwrap();
+
+        // Approve the review
+        reduce(
+            &mut state,
+            Action::ApproveReview {
+                session_id: session_id.clone(),
+            },
+        );
+
+        // Verify status changed to Approved
+        let worktree = state.active_project().unwrap().active_worktree().unwrap();
+        let session = worktree.tasks.review_gate.sessions.get(&session_id).unwrap();
+        assert_eq!(session.status, crate::app_state::ReviewStatus::Approved);
+    }
+
+    #[test]
+    fn test_reject_review() {
+        use crate::actions::{ReviewContentData, ReviewContentTypeData, ReviewPolicyData};
+
+        let mut state = state_with_project();
+
+        // Start a review session
+        reduce(
+            &mut state,
+            Action::StartReview {
+                workflow_node_id: "node-1".to_string(),
+                content: ReviewContentData {
+                    content_type: ReviewContentTypeData::Plan,
+                    content: "# Test Plan".to_string(),
+                    file_changes: vec![],
+                },
+                policy: ReviewPolicyData::AlwaysReview,
+            },
+        );
+
+        let session_id = state
+            .active_project()
+            .unwrap()
+            .active_worktree()
+            .unwrap()
+            .tasks
+            .review_gate
+            .active_session_id
+            .clone()
+            .unwrap();
+
+        // Reject the review
+        reduce(
+            &mut state,
+            Action::RejectReview {
+                session_id: session_id.clone(),
+                reason: "Needs more detail".to_string(),
+            },
+        );
+
+        // Verify status changed to Rejected and reason was added
+        let worktree = state.active_project().unwrap().active_worktree().unwrap();
+        let session = worktree.tasks.review_gate.sessions.get(&session_id).unwrap();
+        assert_eq!(session.status, crate::app_state::ReviewStatus::Rejected);
+        assert_eq!(session.comments.len(), 1);
+        assert!(session.comments[0].content.contains("Needs more detail"));
+    }
+
+    #[test]
+    fn test_clear_review_session() {
+        use crate::actions::{ReviewContentData, ReviewContentTypeData, ReviewPolicyData};
+
+        let mut state = state_with_project();
+
+        // Start a review session
+        reduce(
+            &mut state,
+            Action::StartReview {
+                workflow_node_id: "node-1".to_string(),
+                content: ReviewContentData {
+                    content_type: ReviewContentTypeData::Plan,
+                    content: "# Test Plan".to_string(),
+                    file_changes: vec![],
+                },
+                policy: ReviewPolicyData::AlwaysReview,
+            },
+        );
+
+        let session_id = state
+            .active_project()
+            .unwrap()
+            .active_worktree()
+            .unwrap()
+            .tasks
+            .review_gate
+            .active_session_id
+            .clone()
+            .unwrap();
+
+        // Clear the session
+        reduce(
+            &mut state,
+            Action::ClearReviewSession {
+                session_id: session_id.clone(),
+            },
+        );
+
+        // Verify session was removed
+        let worktree = state.active_project().unwrap().active_worktree().unwrap();
+        assert!(worktree.tasks.review_gate.sessions.is_empty());
+        assert!(worktree.tasks.review_gate.active_session_id.is_none());
+    }
+
+    // ========================================================================
+    // ReviewGate Workflow Integration Tests
+    // ========================================================================
+
+    #[test]
+    fn test_complete_proposal_creates_review_session_and_links_to_change() {
+        let mut state = state_with_project();
+
+        // Create a change with streaming output (simulating in-progress proposal generation)
+        let change_id = {
+            let worktree = active_worktree_mut(&mut state);
+            let change = crate::app_state::Change {
+                id: "change-123".to_string(),
+                name: "test-change".to_string(),
+                intent: "Test intent".to_string(),
+                status: crate::app_state::ChangeStatus::Planning,
+                proposal: None,
+                plan: None,
+                streaming_output: "# Test Proposal\n\nThis is a test proposal.".to_string(),
+                created_at: "2025-01-01T00:00:00Z".to_string(),
+                updated_at: "2025-01-01T00:00:00Z".to_string(),
+                proposal_review_session_id: None,
+                plan_review_session_id: None,
+            };
+            worktree.changes.changes.push(change);
+            "change-123".to_string()
+        };
+
+        // Dispatch CompleteProposal (which should auto-create review session)
+        reduce(
+            &mut state,
+            Action::CompleteProposal {
+                change_id: change_id.clone(),
+            },
+        );
+
+        // Verify the review session was created
+        let worktree = active_worktree(&state);
+        assert_eq!(worktree.tasks.review_gate.sessions.len(), 1);
+        assert!(worktree.tasks.review_gate.active_session_id.is_some());
+
+        // Verify the change was linked to the session
+        let change = worktree.changes.changes.iter().find(|c| c.id == change_id).unwrap();
+        assert!(change.proposal_review_session_id.is_some());
+        assert_eq!(change.status, crate::app_state::ChangeStatus::Proposed);
+
+        // Verify the session ID matches
+        let session_id = change.proposal_review_session_id.as_ref().unwrap();
+        assert_eq!(worktree.tasks.review_gate.active_session_id.as_ref().unwrap(), session_id);
+
+        // Verify session content
+        let session = worktree.tasks.review_gate.sessions.get(session_id).unwrap();
+        assert_eq!(session.status, crate::app_state::ReviewStatus::Reviewing);
+        assert_eq!(session.content.content_type, crate::app_state::ReviewContentType::Proposal);
+        assert!(session.content.content.contains("Test Proposal"));
+    }
+
+    #[test]
+    fn test_start_proposal_review_does_nothing_without_proposal() {
+        let mut state = state_with_project();
+
+        // Create a change WITHOUT a proposal
+        {
+            let worktree = active_worktree_mut(&mut state);
+            let change = crate::app_state::Change {
+                id: "change-456".to_string(),
+                name: "test-change".to_string(),
+                intent: "Test intent".to_string(),
+                status: crate::app_state::ChangeStatus::Proposed,
+                proposal: None, // No proposal!
+                plan: None,
+                streaming_output: String::new(),
+                created_at: "2025-01-01T00:00:00Z".to_string(),
+                updated_at: "2025-01-01T00:00:00Z".to_string(),
+                proposal_review_session_id: None,
+                plan_review_session_id: None,
+            };
+            worktree.changes.changes.push(change);
+        };
+
+        // Dispatch StartProposalReview
+        reduce(
+            &mut state,
+            Action::StartProposalReview {
+                change_id: "change-456".to_string(),
+            },
+        );
+
+        // Verify NO session was created
+        let worktree = active_worktree(&state);
+        assert!(worktree.tasks.review_gate.sessions.is_empty());
+        assert!(worktree.tasks.review_gate.active_session_id.is_none());
+
+        // Verify change was NOT linked
+        let change = worktree.changes.changes.iter().find(|c| c.id == "change-456").unwrap();
+        assert!(change.proposal_review_session_id.is_none());
+    }
+
+    #[test]
+    fn test_complete_plan_creates_review_session_and_links_to_change() {
+        let mut state = state_with_project();
+
+        // Create a change with streaming output (simulating in-progress plan generation)
+        let change_id = {
+            let worktree = active_worktree_mut(&mut state);
+            let change = crate::app_state::Change {
+                id: "change-789".to_string(),
+                name: "test-change".to_string(),
+                intent: "Test intent".to_string(),
+                status: crate::app_state::ChangeStatus::Proposed,
+                proposal: Some("# Proposal".to_string()),
+                plan: None,
+                streaming_output: "# Test Plan\n\n1. Step one\n2. Step two".to_string(),
+                created_at: "2025-01-01T00:00:00Z".to_string(),
+                updated_at: "2025-01-01T00:00:00Z".to_string(),
+                proposal_review_session_id: None,
+                plan_review_session_id: None,
+            };
+            worktree.changes.changes.push(change);
+            "change-789".to_string()
+        };
+
+        // Dispatch CompletePlan (which should auto-create review session)
+        reduce(
+            &mut state,
+            Action::CompletePlan {
+                change_id: change_id.clone(),
+            },
+        );
+
+        // Verify the review session was created
+        let worktree = active_worktree(&state);
+        assert_eq!(worktree.tasks.review_gate.sessions.len(), 1);
+
+        // Verify the change was linked to the session
+        let change = worktree.changes.changes.iter().find(|c| c.id == change_id).unwrap();
+        assert!(change.plan_review_session_id.is_some());
+        assert_eq!(change.status, crate::app_state::ChangeStatus::Planned);
+
+        // Verify session content
+        let session_id = change.plan_review_session_id.as_ref().unwrap();
+        let session = worktree.tasks.review_gate.sessions.get(session_id).unwrap();
+        assert_eq!(session.content.content_type, crate::app_state::ReviewContentType::Plan);
+        assert!(session.content.content.contains("Test Plan"));
     }
 }

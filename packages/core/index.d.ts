@@ -92,6 +92,24 @@ export declare function dockerCheckPortConflict(serviceId: string): Promise<Port
 export declare function justfileParse(path: string): Array<JustCommand>
 /** Run a just command in a directory */
 export declare function justfileRun(command: string, cwd: string): string
+/**
+ * Read a file from allowed scopes (project root or ~/.rstn/).
+ *
+ * # Arguments
+ * * `path` - Absolute path to the file
+ * * `project_root` - Project root directory (security scope)
+ *
+ * # Security
+ * Only files within project_root or ~/.rstn/ can be read.
+ *
+ * # Errors
+ * - FILE_NOT_FOUND: File does not exist
+ * - PERMISSION_DENIED: OS permission denied
+ * - SECURITY_VIOLATION: Path outside allowed scope
+ * - FILE_TOO_LARGE: File exceeds 10MB limit
+ * - NOT_UTF8: File is not valid UTF-8 text
+ */
+export declare function fileRead(path: string, projectRoot: string): string
 /** Branch info for napi export */
 export interface NapiBranchInfo {
   name: string

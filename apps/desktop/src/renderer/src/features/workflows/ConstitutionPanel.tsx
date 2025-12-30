@@ -21,6 +21,7 @@ export function ConstitutionPanel() {
   const worktree = activeProject?.worktrees?.[activeProject?.active_worktree_index ?? 0]
   const workflow = worktree?.tasks?.constitution_workflow
   const constitutionExists = worktree?.tasks?.constitution_exists
+  const constitutionContent = worktree?.tasks?.constitution_content
 
   // Check constitution exists on mount and clear any stale workflow
   useEffect(() => {
@@ -30,6 +31,13 @@ export function ConstitutionPanel() {
     }
     init()
   }, [dispatch])
+
+  // Read constitution content when it exists
+  useEffect(() => {
+    if (constitutionExists === true && !constitutionContent) {
+      dispatch({ type: 'ReadConstitution' })
+    }
+  }, [constitutionExists, constitutionContent, dispatch])
 
   const questions = [
     {
@@ -96,7 +104,7 @@ export function ConstitutionPanel() {
     )
   }
 
-  // Constitution exists - show success state (only when no active workflow)
+  // Constitution exists - show content (only when no active workflow)
   if (constitutionExists === true && !workflow) {
     return (
       <div className="flex h-full flex-col rounded-lg border">
@@ -105,19 +113,25 @@ export function ConstitutionPanel() {
             <CheckCircle className="h-4 w-4 text-green-500" />
             <span className="text-sm font-medium">Constitution Active</span>
           </div>
+          <Button variant="ghost" size="sm" onClick={handleStartQA}>
+            <RefreshCw className="mr-1 h-3 w-3" />
+            Regenerate
+          </Button>
         </div>
-        <div className="flex flex-1 items-center justify-center p-4">
-          <Card className="p-6 text-center border-green-500/50 bg-green-50 dark:bg-green-950/20">
-            <CheckCircle className="mx-auto h-12 w-12 text-green-500 mb-4" />
-            <h3 className="text-lg font-medium mb-2">Constitution Exists</h3>
-            <p className="text-sm text-muted-foreground mb-4">
-              Your project has a constitution at <code className="text-xs">.rstn/constitutions/</code>
-            </p>
-            <Button variant="outline" size="sm" onClick={handleStartQA}>
-              Regenerate with Q&A
-            </Button>
-          </Card>
-        </div>
+        <ScrollArea className="flex-1 p-4">
+          {constitutionContent ? (
+            <Card className="p-4">
+              <div className="prose prose-sm dark:prose-invert max-w-none">
+                <ReactMarkdown>{constitutionContent}</ReactMarkdown>
+              </div>
+            </Card>
+          ) : (
+            <div className="flex items-center justify-center py-8">
+              <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground mr-2" />
+              <span className="text-sm text-muted-foreground">Loading constitution...</span>
+            </div>
+          )}
+        </ScrollArea>
       </div>
     )
   }

@@ -93,6 +93,10 @@ export interface Change {
   streaming_output: string
   created_at: string
   updated_at: string
+  /** ReviewGate session ID for proposal review */
+  proposal_review_session_id: string | null
+  /** ReviewGate session ID for plan review */
+  plan_review_session_id: string | null
 }
 
 export interface ChangesState {
@@ -172,6 +176,69 @@ export interface TasksState {
   constitution_workflow: ConstitutionWorkflow | null
   /** Whether .rstn/constitution.md exists (null = not checked yet) */
   constitution_exists: boolean | null
+  /** Constitution content (null = not read yet) */
+  constitution_content: string | null
+  /** ReviewGate sessions (CESDD ReviewGate Layer) */
+  review_gate: ReviewGateState
+}
+
+// ============================================================================
+// ReviewGate Types (CESDD ReviewGate Layer)
+// ============================================================================
+
+export type ReviewPolicy = 'AutoApprove' | 'AgentDecides' | 'AlwaysReview'
+
+export type ReviewContentType = 'Plan' | 'Proposal' | 'Code' | 'Artifact'
+
+export type ReviewFileAction = 'create' | 'modify' | 'delete'
+
+export type ReviewStatus = 'pending' | 'reviewing' | 'iterating' | 'approved' | 'rejected'
+
+export type CommentAuthor = 'user' | 'system'
+
+export interface ReviewFileChange {
+  path: string
+  action: ReviewFileAction
+  summary: string
+}
+
+export interface ReviewContent {
+  content_type: ReviewContentType
+  content: string
+  file_changes: ReviewFileChange[]
+}
+
+export type CommentTarget =
+  | { type: 'document' }
+  | { type: 'section'; id: string }
+  | { type: 'file'; path: string }
+
+export interface ReviewComment {
+  id: string
+  target: CommentTarget
+  content: string
+  author: CommentAuthor
+  resolved: boolean
+  created_at: string
+}
+
+export interface ReviewSession {
+  id: string
+  workflow_node_id: string
+  status: ReviewStatus
+  content: ReviewContent
+  policy: ReviewPolicy
+  comments: ReviewComment[]
+  iteration: number
+  created_at: string
+  updated_at: string
+}
+
+export interface ReviewGateState {
+  sessions: Record<string, ReviewSession>
+  active_session_id: string | null
+  is_loading: boolean
+  error: string | null
 }
 
 // ============================================================================
@@ -556,6 +623,104 @@ export interface ApplyDefaultConstitutionAction {
   type: 'ApplyDefaultConstitution'
 }
 
+export interface ReadConstitutionAction {
+  type: 'ReadConstitution'
+}
+
+export interface SetConstitutionContentAction {
+  type: 'SetConstitutionContent'
+  payload: { content: string | null }
+}
+
+// ReviewGate Actions (CESDD ReviewGate Layer)
+export interface StartReviewAction {
+  type: 'StartReview'
+  payload: {
+    workflow_node_id: string
+    content: {
+      content_type: ReviewContentType
+      content: string
+      file_changes: ReviewFileChange[]
+    }
+    policy: ReviewPolicy
+  }
+}
+
+export interface AddReviewCommentAction {
+  type: 'AddReviewComment'
+  payload: {
+    session_id: string
+    target: CommentTarget
+    content: string
+  }
+}
+
+export interface ResolveReviewCommentAction {
+  type: 'ResolveReviewComment'
+  payload: {
+    session_id: string
+    comment_id: string
+  }
+}
+
+export interface SubmitReviewFeedbackAction {
+  type: 'SubmitReviewFeedback'
+  payload: { session_id: string }
+}
+
+export interface ApproveReviewAction {
+  type: 'ApproveReview'
+  payload: { session_id: string }
+}
+
+export interface RejectReviewAction {
+  type: 'RejectReview'
+  payload: {
+    session_id: string
+    reason: string
+  }
+}
+
+export interface UpdateReviewContentAction {
+  type: 'UpdateReviewContent'
+  payload: {
+    session_id: string
+    content: {
+      content_type: ReviewContentType
+      content: string
+      file_changes: ReviewFileChange[]
+    }
+  }
+}
+
+export interface SetReviewStatusAction {
+  type: 'SetReviewStatus'
+  payload: {
+    session_id: string
+    status: ReviewStatus
+  }
+}
+
+export interface SetReviewGateLoadingAction {
+  type: 'SetReviewGateLoading'
+  payload: { is_loading: boolean }
+}
+
+export interface SetReviewGateErrorAction {
+  type: 'SetReviewGateError'
+  payload: { error: string | null }
+}
+
+export interface SetActiveReviewSessionAction {
+  type: 'SetActiveReviewSession'
+  payload: { session_id: string | null }
+}
+
+export interface ClearReviewSessionAction {
+  type: 'ClearReviewSession'
+  payload: { session_id: string }
+}
+
 // Change Management Actions (CESDD Phase 2)
 export interface CreateChangeAction {
   type: 'CreateChange'
@@ -619,6 +784,17 @@ export interface SetChangesAction {
 export interface SetChangesLoadingAction {
   type: 'SetChangesLoading'
   payload: { is_loading: boolean }
+}
+
+// ReviewGate Workflow Integration Actions (CESDD Phase B5)
+export interface StartProposalReviewAction {
+  type: 'StartProposalReview'
+  payload: { change_id: string }
+}
+
+export interface StartPlanReviewAction {
+  type: 'StartPlanReview'
+  payload: { change_id: string }
 }
 
 // Living Context Actions (CESDD Phase 3)
@@ -1107,6 +1283,10 @@ export interface ChangeData {
   streaming_output: string
   created_at: string
   updated_at: string
+  /** ReviewGate session ID for proposal review */
+  proposal_review_session_id: string | null
+  /** ReviewGate session ID for plan review */
+  plan_review_session_id: string | null
 }
 
 // Dev Log Actions
@@ -1156,6 +1336,20 @@ export type Action =
   | CheckConstitutionExistsAction
   | SetConstitutionExistsAction
   | ApplyDefaultConstitutionAction
+  | ReadConstitutionAction
+  | SetConstitutionContentAction
+  | StartReviewAction
+  | AddReviewCommentAction
+  | ResolveReviewCommentAction
+  | SubmitReviewFeedbackAction
+  | ApproveReviewAction
+  | RejectReviewAction
+  | UpdateReviewContentAction
+  | SetReviewStatusAction
+  | SetReviewGateLoadingAction
+  | SetReviewGateErrorAction
+  | SetActiveReviewSessionAction
+  | ClearReviewSessionAction
   | CreateChangeAction
   | GenerateProposalAction
   | AppendProposalOutputAction
@@ -1169,6 +1363,8 @@ export type Action =
   | RefreshChangesAction
   | SetChangesAction
   | SetChangesLoadingAction
+  | StartProposalReviewAction
+  | StartPlanReviewAction
   | LoadContextAction
   | SetContextAction
   | SetContextLoadingAction

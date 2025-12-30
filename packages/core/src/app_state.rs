@@ -836,6 +836,8 @@ impl From<crate::actions::ChangeData> for Change {
             streaming_output: data.streaming_output,
             created_at: data.created_at,
             updated_at: data.updated_at,
+            proposal_review_session_id: data.proposal_review_session_id,
+            plan_review_session_id: data.plan_review_session_id,
         }
     }
 }
@@ -1017,6 +1019,12 @@ pub struct TasksState {
     /// Whether .rstn/constitution.md exists (None = not checked yet)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub constitution_exists: Option<bool>,
+    /// Constitution content (None = not read yet)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub constitution_content: Option<String>,
+    /// ReviewGate sessions (CESDD ReviewGate Layer)
+    #[serde(default)]
+    pub review_gate: ReviewGateState,
 }
 
 /// Constitution workflow status
@@ -1103,6 +1111,12 @@ pub struct Change {
     pub created_at: String,
     /// Last update timestamp (ISO 8601)
     pub updated_at: String,
+    /// ReviewGate session ID for proposal review (CESDD ReviewGate)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proposal_review_session_id: Option<String>,
+    /// ReviewGate session ID for plan review (CESDD ReviewGate)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plan_review_session_id: Option<String>,
 }
 
 /// Change status in CESDD workflow
@@ -1223,6 +1237,168 @@ pub enum Theme {
     System,
     Light,
     Dark,
+}
+
+// ============================================================================
+// ReviewGate State (CESDD ReviewGate Layer)
+// ============================================================================
+
+/// Review policy - determines when human review is required
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "PascalCase")]
+pub enum ReviewPolicy {
+    /// Auto-approve, no review needed
+    AutoApprove,
+    /// Agent decides if review is needed (default)
+    #[default]
+    AgentDecides,
+    /// Always require human review
+    AlwaysReview,
+}
+
+/// Type of content being reviewed
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "PascalCase")]
+pub enum ReviewContentType {
+    /// Implementation plan
+    #[default]
+    Plan,
+    /// Change proposal
+    Proposal,
+    /// Code output
+    Code,
+    /// Other artifacts
+    Artifact,
+}
+
+/// File action type for review
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReviewFileAction {
+    Create,
+    Modify,
+    Delete,
+}
+
+/// Review session status
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ReviewStatus {
+    /// Waiting for content
+    #[default]
+    Pending,
+    /// User is reviewing
+    Reviewing,
+    /// CC is iterating based on feedback
+    Iterating,
+    /// Approved by user
+    Approved,
+    /// Rejected by user
+    Rejected,
+}
+
+/// Comment target granularity
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum CommentTarget {
+    /// Comment on entire document
+    Document,
+    /// Comment on a specific section (markdown heading)
+    Section { id: String },
+    /// Comment on a specific file change
+    File { path: String },
+}
+
+/// Comment author
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum CommentAuthor {
+    /// User comment
+    #[default]
+    User,
+    /// System-generated comment
+    System,
+}
+
+/// Change to a file (for review)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ReviewFileChange {
+    /// File path
+    pub path: String,
+    /// Action to perform
+    pub action: ReviewFileAction,
+    /// Summary of the change
+    pub summary: String,
+}
+
+/// Content being reviewed
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ReviewContent {
+    /// Type of content
+    pub content_type: ReviewContentType,
+    /// Markdown content
+    pub content: String,
+    /// Files that will be changed
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub file_changes: Vec<ReviewFileChange>,
+}
+
+/// A review comment
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ReviewComment {
+    /// Unique identifier
+    pub id: String,
+    /// Target of the comment
+    pub target: CommentTarget,
+    /// Comment content
+    pub content: String,
+    /// Author of the comment
+    pub author: CommentAuthor,
+    /// Whether the comment is resolved
+    pub resolved: bool,
+    /// Creation timestamp (ISO 8601)
+    pub created_at: String,
+}
+
+/// A review session
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ReviewSession {
+    /// Unique identifier
+    pub id: String,
+    /// ID of the workflow node that triggered this review
+    pub workflow_node_id: String,
+    /// Current status
+    pub status: ReviewStatus,
+    /// Content being reviewed
+    pub content: ReviewContent,
+    /// Review policy
+    pub policy: ReviewPolicy,
+    /// Comments on the review
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub comments: Vec<ReviewComment>,
+    /// Current iteration (starts at 1)
+    pub iteration: u32,
+    /// Creation timestamp (ISO 8601)
+    pub created_at: String,
+    /// Last update timestamp (ISO 8601)
+    pub updated_at: String,
+}
+
+/// ReviewGate state container
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct ReviewGateState {
+    /// All active review sessions (session_id -> ReviewSession)
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub sessions: HashMap<String, ReviewSession>,
+    /// Currently active review session ID
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_session_id: Option<String>,
+    /// Whether review sessions are being loaded
+    #[serde(default)]
+    pub is_loading: bool,
+    /// Error message (if any)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 // ============================================================================
@@ -1359,6 +1535,125 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&ServiceStatus::Stopped).unwrap(),
             "\"stopped\""
+        );
+    }
+
+    // ========================================================================
+    // ReviewGate Tests
+    // ========================================================================
+
+    #[test]
+    fn test_review_gate_state_default() {
+        let state = ReviewGateState::default();
+        assert!(state.sessions.is_empty());
+        assert!(state.active_session_id.is_none());
+        assert!(!state.is_loading);
+        assert!(state.error.is_none());
+    }
+
+    #[test]
+    fn test_review_session_serialization() {
+        let session = ReviewSession {
+            id: "test-id".to_string(),
+            workflow_node_id: "node-1".to_string(),
+            status: ReviewStatus::Pending,
+            content: ReviewContent {
+                content_type: ReviewContentType::Plan,
+                content: "# Test Plan".to_string(),
+                file_changes: vec![],
+            },
+            policy: ReviewPolicy::AlwaysReview,
+            comments: vec![],
+            iteration: 1,
+            created_at: "2025-01-01T00:00:00Z".to_string(),
+            updated_at: "2025-01-01T00:00:00Z".to_string(),
+        };
+
+        let json = serde_json::to_string(&session).unwrap();
+        let loaded: ReviewSession = serde_json::from_str(&json).unwrap();
+        assert_eq!(session, loaded);
+    }
+
+    #[test]
+    fn test_comment_target_serialization() {
+        // Section target
+        let target = CommentTarget::Section {
+            id: "step-1".to_string(),
+        };
+        let json = serde_json::to_string(&target).unwrap();
+        assert!(json.contains("section"));
+        let loaded: CommentTarget = serde_json::from_str(&json).unwrap();
+        assert_eq!(target, loaded);
+
+        // Document target
+        let doc_target = CommentTarget::Document;
+        let doc_json = serde_json::to_string(&doc_target).unwrap();
+        assert!(doc_json.contains("document"));
+
+        // File target
+        let file_target = CommentTarget::File {
+            path: "src/main.rs".to_string(),
+        };
+        let file_json = serde_json::to_string(&file_target).unwrap();
+        assert!(file_json.contains("file"));
+    }
+
+    #[test]
+    fn test_review_comment_serialization() {
+        let comment = ReviewComment {
+            id: "comment-1".to_string(),
+            target: CommentTarget::Section {
+                id: "architecture".to_string(),
+            },
+            content: "Need to consider error handling".to_string(),
+            author: CommentAuthor::User,
+            resolved: false,
+            created_at: "2025-01-01T00:00:00Z".to_string(),
+        };
+
+        let json = serde_json::to_string(&comment).unwrap();
+        let loaded: ReviewComment = serde_json::from_str(&json).unwrap();
+        assert_eq!(comment, loaded);
+        assert!(!loaded.resolved);
+    }
+
+    #[test]
+    fn test_review_policy_serialization() {
+        assert_eq!(
+            serde_json::to_string(&ReviewPolicy::AutoApprove).unwrap(),
+            "\"AutoApprove\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ReviewPolicy::AgentDecides).unwrap(),
+            "\"AgentDecides\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ReviewPolicy::AlwaysReview).unwrap(),
+            "\"AlwaysReview\""
+        );
+    }
+
+    #[test]
+    fn test_review_status_serialization() {
+        assert_eq!(
+            serde_json::to_string(&ReviewStatus::Pending).unwrap(),
+            "\"pending\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ReviewStatus::Reviewing).unwrap(),
+            "\"reviewing\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ReviewStatus::Iterating).unwrap(),
+            "\"iterating\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ReviewStatus::Approved).unwrap(),
+            "\"approved\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ReviewStatus::Rejected).unwrap(),
+            "\"rejected\""
         );
     }
 }

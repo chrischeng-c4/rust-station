@@ -7,7 +7,7 @@ import { ContextPanel } from './ContextPanel'
 
 /**
  * Available workflow definitions.
- * In the future, this could be loaded from the backend.
+ * ReviewGate is NOT a separate workflow - it's integrated into Change Management.
  */
 const WORKFLOWS = [
   {
@@ -25,7 +25,7 @@ const WORKFLOWS = [
   {
     id: 'change-management',
     name: 'Change Management',
-    description: 'Create and manage changes with proposal and plan generation',
+    description: 'Create and manage changes with proposal, plan generation, and review',
     icon: GitBranch,
   },
 ]
