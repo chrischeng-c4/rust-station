@@ -81,6 +81,55 @@ fn get_mcp_server_manager() -> &'static Arc<McpServerManager> {
     MCP_SERVER_MANAGER.get_or_init(|| Arc::new(McpServerManager::new()))
 }
 
+/// Read context files and format them for Claude prompt injection
+fn build_context_files_section(paths: &[String], project_root: &str) -> String {
+    if paths.is_empty() {
+        return String::new();
+    }
+
+    let mut sections = Vec::new();
+    for path in paths {
+        // Build absolute path if relative
+        let abs_path = if std::path::Path::new(path).is_absolute() {
+            path.clone()
+        } else {
+            std::path::Path::new(project_root).join(path).to_string_lossy().to_string()
+        };
+
+        match file_reader::read_file(&abs_path, project_root) {
+            Ok(content) => {
+                // Detect language from extension for code fence
+                let ext = std::path::Path::new(path)
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("");
+                let lang = match ext {
+                    "rs" => "rust",
+                    "ts" | "tsx" => "typescript",
+                    "js" | "jsx" => "javascript",
+                    "py" => "python",
+                    "json" => "json",
+                    "yaml" | "yml" => "yaml",
+                    "toml" => "toml",
+                    "md" => "markdown",
+                    "sh" => "bash",
+                    _ => ext,
+                };
+                sections.push(format!("### {}\n```{}\n{}\n```", path, lang, content));
+            }
+            Err(e) => {
+                eprintln!("Warning: Failed to read context file '{}': {}", path, e);
+            }
+        }
+    }
+
+    if sections.is_empty() {
+        return String::new();
+    }
+
+    format!("\n## Selected Source Files\n\n{}", sections.join("\n\n"))
+}
+
 
 /// Check if Docker is available
 #[napi]
@@ -464,10 +513,16 @@ pub fn state_init(
         persisted.apply_to(&mut initial_state);
 
         // Auto-open the most recent project if it exists on disk
-        if let Some(recent) = initial_state.recent_projects.first() {
-            let path = recent.path.clone();
-            if std::path::Path::new(&path).exists() {
-                reduce(&mut initial_state, Action::OpenProject { path });
+        // Skip auto-open in test mode to ensure clean E2E test environment
+        let is_test_mode = std::env::var("RSTN_TEST_MODE")
+            .map(|v| v == "1")
+            .unwrap_or(false);
+        if !is_test_mode {
+            if let Some(recent) = initial_state.recent_projects.first() {
+                let path = recent.path.clone();
+                if std::path::Path::new(&path).exists() {
+                    reduce(&mut initial_state, Action::OpenProject { path });
+                }
             }
         }
     }
@@ -1560,7 +1615,7 @@ async fn handle_async_action(action: Action) -> napi::Result<()> {
 
         Action::GenerateConstitution => {
             // Get workflow state and build prompt
-            let (cwd, answers) = {
+            let (cwd, answers, use_claude_md_reference) = {
                 let state = get_app_state().read().await;
                 let cwd = state
                     .active_project()
@@ -1571,7 +1626,13 @@ async fn handle_async_action(action: Action) -> napi::Result<()> {
                     .and_then(|p| p.active_worktree())
                     .and_then(|w| w.tasks.constitution_workflow.as_ref())
                     .map(|wf| wf.answers.clone());
-                (cwd, answers)
+                let use_claude_md = state
+                    .active_project()
+                    .and_then(|p| p.active_worktree())
+                    .and_then(|w| w.tasks.constitution_workflow.as_ref())
+                    .map(|wf| wf.use_claude_md_reference)
+                    .unwrap_or(false);
+                (cwd, answers, use_claude_md)
             };
 
             let cwd = match cwd {
@@ -1584,14 +1645,62 @@ async fn handle_async_action(action: Action) -> napi::Result<()> {
                 None => return Ok(()),
             };
 
+            // Read CLAUDE.md content if reference is enabled
+            let claude_md_content = if use_claude_md_reference {
+                constitution::read_claude_md(&cwd)
+            } else {
+                None
+            };
+
             // Build constitution generation prompt
             let tech_stack = answers.get("tech_stack").cloned().unwrap_or_default();
             let security = answers.get("security").cloned().unwrap_or_default();
             let code_quality = answers.get("code_quality").cloned().unwrap_or_default();
             let architecture = answers.get("architecture").cloned().unwrap_or_default();
 
-            let prompt = format!(
-                r#"You are helping create a project Constitution - governance rules for AI development.
+            let prompt = if let Some(claude_md) = claude_md_content {
+                format!(
+                    r#"You are helping create a project Constitution - governance rules for AI development.
+
+IMPORTANT: The project has existing guidelines in CLAUDE.md that should be respected and incorporated:
+
+--- Existing CLAUDE.md ---
+{}
+--- End CLAUDE.md ---
+
+User provided the following additional information:
+- Technology Stack: {}
+- Security Requirements: {}
+- Code Quality Standards: {}
+- Architectural Constraints: {}
+
+Generate a comprehensive constitution.md file in Markdown format that:
+1. Incorporates relevant rules and guidelines from CLAUDE.md
+2. Adds new rules based on user answers above
+3. Avoids contradicting existing guidelines
+4. Organizes everything into clear sections
+
+Structure:
+# Project Constitution
+
+## Technology Stack
+{{rules from CLAUDE.md + user input}}
+
+## Security Requirements
+{{rules from CLAUDE.md + user input}}
+
+## Code Quality Standards
+{{rules from CLAUDE.md + user input}}
+
+## Architectural Constraints
+{{rules from CLAUDE.md + user input}}
+
+Be specific, actionable, and authoritative. Use "MUST", "MUST NOT" language."#,
+                    claude_md, tech_stack, security, code_quality, architecture
+                )
+            } else {
+                format!(
+                    r#"You are helping create a project Constitution - governance rules for AI development.
 
 User provided the following information:
 - Technology Stack: {}
@@ -1616,8 +1725,9 @@ Generate a comprehensive constitution.md file in Markdown format with these sect
 {{detailed rules based on architecture}}
 
 Be specific, actionable, and authoritative. Use "MUST", "MUST NOT" language."#,
-                tech_stack, security, code_quality, architecture
-            );
+                    tech_stack, security, code_quality, architecture
+                )
+            };
 
             // Spawn Claude CLI to generate constitution
             let cwd_for_task = cwd.clone();
@@ -1780,12 +1890,18 @@ Be specific, actionable, and authoritative. Use "MUST", "MUST NOT" language."#,
             };
 
             if let Some(wt_path) = worktree_path {
+                let path = std::path::Path::new(&wt_path);
+
                 // Check for modular (.rstn/constitutions/) or legacy (.rstn/constitution.md)
-                let exists = constitution::constitution_exists(std::path::Path::new(&wt_path));
+                let exists = constitution::constitution_exists(path);
+
+                // Also check for CLAUDE.md in project root
+                let claude_md_exists = constitution::claude_md_exists(path);
 
                 {
                     let mut state = get_app_state().write().await;
                     reduce(&mut state, Action::SetConstitutionExists { exists });
+                    reduce(&mut state, Action::SetClaudeMdExists { exists: claude_md_exists });
                 }
                 notify_state_update().await;
             }
@@ -1818,6 +1934,78 @@ Be specific, actionable, and authoritative. Use "MUST", "MUST NOT" language."#,
         }
 
         Action::SetConstitutionContent { .. } => {
+            // Sync action - handled in reducer
+        }
+
+        Action::SetClaudeMdExists { .. } => {
+            // Sync action - handled in reducer
+        }
+
+        Action::ReadClaudeMd => {
+            // Get the active worktree path
+            let worktree_path = {
+                let state = get_app_state().read().await;
+                state
+                    .active_project()
+                    .and_then(|p| p.active_worktree())
+                    .map(|w| w.path.clone())
+            };
+
+            if let Some(wt_path) = worktree_path {
+                // Read CLAUDE.md content from project root
+                let content = constitution::read_claude_md(std::path::Path::new(&wt_path));
+
+                {
+                    let mut state = get_app_state().write().await;
+                    reduce(&mut state, Action::SetClaudeMdContent { content });
+                }
+                notify_state_update().await;
+            }
+        }
+
+        Action::SetClaudeMdContent { .. } => {
+            // Sync action - handled in reducer
+        }
+
+        Action::ImportClaudeMd => {
+            // Get the active worktree path
+            let worktree_path = {
+                let state = get_app_state().read().await;
+                state
+                    .active_project()
+                    .and_then(|p| p.active_worktree())
+                    .map(|w| w.path.clone())
+            };
+
+            if let Some(wt_path) = worktree_path {
+                let path = std::path::Path::new(&wt_path);
+                let claude_md_path = path.join("CLAUDE.md");
+                let rstn_dir = path.join(".rstn");
+                let constitution_path = rstn_dir.join("constitution.md");
+
+                // Read CLAUDE.md and write to .rstn/constitution.md
+                if let Ok(content) = std::fs::read_to_string(&claude_md_path) {
+                    // Ensure .rstn directory exists
+                    let _ = std::fs::create_dir_all(&rstn_dir);
+
+                    // Write to constitution.md
+                    if std::fs::write(&constitution_path, &content).is_ok() {
+                        {
+                            let mut state = get_app_state().write().await;
+                            reduce(&mut state, Action::SetConstitutionExists { exists: true });
+                            reduce(&mut state, Action::SetConstitutionContent { content: Some(content) });
+                        }
+                        notify_state_update().await;
+                    }
+                }
+            }
+        }
+
+        Action::SkipClaudeMdImport => {
+            // Sync action - handled in reducer
+        }
+
+        Action::SetUseClaudeMdReference { .. } => {
             // Sync action - handled in reducer
         }
 
@@ -1952,6 +2140,7 @@ Be specific, actionable, and authoritative. Use "MUST", "MUST NOT" language."#,
                     updated_at: now,
                     proposal_review_session_id: None,
                     plan_review_session_id: None,
+                    context_files: Vec::new(),
                 };
 
                 {
@@ -2008,11 +2197,15 @@ Be specific, actionable, and authoritative. Use "MUST", "MUST NOT" language."#,
             let constitution_content = constitution::read_constitution(std::path::Path::new(&wt_path))
                 .unwrap_or_default();
 
+            // Read selected context files
+            let context_files_section = build_context_files_section(&change.context_files, &wt_path);
+
             // Build prompt for proposal generation
             let prompt = format!(
                 r#"You are a senior software architect. Generate a proposal document for the following feature request.
 
 ## Project Context
+{}
 {}
 
 ## Feature Intent
@@ -2029,6 +2222,7 @@ Write a proposal.md document that includes:
 
 Output ONLY the markdown content, no code blocks or extra formatting."#,
                 if constitution_content.is_empty() { "(No constitution found)".to_string() } else { constitution_content },
+                context_files_section,
                 change.intent
             );
 
@@ -2180,6 +2374,9 @@ Output ONLY the markdown content, no code blocks or extra formatting."#,
             }
             notify_state_update().await;
 
+            // Read selected context files
+            let context_files_section = build_context_files_section(&change.context_files, &wt_path);
+
             // Build prompt for plan generation
             let prompt = format!(
                 r#"You are a senior software architect. Generate an implementation plan for the following proposal.
@@ -2188,6 +2385,7 @@ Output ONLY the markdown content, no code blocks or extra formatting."#,
 {}
 
 ## Proposal
+{}
 {}
 
 ## Instructions
@@ -2201,7 +2399,8 @@ Be specific and actionable. Each step should be small enough to implement in one
 
 Output ONLY the markdown content, no code blocks or extra formatting."#,
                 change.intent,
-                proposal
+                proposal,
+                context_files_section
             );
 
             // Spawn Claude CLI with streaming
@@ -2313,6 +2512,9 @@ Output ONLY the markdown content, no code blocks or extra formatting."#,
         | Action::CancelChange { .. }
         | Action::SelectChange { .. }
         | Action::SetChangesLoading { .. }
+        | Action::AddContextFile { .. }
+        | Action::RemoveContextFile { .. }
+        | Action::ClearContextFiles { .. }
         | Action::AppendImplementationOutput { .. }
         | Action::CompleteImplementation { .. }
         | Action::FailImplementation { .. }
@@ -2570,6 +2772,7 @@ Execute the plan now. Start implementing."#,
                                     updated_at: now,
                                     proposal_review_session_id: None,
                                     plan_review_session_id: None,
+                                    context_files: Vec::new(),
                                 });
                             }
                         }

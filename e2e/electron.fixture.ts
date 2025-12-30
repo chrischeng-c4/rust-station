@@ -19,6 +19,8 @@ export const test = base.extend<{
         NODE_ENV: 'test',
         // Enable headless mode (skips mainWindow.show())
         HEADLESS: 'true',
+        // Skip auto-open of recent project for clean test environment
+        RSTN_TEST_MODE: '1',
       },
     })
 
