@@ -105,3 +105,9 @@ playwright-report/
 .pnpm-store/
 
 .changes/*
+
+# Local project state
+.rstn/
+
+# E2E screenshot outputs
+e2e/screenshots/
