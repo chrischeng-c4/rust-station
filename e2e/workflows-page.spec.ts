@@ -20,17 +20,17 @@ test.describe('Workflows Page - Constitution Panel via Workflows Tab', () => {
   })
 
   test('should display Workflows page with workflow list', async ({ page }) => {
-    // Should show Workflows heading
-    await expect(page.getByRole('heading', { name: 'Workflows' })).toBeVisible()
+    // Should show Workflows heading (with increased timeout for initial load)
+    await expect(page.getByRole('heading', { name: 'Workflows' })).toBeVisible({ timeout: 10000 })
 
-    // Should show Constitution Setup workflow
-    await expect(page.getByText('Constitution Setup')).toBeVisible()
+    // Should show Constitution Management workflow
+    await expect(page.getByText('Constitution Management')).toBeVisible({ timeout: 5000 })
     await expect(
       page.getByText('Initialize or update project constitution for AI-assisted development')
     ).toBeVisible()
 
-    // Should show Living Context workflow
-    await expect(page.getByText('Living Context')).toBeVisible()
+    // Should show Context Management workflow
+    await expect(page.getByText('Context Management')).toBeVisible()
 
     // Should show Change Management workflow
     await expect(page.getByText('Change Management')).toBeVisible()
@@ -39,8 +39,8 @@ test.describe('Workflows Page - Constitution Panel via Workflows Tab', () => {
     expect(consoleErrors.filter((e) => !e.includes('Electron Security Warning'))).toHaveLength(0)
   })
 
-  test('should show Constitution Panel when Constitution Setup is selected', async ({ page }) => {
-    // Constitution Setup is selected by default, wait for panel to load
+  test('should show Constitution Panel when Constitution Management is selected', async ({ page }) => {
+    // Constitution Management is selected by default, wait for panel to load
     await page.waitForTimeout(1500)
 
     // Check state
@@ -58,7 +58,8 @@ test.describe('Workflows Page - Constitution Panel via Workflows Tab', () => {
       })
       await expect(page.getByRole('button', { name: /Create with Q&A/i })).toBeVisible()
     } else if (constitutionExists === true) {
-      await expect(page.getByRole('heading', { name: /Constitution/i })).toBeVisible({ timeout: 5000 })
+      // Use exact match to avoid matching both "Constitution Setup" and "Constitution"
+      await expect(page.getByRole('heading', { name: 'Constitution', exact: true })).toBeVisible({ timeout: 5000 })
     } else {
       // Still loading or checking
       console.log('Constitution status still loading')
@@ -118,12 +119,12 @@ test.describe('Workflows Page - Constitution Panel via Workflows Tab', () => {
   })
 
   test('should navigate between workflows', async ({ page }) => {
-    // Click on Living Context
-    await page.getByText('Living Context').click()
+    // Click on Context Management
+    await page.getByText('Context Management').click()
     await page.waitForTimeout(300)
 
-    // Should show Living Context panel content
-    await expect(page.getByRole('heading', { name: /Living Context/i }).first()).toBeVisible({ timeout: 3000 })
+    // Should show Context Management panel content
+    await expect(page.getByRole('heading', { name: /Context Management/i }).first()).toBeVisible({ timeout: 3000 })
 
     // Click on Change Management
     await page.getByText('Change Management').click()
@@ -132,8 +133,8 @@ test.describe('Workflows Page - Constitution Panel via Workflows Tab', () => {
     // Should show Change Management panel content (use heading to be specific)
     await expect(page.getByRole('heading', { name: 'Change Management' }).first()).toBeVisible({ timeout: 3000 })
 
-    // Click back on Constitution Setup
-    await page.getByText('Constitution Setup').click()
+    // Click back on Constitution Management
+    await page.getByText('Constitution Management').click()
     await page.waitForTimeout(1000)
 
     // Should show Constitution panel again
@@ -143,7 +144,8 @@ test.describe('Workflows Page - Constitution Panel via Workflows Tab', () => {
     if (worktree?.tasks?.constitution_exists === false) {
       await expect(page.getByRole('button', { name: /Apply Default Template/i })).toBeVisible()
     } else {
-      await expect(page.getByRole('heading', { name: /Constitution/i })).toBeVisible()
+      // Use exact match to avoid matching both "Constitution Setup" and "Constitution"
+      await expect(page.getByRole('heading', { name: 'Constitution', exact: true })).toBeVisible()
     }
   })
 
@@ -171,12 +173,12 @@ test.describe('Workflows Page - Constitution Panel via Workflows Tab', () => {
     // Should be on question 2
     await expect(page.getByText('1 / 4 questions answered')).toBeVisible()
 
-    // Navigate to Living Context
-    await page.getByText('Living Context').click()
+    // Navigate to Context Management
+    await page.getByText('Context Management').click()
     await page.waitForTimeout(500)
 
-    // Navigate back to Constitution Setup
-    await page.getByText('Constitution Setup').click()
+    // Navigate back to Constitution Management
+    await page.getByText('Constitution Management').click()
     await page.waitForTimeout(1000)
 
     // Workflow state should be preserved - should still be on question 2
@@ -241,5 +243,82 @@ test.describe('Workflows Page - Constitution Panel via Workflows Tab', () => {
         ?.constitution_workflow
     expect(workflowAfter?.current_question).toBe(4)
     expect(workflowAfter?.status).toBe('collecting')
+  })
+
+  test('should apply default template when button is clicked', async ({ page }) => {
+    await page.waitForTimeout(1500)
+
+    const state = await getAppState(page)
+    const worktree = state?.projects?.[state?.active_project_index]?.worktrees?.[0]
+
+    if (worktree?.tasks?.constitution_exists !== false) {
+      console.log('Skipping test - constitution already exists')
+      return
+    }
+
+    // Click "Apply Default Template"
+    const applyButton = page.getByRole('button', { name: /Apply Default Template/i })
+    await expect(applyButton).toBeVisible()
+    await applyButton.click()
+
+    // Wait for the action to complete
+    await page.waitForTimeout(2000)
+
+    // Should show constitution content or success state
+    const stateAfter = await getAppState(page)
+    const worktreeAfter = stateAfter?.projects?.[stateAfter?.active_project_index]?.worktrees?.[0]
+
+    // Constitution should now exist
+    expect(worktreeAfter?.tasks?.constitution_exists).toBe(true)
+  })
+
+  test('should show CLAUDE.md import option when CLAUDE.md exists', async ({ page }) => {
+    await page.waitForTimeout(1500)
+
+    const state = await getAppState(page)
+    const worktree = state?.projects?.[state?.active_project_index]?.worktrees?.[0]
+
+    // This test only runs if CLAUDE.md exists and constitution doesn't
+    if (worktree?.tasks?.claude_md_exists !== true || worktree?.tasks?.constitution_exists !== false) {
+      console.log('Skipping test - CLAUDE.md not found or constitution already exists')
+      return
+    }
+
+    // Should show the CLAUDE.md import option
+    await expect(page.getByText(/CLAUDE\.md found/i)).toBeVisible()
+    await expect(page.getByRole('button', { name: /Use This/i })).toBeVisible()
+    await expect(page.getByRole('button', { name: /Skip/i })).toBeVisible()
+  })
+
+  test('should regenerate constitution when Regenerate button is clicked', async ({ page }) => {
+    await page.waitForTimeout(1500)
+
+    const state = await getAppState(page)
+    const worktree = state?.projects?.[state?.active_project_index]?.worktrees?.[0]
+
+    if (worktree?.tasks?.constitution_exists !== true) {
+      console.log('Skipping test - constitution does not exist')
+      return
+    }
+
+    // Should see Regenerate button
+    const regenButton = page.getByRole('button', { name: /Regenerate/i })
+    if (!(await regenButton.isVisible())) {
+      console.log('Regenerate button not visible')
+      return
+    }
+
+    await regenButton.click()
+    await page.waitForTimeout(500)
+
+    // Should show Q&A workflow
+    await expect(page.getByRole('button', { name: 'Rust' })).toBeVisible()
+    await expect(page.getByText(/0 \/ 4 questions answered/i)).toBeVisible()
+
+    // Verify workflow state
+    const stateAfter = await getAppState(page)
+    const worktreeAfter = stateAfter?.projects?.[stateAfter?.active_project_index]?.worktrees?.[0]
+    expect(worktreeAfter?.tasks?.constitution_workflow).toBeDefined()
+    expect(worktreeAfter?.tasks?.constitution_workflow?.status).toBe('collecting')
   })
 })

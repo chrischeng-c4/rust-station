@@ -37,7 +37,7 @@ test.describe.skip('Constitution Workflow - Full Integration (LEGACY)', () => {
 
   test('should display Initialize Constitution command', async ({ page }) => {
     // Verify command appears in list (searches for command name)
-    const cmd = page.getByText('constitution-init')
+    const cmd = page.getByText('constitution-management')
     await expect(cmd).toBeVisible()
 
     // Should have description
@@ -54,9 +54,9 @@ test.describe.skip('Constitution Workflow - Full Integration (LEGACY)', () => {
     console.log('BEFORE CLICK - Has project:', !!activeProject)
     console.log('BEFORE CLICK - Has worktrees:', activeProject?.worktrees?.length)
 
-    // Click the play button for constitution-init command
+    // Click the play button for constitution-management command
     // Use data-testid for reliable selection
-    const playButton = page.getByTestId('task-card-constitution-init').locator('button')
+    const playButton = page.getByTestId('task-card-constitution-management').locator('button')
 
     // Check if button exists before clicking
     const buttonCount = await playButton.count()
@@ -94,7 +94,7 @@ test.describe.skip('Constitution Workflow - Full Integration (LEGACY)', () => {
   })
 
   test('should enable Next button when options selected', async ({ page }) => {
-    const playButton = page.getByTestId('task-card-constitution-init').locator('button')
+    const playButton = page.getByTestId('task-card-constitution-management').locator('button')
     await playButton.click()
     await page.waitForTimeout(1000)
 
@@ -120,7 +120,7 @@ test.describe.skip('Constitution Workflow - Full Integration (LEGACY)', () => {
   })
 
   test('should advance through all 4 questions', async ({ page }) => {
-    const playButton = page.getByTestId('task-card-constitution-init').locator('button')
+    const playButton = page.getByTestId('task-card-constitution-management').locator('button')
     await playButton.click()
     await page.waitForTimeout(1000)
 
@@ -178,7 +178,7 @@ test.describe.skip('Constitution Workflow - Full Integration (LEGACY)', () => {
   })
 
   test('should show checkmarks for answered questions', async ({ page }) => {
-    const playButton = page.getByTestId('task-card-constitution-init').locator('button')
+    const playButton = page.getByTestId('task-card-constitution-management').locator('button')
     await playButton.click()
     await page.waitForTimeout(1000)
 
@@ -208,7 +208,7 @@ test.describe.skip('Constitution Workflow - Full Integration (LEGACY)', () => {
   })
 
   test('should preserve state when navigating away and back', async ({ page }) => {
-    const playButton = page.getByTestId('task-card-constitution-init').locator('button')
+    const playButton = page.getByTestId('task-card-constitution-management').locator('button')
     await playButton.click()
     await page.waitForTimeout(1000)
 
@@ -247,7 +247,7 @@ test.describe.skip('Constitution Workflow - Full Integration (LEGACY)', () => {
       await page.waitForTimeout(500)
 
       // Select Constitution again
-      const playButtonAgain = page.getByTestId('task-card-constitution-init').locator('button')
+      const playButtonAgain = page.getByTestId('task-card-constitution-management').locator('button')
       await playButtonAgain.click()
       await page.waitForTimeout(500)
 
@@ -259,7 +259,7 @@ test.describe.skip('Constitution Workflow - Full Integration (LEGACY)', () => {
 
   test('should handle Generate Constitution click', async ({ page }) => {
     // Complete all 4 questions
-    const playButton = page.getByTestId('task-card-constitution-init').locator('button')
+    const playButton = page.getByTestId('task-card-constitution-management').locator('button')
     await playButton.click()
     await page.waitForTimeout(1000)
 
@@ -319,7 +319,7 @@ test.describe.skip('Constitution Workflow - Full Integration (LEGACY)', () => {
     // Note: This test verifies the UI shows the modular constitution options
     // The actual file creation is tested in Rust unit tests
 
-    const playButton = page.getByTestId('task-card-constitution-init').locator('button')
+    const playButton = page.getByTestId('task-card-constitution-management').locator('button')
     await playButton.click()
     await page.waitForTimeout(1500)
 
@@ -348,8 +348,8 @@ test.describe.skip('Constitution Workflow - Full Integration (LEGACY)', () => {
   })
 
   test('should show constitution badge on task card', async ({ page }) => {
-    // The constitution-init task card should show a status badge
-    const taskCard = page.getByTestId('task-card-constitution-init')
+    // The constitution-management task card should show a status badge
+    const taskCard = page.getByTestId('task-card-constitution-management')
     await expect(taskCard).toBeVisible()
 
     // Should have either a checkmark (exists), warning (missing), or spinner (loading)

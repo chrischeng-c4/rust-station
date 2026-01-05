@@ -256,6 +256,9 @@ pub enum Action {
     /// Save the generated constitution to .rstn/constitutions/custom.md
     SaveConstitution,
 
+    /// Set constitution generation error (internal, called when Claude fails)
+    SetConstitutionError { error: String },
+
     /// Check if constitution file exists (async trigger)
     CheckConstitutionExists,
 
@@ -288,6 +291,31 @@ pub enum Action {
 
     /// Set whether to reference CLAUDE.md during constitution generation
     SetUseClaudeMdReference { use_reference: bool },
+
+    // ========================================================================
+    // Constitution Mode & Presets Actions (integrated from Agent Rules)
+    // ========================================================================
+    /// Set constitution mode (Rules or Presets)
+    SetConstitutionMode { mode: ConstitutionModeData },
+
+    /// Select and activate a constitution preset (None = deactivate)
+    SelectConstitutionPreset { preset_id: Option<String> },
+
+    /// Create a new custom constitution preset
+    CreateConstitutionPreset { name: String, prompt: String },
+
+    /// Update an existing constitution preset
+    UpdateConstitutionPreset {
+        id: String,
+        name: String,
+        prompt: String,
+    },
+
+    /// Delete a custom constitution preset (cannot delete built-in presets)
+    DeleteConstitutionPreset { id: String },
+
+    /// Set temp file path for preset (internal, after generation)
+    SetConstitutionPresetTempFile { path: Option<String> },
 
     // ========================================================================
     // ReviewGate Actions (CESDD ReviewGate Layer)
@@ -723,8 +751,16 @@ pub enum ActiveViewData {
     Mcp,
     Chat,
     Terminal,
-    #[serde(rename = "agent_rules")]
-    AgentRules,
+}
+
+/// Constitution mode for actions (Rules = modular, Presets = full prompt)
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum ConstitutionModeData {
+    /// Modular rules from .rstn/constitutions/*.md (context-aware)
+    Rules,
+    /// Single preset replaces entire system prompt
+    Presets,
 }
 
 /// Source of the dev log for actions

@@ -14,11 +14,11 @@ export type FeatureTab = 'tasks' | 'dockers' | 'settings'
 /**
  * Active view in the main content area.
  * Maps to scope levels:
- * - tasks, settings, mcp, chat, terminal: Worktree scope
+ * - tasks, settings, mcp, chat, terminal, workflows: Worktree scope
  * - dockers: Global scope
- * - env, agent_rules: Project scope
+ * - env: Project scope
  */
-export type ActiveView = 'tasks' | 'settings' | 'dockers' | 'env' | 'mcp' | 'chat' | 'terminal' | 'agent_rules' | 'workflows' | 'a2ui'
+export type ActiveView = 'tasks' | 'settings' | 'dockers' | 'env' | 'mcp' | 'chat' | 'terminal' | 'workflows' | 'claude-code' | 'a2ui'
 
 // ============================================================================
 // Docker State
@@ -161,7 +161,7 @@ export interface JustCommandInfo {
 /**
  * Constitution workflow status (CESDD Phase 1)
  */
-export type WorkflowStatus = 'collecting' | 'generating' | 'complete'
+export type WorkflowStatus = 'collecting' | 'generating' | 'complete' | 'error'
 
 /**
  * Constitution initialization workflow state
@@ -177,6 +177,38 @@ export interface ConstitutionWorkflow {
   status: WorkflowStatus
   /** Whether to include CLAUDE.md content as reference during generation */
   use_claude_md_reference: boolean
+  /** Error message if generation failed */
+  error?: string
+}
+
+// ============================================================================
+// Constitution Presets (integrated from Agent Rules)
+// ============================================================================
+
+/**
+ * Constitution mode - Rules (modular) or Presets (full prompt)
+ */
+export type ConstitutionMode = 'rules' | 'presets'
+
+/**
+ * Constitution preset with custom system prompt
+ */
+export interface ConstitutionPreset {
+  id: string
+  name: string
+  prompt: string
+  is_builtin: boolean
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Constitution presets configuration (worktree-level)
+ */
+export interface ConstitutionPresetsConfig {
+  active_preset_id: string | null
+  presets: ConstitutionPreset[]
+  temp_file_path?: string
 }
 
 export interface TasksState {
@@ -200,6 +232,10 @@ export interface TasksState {
   claude_md_skipped: boolean
   /** ReviewGate sessions (CESDD ReviewGate Layer) */
   review_gate: ReviewGateState
+  /** Constitution mode: Rules (modular) or Presets (full prompt replacement) */
+  constitution_mode: ConstitutionMode
+  /** Constitution presets configuration (integrated from Agent Rules) */
+  constitution_presets: ConstitutionPresetsConfig
 }
 
 // ============================================================================
@@ -677,6 +713,37 @@ export interface SkipClaudeMdImportAction {
 export interface SetUseClaudeMdReferenceAction {
   type: 'SetUseClaudeMdReference'
   payload: { use_reference: boolean }
+}
+
+// Constitution Mode & Presets Actions
+export interface SetConstitutionModeAction {
+  type: 'SetConstitutionMode'
+  payload: { mode: ConstitutionModeData }
+}
+
+export interface SelectConstitutionPresetAction {
+  type: 'SelectConstitutionPreset'
+  payload: { preset_id: string | null }
+}
+
+export interface CreateConstitutionPresetAction {
+  type: 'CreateConstitutionPreset'
+  payload: { name: string; prompt: string }
+}
+
+export interface UpdateConstitutionPresetAction {
+  type: 'UpdateConstitutionPreset'
+  payload: { id: string; name: string; prompt: string }
+}
+
+export interface DeleteConstitutionPresetAction {
+  type: 'DeleteConstitutionPreset'
+  payload: { id: string }
+}
+
+export interface SetConstitutionPresetTempFileAction {
+  type: 'SetConstitutionPresetTempFile'
+  payload: { path: string | null }
 }
 
 // ReviewGate Actions (CESDD ReviewGate Layer)
@@ -1332,7 +1399,10 @@ export interface EnvCopyResultData {
 
 export type NotificationTypeData = 'info' | 'success' | 'warning' | 'error'
 
-export type ActiveViewData = 'tasks' | 'settings' | 'dockers' | 'env' | 'mcp' | 'chat' | 'terminal' | 'agent_rules' | 'workflows'
+export type ActiveViewData = 'tasks' | 'settings' | 'dockers' | 'env' | 'mcp' | 'chat' | 'terminal' | 'workflows' | 'claude-code' | 'a2ui'
+
+// Constitution Mode & Presets Data Types
+export type ConstitutionModeData = 'rules' | 'presets'
 
 export type DevLogSourceData = 'rust' | 'frontend' | 'claude' | 'ipc'
 
@@ -1430,6 +1500,12 @@ export type Action =
   | ImportClaudeMdAction
   | SkipClaudeMdImportAction
   | SetUseClaudeMdReferenceAction
+  | SetConstitutionModeAction
+  | SelectConstitutionPresetAction
+  | CreateConstitutionPresetAction
+  | UpdateConstitutionPresetAction
+  | DeleteConstitutionPresetAction
+  | SetConstitutionPresetTempFileAction
   | StartReviewAction
   | AddReviewCommentAction
   | ResolveReviewCommentAction

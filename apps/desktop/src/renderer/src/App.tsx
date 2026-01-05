@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { ListTodo, Settings, RefreshCw, FolderOpen, Server, MessageSquare, TerminalSquare, Workflow } from 'lucide-react'
+import { ListTodo, Settings, RefreshCw, FolderOpen, Server, MessageSquare, TerminalSquare, Workflow, BrainCircuit } from 'lucide-react'
 import { DockersPage } from '@/features/dockers/DockersPage'
 import { TasksPage } from '@/features/tasks/TasksPage'
 import { EnvPage } from '@/features/env'
-import { AgentRulesPage } from '@/features/agent-rules'
 import { SettingsPage } from '@/features/settings'
 import { McpPage } from '@/features/mcp'
 import { ChatPage } from '@/features/chat'
 import { TerminalPage } from '@/features/terminal'
 import { WorkflowsPage } from '@/features/workflows'
+import { ClaudeCodePage } from '@/features/claude-code/ClaudeCodePage'
 import { A2UIPage } from '@/features/a2ui/A2UIPage'
 import { Toaster } from '@/features/notifications'
 import { CommandPalette } from '@/features/command-palette'
@@ -93,8 +93,6 @@ function App() {
         return <DockersPage />
       case 'env':
         return <EnvPage />
-      case 'agent_rules':
-        return <AgentRulesPage />
       case 'mcp':
         return <McpPage />
       case 'chat':
@@ -103,6 +101,8 @@ function App() {
         return <TerminalPage />
       case 'workflows':
         return <WorkflowsPage />
+      case 'claude-code':
+        return <ClaudeCodePage />
       case 'a2ui':
         return <A2UIPage />
       default:
@@ -113,7 +113,7 @@ function App() {
   // Determine if sidebar items should be highlighted
   // Only highlight for worktree-scope views (tasks, settings, mcp, chat, terminal, a2ui)
   const getSidebarValue = () => {
-    if (activeView === 'tasks' || activeView === 'settings' || activeView === 'mcp' || activeView === 'chat' || activeView === 'terminal' || activeView === 'workflows' || activeView === 'a2ui') {
+    if (activeView === 'tasks' || activeView === 'settings' || activeView === 'mcp' || activeView === 'chat' || activeView === 'terminal' || activeView === 'workflows' || activeView === 'claude-code' || activeView === 'a2ui') {
       return activeView
     }
     // For global/project scope views (dockers, env), don't highlight sidebar
@@ -154,6 +154,13 @@ function App() {
               >
                 <Workflow className="h-5 w-5" />
                 <span className="text-[10px]">Flows</span>
+              </TabsTrigger>
+              <TabsTrigger
+                value="claude-code"
+                className="flex h-12 w-12 flex-col items-center justify-center gap-1 rounded-lg"
+              >
+                <BrainCircuit className="h-5 w-5 text-purple-500" />
+                <span className="text-[10px]">Claude</span>
               </TabsTrigger>
               <TabsTrigger
                 value="tasks"

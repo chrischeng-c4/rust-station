@@ -213,10 +213,10 @@ node:
 Workflow 使用 YAML 定義，存放於 `.rstn/workflows/` 或內建於應用程式。
 
 ```yaml
-# .rstn/workflows/constitution-init.yaml
+# .rstn/workflows/constitution-management.yaml
 workflow:
-  id: constitution-init
-  name: "Constitution Setup"
+  id: constitution-management
+  name: "Constitution Management"
   description: "Initialize or update project constitution"
   version: "1.0.0"
   icon: "scroll"  # Lucide icon name
@@ -512,7 +512,7 @@ WorkflowState {
 
 | Workflow | Description | Priority |
 |----------|-------------|----------|
-| `constitution-init` | Initialize project constitution | P0 (migrate existing) |
+| `constitution-management` | Initialize project constitution | P0 (migrate existing) |
 | `project-bootstrap` | Setup new project structure | P1 |
 | `worktree-setup` | Configure new worktree | P2 |
 | `migration-wizard` | Version upgrade assistance | P2 |

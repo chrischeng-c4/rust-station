@@ -930,7 +930,7 @@ sequenceDiagram
 
 #### User Documentation
 
-- ✅ `docs/workflows/constitution-initialization.md` - User guide with examples
+- ✅ `docs/workflows/constitution-management.md` - User guide with examples
 
 #### Known Limitations
 

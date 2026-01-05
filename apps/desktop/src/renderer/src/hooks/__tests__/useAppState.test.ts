@@ -45,6 +45,11 @@ const createMockWorktree = (overrides?: Partial<WorktreeState>): WorktreeState =
       is_loading: false,
       error: null,
     },
+    constitution_mode: 'rules',
+    constitution_presets: {
+      active_preset_id: null,
+      presets: [],
+    },
   },
   // NOTE: dockers moved to AppState.docker (global scope)
   ...overrides,
@@ -359,6 +364,11 @@ describe('useTasksState', () => {
         active_session_id: null,
         is_loading: false,
         error: null,
+      },
+      constitution_mode: 'rules' as const,
+      constitution_presets: {
+        active_preset_id: null,
+        presets: [],
       },
     }
     const worktree = createMockWorktree({ tasks, path: '/path/to/worktree' })

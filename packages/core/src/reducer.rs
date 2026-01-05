@@ -366,6 +366,7 @@ pub fn reduce(state: &mut AppState, action: Action) {
                             output: String::new(),
                             status: crate::app_state::WorkflowStatus::Collecting,
                             use_claude_md_reference: use_claude_md,
+                            error: None,
                         });
                 }
             }
@@ -428,6 +429,17 @@ pub fn reduce(state: &mut AppState, action: Action) {
                 if let Some(worktree) = project.active_worktree_mut() {
                     if let Some(workflow) = &mut worktree.tasks.constitution_workflow {
                         workflow.status = crate::app_state::WorkflowStatus::Complete;
+                    }
+                }
+            }
+        }
+
+        Action::SetConstitutionError { error } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(workflow) = &mut worktree.tasks.constitution_workflow {
+                        workflow.status = crate::app_state::WorkflowStatus::Error;
+                        workflow.error = Some(error);
                     }
                 }
             }
@@ -1830,6 +1842,92 @@ pub fn reduce(state: &mut AppState, action: Action) {
         }
 
         // ====================================================================
+        // Constitution Mode & Presets Actions (integrated from Agent Rules)
+        // ====================================================================
+        Action::SetConstitutionMode { mode } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.tasks.constitution_mode = mode.into();
+                }
+            }
+        }
+
+        Action::SelectConstitutionPreset { preset_id } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.tasks.constitution_presets.active_preset_id = preset_id;
+                }
+            }
+        }
+
+        Action::CreateConstitutionPreset { name, prompt } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    let now = chrono::Utc::now().to_rfc3339();
+                    let preset = crate::app_state::ConstitutionPreset {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        name,
+                        prompt,
+                        is_builtin: false,
+                        created_at: now.clone(),
+                        updated_at: now,
+                    };
+                    worktree.tasks.constitution_presets.presets.push(preset);
+                }
+            }
+        }
+
+        Action::UpdateConstitutionPreset { id, name, prompt } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    if let Some(preset) = worktree
+                        .tasks
+                        .constitution_presets
+                        .presets
+                        .iter_mut()
+                        .find(|p| p.id == id && !p.is_builtin)
+                    {
+                        preset.name = name;
+                        preset.prompt = prompt;
+                        preset.updated_at = chrono::Utc::now().to_rfc3339();
+                    }
+                }
+            }
+        }
+
+        Action::DeleteConstitutionPreset { id } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    // Remove preset only if it's not builtin
+                    worktree
+                        .tasks
+                        .constitution_presets
+                        .presets
+                        .retain(|p| p.id != id || p.is_builtin);
+
+                    // Clear active_preset_id if deleted preset was active
+                    if worktree
+                        .tasks
+                        .constitution_presets
+                        .active_preset_id
+                        .as_ref()
+                        == Some(&id)
+                    {
+                        worktree.tasks.constitution_presets.active_preset_id = None;
+                    }
+                }
+            }
+        }
+
+        Action::SetConstitutionPresetTempFile { path } => {
+            if let Some(project) = state.active_project_mut() {
+                if let Some(worktree) = project.active_worktree_mut() {
+                    worktree.tasks.constitution_presets.temp_file_path = path;
+                }
+            }
+        }
+
+        // ====================================================================
         // Notification Actions
         // ====================================================================
         Action::AddNotification {
@@ -2019,6 +2117,7 @@ fn log_action_if_interesting(state: &mut AppState, action: &Action) {
         Action::AnswerConstitutionQuestion { .. } => ("AnswerConstitutionQuestion", true),
         Action::GenerateConstitution => ("GenerateConstitution", true),
         Action::SaveConstitution => ("SaveConstitution", true),
+        Action::SetConstitutionError { .. } => ("SetConstitutionError", true),
         Action::CheckConstitutionExists => ("CheckConstitutionExists", true),
         Action::SetConstitutionExists { .. } => ("SetConstitutionExists", true),
         Action::ApplyDefaultConstitution => ("ApplyDefaultConstitution", true),
@@ -3944,6 +4043,138 @@ mod tests {
         // Deserialize back
         let loaded: AppState = serde_json::from_str(&json).unwrap();
         let worktree = loaded.active_project().unwrap().active_worktree().unwrap();
+        assert_eq!(worktree.tasks.constitution_exists, Some(true));
+    }
+
+    #[test]
+    fn test_clear_constitution_workflow() {
+        let mut state = state_with_project();
+
+        // Start workflow first
+        reduce(&mut state, Action::StartConstitutionWorkflow);
+        let worktree = active_worktree(&state);
+        assert!(worktree.tasks.constitution_workflow.is_some());
+
+        // Clear workflow
+        reduce(&mut state, Action::ClearConstitutionWorkflow);
+
+        let worktree = active_worktree(&state);
+        assert!(worktree.tasks.constitution_workflow.is_none());
+    }
+
+    #[test]
+    fn test_set_claude_md_exists() {
+        let mut state = state_with_project();
+
+        // Initially None
+        let worktree = active_worktree(&state);
+        assert!(worktree.tasks.claude_md_exists.is_none());
+
+        // Set to true
+        reduce(&mut state, Action::SetClaudeMdExists { exists: true });
+        let worktree = active_worktree(&state);
+        assert_eq!(worktree.tasks.claude_md_exists, Some(true));
+
+        // Set to false
+        reduce(&mut state, Action::SetClaudeMdExists { exists: false });
+        let worktree = active_worktree(&state);
+        assert_eq!(worktree.tasks.claude_md_exists, Some(false));
+    }
+
+    #[test]
+    fn test_set_claude_md_content() {
+        let mut state = state_with_project();
+
+        // Initially None
+        let worktree = active_worktree(&state);
+        assert!(worktree.tasks.claude_md_content.is_none());
+
+        // Set content
+        let content = "# CLAUDE.md\n\nProject instructions here.".to_string();
+        reduce(
+            &mut state,
+            Action::SetClaudeMdContent {
+                content: Some(content.clone()),
+            },
+        );
+        let worktree = active_worktree(&state);
+        assert_eq!(worktree.tasks.claude_md_content, Some(content));
+
+        // Clear content
+        reduce(
+            &mut state,
+            Action::SetClaudeMdContent { content: None },
+        );
+        let worktree = active_worktree(&state);
+        assert!(worktree.tasks.claude_md_content.is_none());
+    }
+
+    #[test]
+    fn test_skip_claude_md_import() {
+        let mut state = state_with_project();
+
+        // Initially false
+        let worktree = active_worktree(&state);
+        assert!(!worktree.tasks.claude_md_skipped);
+
+        // Skip import
+        reduce(&mut state, Action::SkipClaudeMdImport);
+
+        let worktree = active_worktree(&state);
+        assert!(worktree.tasks.claude_md_skipped);
+    }
+
+    #[test]
+    fn test_set_use_claude_md_reference() {
+        let mut state = state_with_project();
+
+        // Start workflow first (with claude_md_exists = true to trigger use_claude_md_reference = true)
+        reduce(&mut state, Action::SetClaudeMdExists { exists: true });
+        reduce(&mut state, Action::StartConstitutionWorkflow);
+
+        // Workflow should auto-set use_claude_md_reference = true
+        let worktree = active_worktree(&state);
+        let workflow = worktree.tasks.constitution_workflow.as_ref().unwrap();
+        assert!(workflow.use_claude_md_reference);
+
+        // Disable reference
+        reduce(
+            &mut state,
+            Action::SetUseClaudeMdReference { use_reference: false },
+        );
+        let worktree = active_worktree(&state);
+        let workflow = worktree.tasks.constitution_workflow.as_ref().unwrap();
+        assert!(!workflow.use_claude_md_reference);
+
+        // Enable reference again
+        reduce(
+            &mut state,
+            Action::SetUseClaudeMdReference { use_reference: true },
+        );
+        let worktree = active_worktree(&state);
+        let workflow = worktree.tasks.constitution_workflow.as_ref().unwrap();
+        assert!(workflow.use_claude_md_reference);
+    }
+
+    #[test]
+    fn test_regenerate_from_exists() {
+        let mut state = state_with_project();
+
+        // Set constitution exists
+        reduce(&mut state, Action::SetConstitutionExists { exists: true });
+        let worktree = active_worktree(&state);
+        assert_eq!(worktree.tasks.constitution_exists, Some(true));
+
+        // Start workflow (regenerate)
+        reduce(&mut state, Action::StartConstitutionWorkflow);
+
+        // Workflow should be initialized even though constitution exists
+        let worktree = active_worktree(&state);
+        let workflow = worktree.tasks.constitution_workflow.as_ref().unwrap();
+        assert_eq!(workflow.current_question, 0);
+        assert_eq!(workflow.status, crate::app_state::WorkflowStatus::Collecting);
+
+        // Constitution still exists (not cleared)
         assert_eq!(worktree.tasks.constitution_exists, Some(true));
     }
 

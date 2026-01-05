@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
-import { FileText, RefreshCw, CheckCircle, ChevronRight, Sparkles, FileCode, ChevronDown, Scroll } from 'lucide-react'
+import { FileText, RefreshCw, CheckCircle, ChevronRight, Sparkles, FileCode, ChevronDown, Scroll, AlertCircle, XCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -211,6 +211,10 @@ export function ConstitutionPanel() {
     return <LoadingState message="Checking constitution..." />
   }
 
+  return renderRulesContent()
+
+  function renderRulesContent() {
+
   // Found CLAUDE.md but no constitution - show import option with preview
   if (claudeMdExists === true && constitutionExists === false && !claudeMdSkipped && !workflow) {
     return (
@@ -339,6 +343,7 @@ export function ConstitutionPanel() {
   const currentQuestionIndex = workflow.current_question
   const status = workflow.status
   const output = workflow.output
+  const error = workflow.error
 
   // Collecting answers phase
   if (status === 'collecting') {
@@ -513,6 +518,50 @@ export function ConstitutionPanel() {
     )
   }
 
+  // Error phase
+  if (status === 'error') {
+    return (
+      <div className="flex h-full flex-col">
+        <WorkflowHeader
+          title="Generation Failed"
+          subtitle="An error occurred while generating"
+          icon={<XCircle className="h-4 w-4 text-red-500" />}
+        />
+
+        <ScrollArea className="flex-1 p-4 pt-0">
+          <Card className="p-4 mb-3 border-red-500/50 bg-red-50 dark:bg-red-950/20">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="h-4 w-4 text-red-500 mt-0.5 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-red-700 dark:text-red-400">Error</p>
+                <p className="text-xs text-red-600 dark:text-red-300 mt-1">{error || 'Unknown error occurred'}</p>
+              </div>
+            </div>
+          </Card>
+
+          {output && (
+            <Card className="p-4 mt-3">
+              <p className="text-xs font-medium text-muted-foreground mb-2">Partial output before failure:</p>
+              <div className="prose prose-sm dark:prose-invert max-w-none">
+                <ReactMarkdown>{output}</ReactMarkdown>
+              </div>
+            </Card>
+          )}
+
+          <div className="mt-4 flex gap-2">
+            <Button
+              onClick={() => dispatch({ type: 'ClearConstitutionWorkflow' })}
+              variant="outline"
+              size="sm"
+            >
+              Start Over
+            </Button>
+          </div>
+        </ScrollArea>
+      </div>
+    )
+  }
+
   // Complete phase
   if (status === 'complete') {
     return (
@@ -543,6 +592,7 @@ export function ConstitutionPanel() {
     )
   }
 
-  // Fallback
-  return <EmptyState icon={AlertCircle} title="Unknown State" description="The workflow entered an invalid state." />
+    // Fallback
+    return <EmptyState icon={AlertCircle} title="Unknown State" description="The workflow entered an invalid state." />
+  }
 }

@@ -39,7 +39,7 @@ const createMockState = (options: {
           tasks: {
             commands: [],
             task_statuses: {},
-            active_command: 'constitution-init',
+            active_command: 'constitution-management',
             output: [],
             is_loading: false,
             error: null,

@@ -268,7 +268,7 @@ test.describe('Tasks Tab (Justfile only)', () => {
 
       // These should NOT be visible in Tasks tab (they moved to Workflows)
       const claudeCode = window.locator('[data-testid="task-card-claude-code"]')
-      const constitutionInit = window.locator('[data-testid="task-card-constitution-init"]')
+      const constitutionInit = window.locator('[data-testid="task-card-constitution-management"]')
 
       const claudeVisible = await claudeCode.isVisible().catch(() => false)
       const constitutionVisible = await constitutionInit.isVisible().catch(() => false)

@@ -7,7 +7,7 @@
  */
 
 import { useState, useCallback } from 'react'
-import { X, Plus, FolderOpen, GitBranch, History, Container, FileCode, Camera, Bot } from 'lucide-react'
+import { X, Plus, FolderOpen, GitBranch, History, Container, FileCode, Camera } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useActiveProject, useActiveWorktree, useAppState } from '@/hooks/useAppState'
 import { NotificationDrawer } from '@/features/notifications'
@@ -118,10 +118,6 @@ export function ProjectTabs() {
 
   const handleEnvClick = useCallback(async () => {
     await dispatch({ type: 'SetActiveView', payload: { view: 'env' } })
-  }, [dispatch])
-
-  const handleAgentRulesClick = useCallback(async () => {
-    await dispatch({ type: 'SetActiveView', payload: { view: 'agent_rules' } })
   }, [dispatch])
 
   return (
@@ -276,7 +272,7 @@ export function ProjectTabs() {
             </Button>
           </div>
 
-          {/* Right side: Project features (Env, Agent Rules) */}
+          {/* Right side: Project features (Env) */}
           <div className="flex items-center gap-1">
             <Button
               variant={activeView === 'env' ? 'secondary' : 'ghost'}
@@ -286,15 +282,6 @@ export function ProjectTabs() {
             >
               <FileCode className="h-3.5 w-3.5" />
               Env
-            </Button>
-            <Button
-              variant={activeView === 'agent_rules' ? 'secondary' : 'ghost'}
-              size="sm"
-              onClick={handleAgentRulesClick}
-              className="gap-1.5 text-xs h-6"
-            >
-              <Bot className="h-3.5 w-3.5" />
-              Agent Rules
             </Button>
           </div>
         </div>

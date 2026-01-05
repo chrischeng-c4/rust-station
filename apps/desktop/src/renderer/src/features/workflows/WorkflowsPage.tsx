@@ -12,14 +12,14 @@ import { ContextPanel } from './ContextPanel'
  */
 const WORKFLOWS = [
   {
-    id: 'constitution-init',
-    name: 'Constitution Setup',
+    id: 'constitution-management',
+    name: 'Constitution Management',
     description: 'Initialize or update project constitution for AI-assisted development',
     icon: Scroll,
   },
   {
-    id: 'living-context',
-    name: 'Living Context',
+    id: 'context-management',
+    name: 'Context Management',
     description: 'View and manage project context - tech stack, architecture, recent changes',
     icon: BookOpen,
   },
@@ -39,13 +39,13 @@ const WORKFLOWS = [
  * Claude Code at various nodes.
  */
 export function WorkflowsPage() {
-  const [selectedWorkflow, setSelectedWorkflow] = useState<string | null>('constitution-init')
+  const [selectedWorkflow, setSelectedWorkflow] = useState<string | null>('constitution-management')
 
   const renderWorkflowPanel = () => {
     switch (selectedWorkflow) {
-      case 'constitution-init':
+      case 'constitution-management':
         return <ConstitutionPanel />
-      case 'living-context':
+      case 'context-management':
         return <ContextPanel />
       case 'change-management':
         return <ChangeManagementPanel />

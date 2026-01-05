@@ -512,9 +512,6 @@ pub enum ActiveView {
     Dockers,
     /// Env management page (project scope)
     Env,
-    /// Agent Rules management page (project scope)
-    #[serde(rename = "agent_rules")]
-    AgentRules,
     /// MCP Inspector page (worktree scope)
     Mcp,
     /// Chat assistant page (worktree scope)
@@ -580,19 +577,19 @@ pub struct EnvCopyResult {
 }
 
 // ============================================================================
-// Agent Rules Configuration (Project-level)
+// Constitution Presets (Integrated from Agent Rules)
 // ============================================================================
 
-/// Agent profile with custom system prompt
+/// Constitution preset with custom system prompt (replaces AgentProfile)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AgentProfile {
+pub struct ConstitutionPreset {
     /// Unique identifier (UUID)
     pub id: String,
     /// Display name (e.g. "Rust Expert", "Code Reviewer")
     pub name: String,
     /// System prompt content
     pub prompt: String,
-    /// Whether this is a built-in (immutable) profile
+    /// Whether this is a built-in (immutable) preset
     pub is_builtin: bool,
     /// Creation timestamp (ISO 8601)
     pub created_at: String,
@@ -600,8 +597,8 @@ pub struct AgentProfile {
     pub updated_at: String,
 }
 
-impl AgentProfile {
-    /// Create the default Rust Expert profile
+impl ConstitutionPreset {
+    /// Create the default Rust Expert preset
     pub fn default_rust_expert() -> Self {
         let now = chrono::Utc::now().to_rfc3339();
         Self {
@@ -627,7 +624,7 @@ Code Style:
         }
     }
 
-    /// Create the default TypeScript Expert profile
+    /// Create the default TypeScript Expert preset
     pub fn default_typescript_expert() -> Self {
         let now = chrono::Utc::now().to_rfc3339();
         Self {
@@ -654,7 +651,7 @@ Code Style:
         }
     }
 
-    /// Create the default Code Reviewer profile
+    /// Create the default Code Reviewer preset
     pub fn default_code_reviewer() -> Self {
         let now = chrono::Utc::now().to_rfc3339();
         Self {
@@ -682,33 +679,68 @@ Feedback Style:
     }
 }
 
-/// Agent rules configuration for customizing Claude's system prompt
+/// Constitution mode - Rules (modular) or Presets (full prompt)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ConstitutionMode {
+    /// Modular rules from .rstn/constitutions/*.md (context-aware)
+    #[default]
+    Rules,
+    /// Single preset replaces entire system prompt
+    Presets,
+}
+
+/// Constitution presets configuration (worktree-level)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AgentRulesConfig {
-    /// Whether custom agent rules are enabled
-    pub enabled: bool,
-    /// Currently active profile ID (None = use CLAUDE.md)
-    pub active_profile_id: Option<String>,
-    /// All available profiles (built-in + custom)
-    pub profiles: Vec<AgentProfile>,
+pub struct ConstitutionPresetsConfig {
+    /// Currently active preset ID (None = no preset active)
+    pub active_preset_id: Option<String>,
+    /// All available presets (built-in + custom)
+    pub presets: Vec<ConstitutionPreset>,
     /// Generated temp file path (internal, for cleanup)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temp_file_path: Option<String>,
 }
 
-impl Default for AgentRulesConfig {
+impl Default for ConstitutionPresetsConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
-            active_profile_id: None,
-            profiles: vec![
-                AgentProfile::default_rust_expert(),
-                AgentProfile::default_typescript_expert(),
-                AgentProfile::default_code_reviewer(),
+            active_preset_id: None,
+            presets: vec![
+                ConstitutionPreset::default_rust_expert(),
+                ConstitutionPreset::default_typescript_expert(),
+                ConstitutionPreset::default_code_reviewer(),
             ],
             temp_file_path: None,
         }
     }
+}
+
+// ============================================================================
+// Legacy Agent Rules (deprecated, for migration)
+// ============================================================================
+
+/// Agent profile with custom system prompt (DEPRECATED: use ConstitutionPreset)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AgentProfile {
+    pub id: String,
+    pub name: String,
+    pub prompt: String,
+    pub is_builtin: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Agent rules configuration (DEPRECATED: use ConstitutionPresetsConfig)
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct AgentRulesConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    pub active_profile_id: Option<String>,
+    #[serde(default)]
+    pub profiles: Vec<AgentProfile>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temp_file_path: Option<String>,
 }
 
 // ============================================================================
@@ -782,7 +814,6 @@ impl From<crate::actions::ActiveViewData> for ActiveView {
             crate::actions::ActiveViewData::Mcp => ActiveView::Mcp,
             crate::actions::ActiveViewData::Chat => ActiveView::Chat,
             crate::actions::ActiveViewData::Terminal => ActiveView::Terminal,
-            crate::actions::ActiveViewData::AgentRules => ActiveView::AgentRules,
         }
     }
 }
@@ -856,6 +887,15 @@ impl From<crate::actions::ContextFileData> for ContextFile {
             context_type: data.context_type.into(),
             last_updated: data.last_updated,
             token_estimate: data.token_estimate,
+        }
+    }
+}
+
+impl From<crate::actions::ConstitutionModeData> for ConstitutionMode {
+    fn from(data: crate::actions::ConstitutionModeData) -> Self {
+        match data {
+            crate::actions::ConstitutionModeData::Rules => ConstitutionMode::Rules,
+            crate::actions::ConstitutionModeData::Presets => ConstitutionMode::Presets,
         }
     }
 }
@@ -1025,6 +1065,12 @@ pub struct TasksState {
     /// ReviewGate sessions (CESDD ReviewGate Layer)
     #[serde(default)]
     pub review_gate: ReviewGateState,
+    /// Constitution mode: Rules (modular) or Presets (full prompt replacement)
+    #[serde(default)]
+    pub constitution_mode: ConstitutionMode,
+    /// Constitution presets configuration (integrated from Agent Rules)
+    #[serde(default)]
+    pub constitution_presets: ConstitutionPresetsConfig,
 }
 
 /// Constitution workflow status
@@ -1037,6 +1083,8 @@ pub enum WorkflowStatus {
     Generating,
     /// Generation complete, showing result
     Complete,
+    /// Error occurred during generation
+    Error,
 }
 
 /// Constitution initialization workflow state (CESDD Phase 1)
@@ -1053,6 +1101,9 @@ pub struct ConstitutionWorkflow {
     /// Whether to include CLAUDE.md content as reference during generation
     #[serde(default)]
     pub use_claude_md_reference: bool,
+    /// Error message if generation failed
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// Justfile command info

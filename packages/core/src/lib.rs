@@ -1605,11 +1605,23 @@ async fn handle_async_action(action: Action) -> napi::Result<()> {
             // No async operations needed
         }
 
+        // Constitution Mode & Presets actions (sync - handled in reducer)
+        Action::SetConstitutionMode { .. }
+        | Action::SelectConstitutionPreset { .. }
+        | Action::CreateConstitutionPreset { .. }
+        | Action::UpdateConstitutionPreset { .. }
+        | Action::DeleteConstitutionPreset { .. }
+        | Action::SetConstitutionPresetTempFile { .. } => {
+            // These are pure state mutations, handled synchronously in reducer
+            // No async operations needed
+        }
+
         // Constitution Workflow actions (CESDD Phase 1)
         Action::StartConstitutionWorkflow
         | Action::ClearConstitutionWorkflow
         | Action::AnswerConstitutionQuestion { .. }
-        | Action::AppendConstitutionOutput { .. } => {
+        | Action::AppendConstitutionOutput { .. }
+        | Action::SetConstitutionError { .. } => {
             // Sync actions - handled in reducer
         }
 
@@ -1749,7 +1761,12 @@ Be specific, actionable, and authoritative. Use "MUST", "MUST NOT" language."#,
             tokio::spawn(async move {
                 // Validate Claude CLI
                 if let Err(e) = claude_cli::validate_claude_cli().await {
-                    eprintln!("Claude CLI validation failed: {}", e);
+                    let error_msg = format!("Claude CLI validation failed: {}", e);
+                    eprintln!("{}", error_msg);
+                    let mut state = get_app_state().write().await;
+                    reduce(&mut state, Action::SetConstitutionError { error: error_msg });
+                    drop(state);
+                    notify_state_update().await;
                     return;
                 }
 
@@ -1827,13 +1844,23 @@ Be specific, actionable, and authoritative. Use "MUST", "MUST NOT" language."#,
 
                             // Create constitutions directory if it doesn't exist
                             if let Err(e) = tokio::fs::create_dir_all(&constitutions_dir).await {
-                                eprintln!("Failed to create .rstn/constitutions directory: {}", e);
+                                let error_msg = format!("Failed to create .rstn/constitutions directory: {}", e);
+                                eprintln!("{}", error_msg);
+                                let mut state = get_app_state().write().await;
+                                reduce(&mut state, Action::SetConstitutionError { error: error_msg });
+                                drop(state);
+                                notify_state_update().await;
                                 return;
                             }
 
                             // Write constitution file
                             if let Err(e) = tokio::fs::write(&constitution_file, content).await {
-                                eprintln!("Failed to write custom constitution: {}", e);
+                                let error_msg = format!("Failed to write custom constitution: {}", e);
+                                eprintln!("{}", error_msg);
+                                let mut state = get_app_state().write().await;
+                                reduce(&mut state, Action::SetConstitutionError { error: error_msg });
+                                drop(state);
+                                notify_state_update().await;
                                 return;
                             }
 
@@ -1852,7 +1879,12 @@ Be specific, actionable, and authoritative. Use "MUST", "MUST NOT" language."#,
                         }
                     }
                     Err(e) => {
-                        eprintln!("Failed to spawn Claude CLI: {}", e);
+                        let error_msg = format!("Failed to spawn Claude CLI: {}", e);
+                        eprintln!("{}", error_msg);
+                        let mut state = get_app_state().write().await;
+                        reduce(&mut state, Action::SetConstitutionError { error: error_msg });
+                        drop(state);
+                        notify_state_update().await;
                     }
                 }
             });

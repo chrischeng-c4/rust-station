@@ -694,12 +694,12 @@ The Constitution initialization provides:
 
 **For Projects with Legacy `constitution.md`**:
 1. Backup existing file
-2. Run `constitution-init` → Apply Default Templates
+2. Run `constitution-management` → Apply Default Templates
 3. Review generated files in `.rstn/constitutions/`
 4. Optionally merge custom content from backup
 
 **For New Projects**:
-1. Run `constitution-init`
+1. Run `constitution-management`
 2. Choose CLAUDE.md integration option (if applicable)
 3. Templates auto-applied based on detected languages
 

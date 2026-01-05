@@ -78,7 +78,7 @@ test:
 build:
 \techo "Building project"
 
-constitution-init:
+constitution-management:
 \techo "Initialize constitution"
 `
   await fs.writeFile(path.join(tmpDir, 'justfile'), justfileContent)
