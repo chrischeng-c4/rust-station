@@ -3,11 +3,11 @@ name: Check for MOCK Data
 on:
   pull_request:
     paths:
-      - 'apps/desktop/src/renderer/**'
+      - 'desktop/src/renderer/**'
   push:
     branches: [main]
     paths:
-      - 'apps/desktop/src/renderer/**'
+      - 'desktop/src/renderer/**'
 
 jobs:
   check-mock:
@@ -26,7 +26,7 @@ jobs:
           MOCK_PATTERNS="MOCK_SERVICES|MOCK_COMMANDS|MOCK_DATA|MOCK_"
 
           # Search in renderer directory
-          if grep -rE "$MOCK_PATTERNS" apps/desktop/src/renderer/; then
+          if grep -rE "$MOCK_PATTERNS" desktop/src/renderer/; then
             echo ""
             echo "❌ ERROR: MOCK data found in production code!"
             echo ""
@@ -44,9 +44,9 @@ jobs:
           echo "Checking preload bridge implementation..."
 
           # Check that preload exposes more than just ping
-          if grep -q "ping: () => 'pong'" apps/desktop/src/preload/index.ts; then
+          if grep -q "ping: () => 'pong'" desktop/src/preload/index.ts; then
             # Check if there are real API bindings too
-            if ! grep -q "docker:" apps/desktop/src/preload/index.ts; then
+            if ! grep -q "docker:" desktop/src/preload/index.ts; then
               echo ""
               echo "⚠️ WARNING: Preload bridge may not be fully implemented"
               echo "Only placeholder 'ping' function found."

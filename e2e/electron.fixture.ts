@@ -8,7 +8,7 @@ export const test = base.extend<{
 }>({
   electronApp: async ({}, use) => {
     // Path to the built Electron app
-    const appPath = path.join(__dirname, '../apps/desktop')
+    const appPath = path.join(__dirname, '../desktop')
 
     // Launch Electron app (headless mode - window won't show)
     const electronApp = await electron.launch({
