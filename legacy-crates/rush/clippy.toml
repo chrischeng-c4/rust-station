@@ -1,3 +1,0 @@
-# Clippy configuration for rush
-# Enable pedantic lints but allow some common patterns
-cognitive-complexity-threshold = 30
