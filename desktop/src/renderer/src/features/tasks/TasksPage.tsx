@@ -25,15 +25,12 @@ export function TasksPage() {
   const isRefreshing = tasks?.is_loading ?? false
   const error = tasks?.error ?? null
 
-  // Build justfile path from project path
-  const justfilePath = projectPath ? `${projectPath}/justfile` : null
-
   // Load commands when project changes
   useEffect(() => {
-    if (justfilePath) {
-      dispatch({ type: 'LoadJustfileCommands', payload: { path: justfilePath } })
+    if (projectPath) {
+      dispatch({ type: 'LoadJustfileCommands' })
     }
-  }, [dispatch, justfilePath])
+  }, [dispatch, projectPath])
 
   const handleRun = useCallback(
     async (name: string) => {
@@ -45,12 +42,12 @@ export function TasksPage() {
   )
 
   const handleRefresh = useCallback(async () => {
-    if (justfilePath) {
+    if (projectPath) {
       await dispatch({ type: 'ClearTaskOutput' })
       await dispatch({ type: 'SetActiveCommand', payload: { name: null } })
-      await dispatch({ type: 'LoadJustfileCommands', payload: { path: justfilePath } })
+      await dispatch({ type: 'RefreshJustfile' })
     }
-  }, [dispatch, justfilePath])
+  }, [dispatch, projectPath])
 
   // No project path means no active project
   if (!projectPath) {

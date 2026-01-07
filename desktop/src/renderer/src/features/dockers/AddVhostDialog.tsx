@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Dns as ServerIcon,
   ContentCopy as CopyIcon,
@@ -17,6 +17,7 @@ import {
   Stack,
   InputAdornment
 } from '@mui/material'
+import { useDockersState } from '@/hooks/useAppState'
 
 interface AddVhostDialogProps {
   serviceId: string
@@ -29,12 +30,21 @@ export function AddVhostDialog({
   disabled,
   onCreateVhost,
 }: AddVhostDialogProps) {
+  const { dockers, dispatch } = useDockersState()
   const [open, setOpen] = useState(false)
   const [vhostName, setVhostName] = useState('')
   const [isCreating, setIsCreating] = useState(false)
   const [connectionString, setConnectionString] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+
+  // Watch for connection string in global state
+  useEffect(() => {
+    if (open && isCreating && dockers?.last_connection_string) {
+      setConnectionString(dockers.last_connection_string)
+      setIsCreating(false)
+    }
+  }, [dockers?.last_connection_string, open, isCreating])
 
   const handleCreate = async () => {
     if (!vhostName.trim()) {
@@ -52,14 +62,14 @@ export function AddVhostDialog({
 
     try {
       if (onCreateVhost) {
-        const connStr = await onCreateVhost(serviceId, vhostName)
-        setConnectionString(connStr)
+        // This will now trigger a dispatch which updates global state
+        await onCreateVhost(serviceId, vhostName)
       } else {
         setConnectionString(`amqp://guest:guest@localhost:5672/${vhostName}`)
+        setIsCreating(false)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create vhost')
-    } finally {
       setIsCreating(false)
     }
   }
@@ -79,6 +89,9 @@ export function AddVhostDialog({
       setConnectionString(null)
       setError(null)
       setCopied(false)
+      setIsCreating(false)
+      // Clear global connection string result when dialog closes
+      dispatch({ type: 'SetDockerConnectionString', payload: { connection_string: null } })
     }
   }
 

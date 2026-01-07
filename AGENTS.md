@@ -1,3 +1,22 @@
+<!-- OPENSPEC:START -->
+# OpenSpec Instructions
+
+These instructions are for AI assistants working in this project.
+
+Always open `@/openspec/AGENTS.md` when the request:
+- Mentions planning or proposals (words like proposal, spec, change, plan)
+- Introduces new capabilities, breaking changes, architecture shifts, or big performance/security work
+- Sounds ambiguous and you need the authoritative spec before coding
+
+Use `@/openspec/AGENTS.md` to learn:
+- How to create and apply change proposals
+- Spec format and conventions
+- Project structure and guidelines
+
+Keep this managed block so 'openspec update' can refresh the instructions.
+
+<!-- OPENSPEC:END -->
+
 # AGENTS.md
 
 <language>
@@ -13,7 +32,7 @@ Respond in English (U.S.) by default. Use Traditional Chinese only when user wri
 
 ### Principle
 
-- **Knowledge Base (`kb/`) as Source of Truth**: Contains authoritative engineering documentation:
+- **Knowledge Base (`dev-docs/`) as Source of Truth**: Contains authoritative engineering documentation:
   - Architecture decisions and patterns
   - Workflows and processes
   - Internal API references
@@ -67,12 +86,12 @@ After:
 ### Examples
 
 **Tauri Command Design** (KB-First approach):
-1. Define command interface in `kb/architecture/01-system-specification.md`
+1. Define command interface in `dev-docs/architecture/01-system-specification.md`
 2. Implement in `src-tauri/src/commands/`
 3. Frontend invokes via `invoke('command_name', params)`
 
 **State Machine Workflows** (KB-First approach):
-1. Document workflow architecture in `kb/architecture/` (e.g., 09-workflow-prompt-claude.md)
+1. Document workflow architecture in `dev-docs/architecture/` (e.g., 09-workflow-prompt-claude.md)
 2. Define state transitions and validation rules in KB
 3. Implement state machine in Rust based on KB specification
 
@@ -85,15 +104,15 @@ After:
 ### Workflow Integration
 
 **Policy**: KB-First is the default workflow.
-- Write design/architecture/workflow docs in `kb/`.
+- Write design/architecture/workflow docs in `dev-docs/`.
 - Write user guides in `docs/`.
 
 **Before implementing ANY feature**:
-1. Check `kb/` for existing patterns.
-2. Update `kb/` if architectural changes are needed.
+1. Check `dev-docs/` for existing patterns.
+2. Update `dev-docs/` if architectural changes are needed.
 3. Update `docs/` if user-facing behavior changes.
 
-See: `kb/README.md` for Engineering Handbook.
+See: `dev-docs/README.md` for Engineering Handbook.
 See: `docs/README.md` for User Documentation.
 </kb-first-principle>
 
@@ -217,14 +236,14 @@ async fn test_fetch_mcp_tools_returns_valid_response() {
 ### Critical Requirements
 
 1. **State tests MANDATORY**: Round-trip serialization + transitions + invariants
-2. See `kb/workflow/testing-guide.md` for examples
-3. See `kb/architecture/01-state-first-principle.md` for principles
+2. See `dev-docs/workflow/testing-guide.md` for examples
+3. See `dev-docs/architecture/01-state-first-principle.md` for principles
 
 ### References
 
-- `kb/architecture/02-state-first-principle.md` - **🎯 CORE PRINCIPLE**: All state MUST be JSON/YAML serializable
-- `kb/architecture/00-overview.md` - Three pillars (state-first, frontend/backend separation, backend-driven UI)
-- `kb/workflow/testing-guide.md` - How to write state tests
+- `dev-docs/architecture/02-state-first-principle.md` - **🎯 CORE PRINCIPLE**: All state MUST be JSON/YAML serializable
+- `dev-docs/architecture/00-overview.md` - Three pillars (state-first, frontend/backend separation, backend-driven UI)
+- `dev-docs/workflow/testing-guide.md` - How to write state tests
 </state-first-architecture>
 
 ---
@@ -236,9 +255,23 @@ The GUI is an **Electron** desktop application with **React** frontend and **Rus
 
 ### Navigation (Fixed Sidebar)
 
-1. **Tasks Tab**: Justfile command runner
-2. **Dockers Tab**: Container management dashboard
-3. **Settings Tab**: Configuration
+**Core Tabs**:
+1. **Tasks**: Justfile command runner
+2. **Dockers**: Container management dashboard
+3. **Settings**: Configuration
+4. **Workflows**: Change management, Constitution, Review Gate
+5. **Explorer**: File browser with Git status
+6. **Terminal**: Integrated PTY terminal
+7. **Chat**: AI conversation interface
+8. **MCP**: MCP server inspector
+
+**Additional Features**:
+- **Context Engine**: AI context aggregation (auto-injected to MCP)
+- **Constitution System**: Modular coding rules
+- **Agent Rules**: System prompt generation
+- **Review Gate**: Human approval workflow
+- **A2UI**: Server-driven UI renderer
+- **Env Management**: Environment file sync
 
 ### Architecture Layers
 
@@ -255,7 +288,13 @@ The GUI is an **Electron** desktop application with **React** frontend and **Rus
 │   └─ #[napi] decorated functions                        │
 ├─────────────────────────────────────────────────────────┤
 │ Rust Backend (packages/core/src/)                       │
-│   └─ docker.rs, justfile.rs                             │
+│   ├─ app_state.rs          # Complete state tree        │
+│   ├─ reducer/              # Modular state transitions  │
+│   ├─ mcp_server.rs         # HTTP SSE server            │
+│   ├─ context_engine.rs     # AI context aggregation     │
+│   ├─ constitution.rs       # Coding rules system        │
+│   ├─ docker.rs, justfile.rs, worktree.rs, etc.         │
+│   └─ terminal.rs, explorer/, file_reader.rs            │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -267,7 +306,7 @@ Every layer MUST be connected. If ANY layer is missing or placeholder, feature i
 
 ### Reference
 
-See `kb/workflow/definition-of-done.md` for feature completion checklist.
+See `dev-docs/workflow/definition-of-done.md` for feature completion checklist.
 </workflow-driven-ui>
 
 ---
@@ -281,7 +320,7 @@ Before starting ANY non-trivial work, work through these steps IN ORDER:
 </step>
 
 <step number="2" name="KB CHECK">
-  - Which `kb/` doc(s) are the source of truth for this change? ___
+  - Which `dev-docs/` doc(s) are the source of truth for this change? ___
   - If missing: which new KB doc will be added/updated first? ___
 </step>
 
@@ -309,7 +348,7 @@ Write out these 5 steps when the change spans multiple files or introduces new b
 
 <decision-trees>
 
-NOTE: SDD (speckit + `specs/`) is optional in this repo. Prefer KB-first updates in `kb/` unless the user explicitly requests speckit artifacts.
+NOTE: SDD (speckit + `specs/`) is optional in this repo. Prefer KB-first updates in `dev-docs/` unless the user explicitly requests speckit artifacts.
 
 <tree name="Which SDD Workflow">
 START: New work?
@@ -337,7 +376,7 @@ START: New work?
     └─ Lightweight SDD path:
        /speckit-lite → implement directly (no plan/tasks)
 
-See: kb/workflow/sdd-workflow.md for detailed guide
+See: dev-docs/workflow/sdd-workflow.md for detailed guide
 </tree>
 
 <tree name="When to use Design-First Planning">
@@ -383,7 +422,7 @@ START: Is feature "done"?
 │
 ├─► Frontend uses window.api.*?
 │   └─ NO → Remove MOCK_* data, use real API
-│   └─ Check: grep -rE "MOCK_" apps/desktop/src/renderer/
+│   └─ Check: grep -rE "MOCK_" desktop/src/renderer/
 │            └─ Matches found → NOT done, remove MOCK
 │
 ├─► E2E tests real backend?
@@ -496,33 +535,71 @@ rustation/
 ├── Cargo.toml                      # Workspace root
 ├── CLAUDE.md                       # This file
 ├── docs/                           # User Documentation
-├── kb/                             # Engineering Handbook
-│   ├── architecture/
-│   ├── workflow/
+├── dev-docs/                             # Engineering Handbook (Contributors)
+│   ├── architecture/               # Architecture decisions
+│   ├── workflow/                   # Development guides
+│   │   ├── contribution-guide.md   # Dev setup & PR workflow
 │   │   └── definition-of-done.md   # 🚨 MANDATORY checklist
-│   └── internals/
+│   ├── internals/                  # Implementation details
+│   └── experimental/               # Experimental features
 ├── packages/
 │   └── core/                       # Rust → napi-rs bindings
 │       ├── src/
 │       │   ├── lib.rs              # #[napi] exports
+│       │   ├── app_state.rs        # State definition
+│       │   ├── actions.rs          # Action enum
+│       │   ├── mcp_server.rs       # MCP HTTP server
+│       │   ├── context_engine.rs   # AI context aggregation
+│       │   ├── constitution.rs     # Coding rules system
+│       │   ├── agent_rules.rs      # Agent rule generation
 │       │   ├── docker.rs           # Docker management
-│       │   └── justfile.rs         # Justfile parser
+│       │   ├── justfile.rs         # Justfile parser
+│       │   ├── terminal.rs         # PTY support
+│       │   ├── worktree.rs         # Git worktree
+│       │   ├── explorer/           # File browser
+│       │   └── reducer/            # State transitions (modular)
+│       │       ├── mod.rs
+│       │       ├── chat.rs
+│       │       ├── docker.rs
+│       │       ├── mcp.rs
+│       │       ├── changes.rs      # Change management
+│       │       ├── review_gate.rs  # Review workflow
+│       │       └── ...
 │       └── package.json
-├── apps/
-│   └── desktop/                    # Electron app
-│       ├── src/
-│       │   ├── main/               # Electron main process
-│       │   ├── preload/            # 🔗 BRIDGE LAYER (window.api)
-│       │   │   ├── index.ts        # Must call @rstn/core, NOT placeholder
-│       │   │   └── index.d.ts      # TypeScript types
-│       │   └── renderer/           # React frontend
-│       │       └── src/
-│       │           ├── features/   # Feature modules
-│       │           └── components/ # shadcn/ui
-│       └── package.json
-├── e2e/                            # Electron E2E tests
+├── desktop/                        # Electron app (root level)
+│   ├── src/
+│   │   ├── main/                   # Electron main process
+│   │   ├── preload/                # 🔗 BRIDGE LAYER (window.api)
+│   │   │   ├── index.ts            # Must call @rstn/core, NOT placeholder
+│   │   │   └── index.d.ts          # TypeScript types
+│   │   └── renderer/               # React frontend
+│   │       └── src/
+│   │           ├── features/       # Feature modules
+│   │           │   ├── tasks/
+│   │           │   ├── dockers/
+│   │           │   ├── chat/
+│   │           │   ├── terminal/
+│   │           │   ├── workflows/
+│   │           │   ├── explorer/
+│   │           │   ├── mcp/
+│   │           │   ├── a2ui/
+│   │           │   └── settings/
+│   │           ├── components/     # Shared components
+│   │           │   ├── layout/     # Sidebar, ProjectTabs
+│   │           │   └── shared/     # LogPanel, SourceCodeViewer
+│   │           ├── hooks/          # useAppState, etc.
+│   │           ├── theme/          # MUI MD3 theme
+│   │           └── types/          # TypeScript types
+│   └── package.json
+├── e2e/                            # Playwright E2E tests
 │   ├── docker.spec.ts
+│   ├── change-management.spec.ts
 │   └── electron.fixture.ts
+├── openspec/                       # OpenSpec specs and changes
+│   ├── AGENTS.md
+│   ├── project.md
+│   ├── specs/
+│   └── changes/
 └── .github/
     └── workflows/
         └── check-mock.yml          # CI: blocks MOCK in renderer
@@ -531,21 +608,35 @@ rustation/
 <knowledge-base>
 **rustation v3 Documentation** (Electron + napi-rs):
 
-**Engineering Handbook (`kb/`)**:
-- `kb/README.md` - Start here for development
-- `kb/architecture/00-overview.md` - Three pillars
-- `kb/architecture/01-system-specification.md` - **Tech Stack & Layout**
-- `kb/architecture/02-state-first-principle.md` - **🎯 CORE PRINCIPLE**
-- `kb/workflow/sdd-workflow.md` - SDD Guide
-- `kb/workflow/definition-of-done.md` - **🚨 MANDATORY**: Feature completion checklist
-- `kb/workflow/contribution-guide.md` - Dev setup
+**OpenSpec (`openspec/`)**:
+- `openspec/AGENTS.md` - OpenSpec workflow guide
+- `openspec/project.md` - Project context, conventions, constraints
+- `openspec/specs/` - Feature specifications (What features do)
+  - `docker-management/`, `file-explorer/`, `project-management/`, `tasks-justfile/`
+  - `mcp-server/`, `context-engine/`, `terminal-pty/`
+- `openspec/changes/` - Change proposals and archives
+
+**Engineering Handbook (`dev-docs/`)**:
+- `dev-docs/README.md` - Start here for development
+- `dev-docs/architecture/00-overview.md` - Three pillars
+- `dev-docs/architecture/01-ui-component-architecture.md` - MUI/Material Design 3
+- `dev-docs/architecture/02-state-topology.md` - **🎯 CORE PRINCIPLE**: State structure
+- `dev-docs/workflow/definition-of-done.md` - **🚨 MANDATORY**: Feature completion checklist
+- `dev-docs/workflow/contribution-guide.md` - Dev setup
 
 **User Documentation (`docs/`)**:
-- `docs/README.md` - Start here for usage
-- `docs/get-started/quick-start.md` - Quick Start
+- `docs/` - VitePress site for end users
+- `docs/guide/` - Installation, Quick Start
+- `docs/features/` - Feature usage guides
+- `docs/reference/` - Keyboard shortcuts, API reference
+
+**Documentation System Overview**:
+- **openspec/specs/** = Feature specifications (Requirements + Scenarios) - What features do
+- **dev-docs/** = Engineering Handbook (Architecture + Dev Guides) - Why & How to contribute
+- **docs/** = User Manual (Guides + Tutorials) - How to use rustation
 
 **CRITICAL REQUIREMENTS for ALL features**:
-1. **Definition of Done MANDATORY**: All layers connected (see `kb/workflow/definition-of-done.md`)
+1. **Definition of Done MANDATORY**: All layers connected (see `dev-docs/workflow/definition-of-done.md`)
 2. **NO MOCK data** in renderer production code
 3. **Preload must connect to @rstn/core**, NOT be placeholder
 4. NO business logic in React (Logic belongs in Rust)
@@ -553,10 +644,10 @@ rustation/
 
 **Development Workflow**:
 - Build core: `cd packages/core && pnpm build`
-- Build desktop: `cd apps/desktop && pnpm build`
-- Run dev: `cd apps/desktop && pnpm dev`
+- Build desktop: `cd desktop && pnpm build`
+- Run dev: `cd desktop && pnpm dev`
 - Rust tests: `cargo test`
-- E2E tests: `cd e2e && pnpm exec playwright test --config playwright.config.ts`
+- E2E tests: `pnpm test:e2e` (from root)
 </knowledge-base>
 
 </grounding>
@@ -565,7 +656,7 @@ rustation/
 
 <negative-constraints>
 
-<rule severity="NEVER">Change architecture without updating KB → Loss of source of truth → Update `kb/` first</rule>
+<rule severity="NEVER">Change architecture without updating KB → Loss of source of truth → Update `dev-docs/` first</rule>
 <rule severity="NEVER">Block work on missing speckit artifacts → speckit is optional → Use KB-first instead</rule>
 <rule severity="NEVER">Implement interactive flow without design diagrams → Leads to complexity → Use Design-First Planning</rule>
 <rule severity="NEVER">Skip flow diagrams for rstn GUI features → Can't debug interaction → Create Mermaid diagrams in plan phase</rule>
@@ -577,12 +668,12 @@ rustation/
 <rule severity="NEVER">Use -p + stream-json without --verbose → CLI error → Always add --verbose flag</rule>
 <rule severity="NEVER">Use "transport" in MCP config → Invalid schema → Use "type" field instead</rule>
 <rule severity="NEVER">Implement features without state tests → Untestable code → All features MUST have state serialization and transition tests</rule>
-<rule severity="NEVER">Use concrete language code blocks (rust, python, shell) in `kb/` files → KB is for architecture, not implementation → Use `mermaid` or `pseudo-code` instead</rule>
+<rule severity="NEVER">Use concrete language code blocks (rust, python, shell) in `dev-docs/` files → KB is for architecture, not implementation → Use `mermaid` or `pseudo-code` instead</rule>
 <rule severity="NEVER">Create files >500 lines without considering split → Monolithic code, hard to maintain → Split at 500 lines, MUST split at 1000 lines</rule>
 <rule severity="NEVER">Put all code in single file → Creates god modules → Use submodules (mod.rs pattern) for organization</rule>
 <rule severity="NEVER">Use MOCK_* data in renderer production code → Fake complete anti-pattern → Use window.api.* from real backend</rule>
 <rule severity="NEVER">Leave preload as placeholder → Bridge layer missing → Connect preload to @rstn/core before building UI</rule>
-<rule severity="NEVER">Claim feature complete without verifying all layers → Fake complete → Run DoD checklist in kb/workflow/definition-of-done.md</rule>
+<rule severity="NEVER">Claim feature complete without verifying all layers → Fake complete → Run DoD checklist in dev-docs/workflow/definition-of-done.md</rule>
 <rule severity="NEVER">Write E2E tests that only test MOCK UI → Tests prove nothing → E2E must test real backend behavior</rule>
 <rule severity="NEVER">Skip integration test after binding → Can't verify JS→Rust connection → Test binding works before building UI</rule>
 
@@ -625,8 +716,8 @@ After each work session, report in this format:
   <topic>{short-description}</topic>
 
   <kb-updates>
-    <doc status="updated">kb/.../something.md</doc>
-    <doc status="added">kb/.../new-doc.md</doc>
+    <doc status="updated">dev-docs/.../something.md</doc>
+    <doc status="added">dev-docs/.../new-doc.md</doc>
   </kb-updates>
 
   <implementation>
@@ -692,7 +783,7 @@ If ANY item is NO, fix it before proceeding.
 
 **A feature is NOT complete until ALL layers are connected and tested with REAL data.**
 
-See: `kb/workflow/definition-of-done.md` for full checklist.
+See: `dev-docs/workflow/definition-of-done.md` for full checklist.
 
 ### Anti-Pattern: "Fake Complete"
 
@@ -721,12 +812,12 @@ Before claiming ANY feature is "done", verify ALL layers:
 
 1. **Check for MOCK data**:
    ```
-   grep -rE "MOCK_SERVICES|MOCK_COMMANDS|MOCK_" apps/desktop/src/renderer/
+   grep -rE "MOCK_SERVICES|MOCK_COMMANDS|MOCK_" desktop/src/renderer/
    ```
    If ANY matches → Feature is NOT complete
 
 2. **Verify preload bridge**:
-   - Open `apps/desktop/src/preload/index.ts`
+   - Open `desktop/src/preload/index.ts`
    - Confirm functions call `@rstn/core`, not placeholders
 
 3. **Run E2E with real backend**:

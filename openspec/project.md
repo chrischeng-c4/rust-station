@@ -166,7 +166,7 @@ test(scope): description
 4. ✅ Frontend (React) uses window.api.* (NO MOCK data)
 5. ✅ E2E tests verify REAL backend behavior
 
-See: `kb/workflow/definition-of-done.md` for complete checklist
+See: `dev-docs/workflow/definition-of-done.md` for complete checklist
 
 ## Domain Context
 
@@ -231,7 +231,7 @@ See: `kb/workflow/definition-of-done.md` for complete checklist
 - **JSON/YAML Serializable**: All state structs must derive Serialize + Deserialize
 
 ### Development Constraints
-- **KB-First Principle**: Document architecture in `kb/` before implementation
+- **KB-First Principle**: Document architecture in `dev-docs/` before implementation
 - **Automated Verification**: Every feature MUST be programmatically testable (no manual testing)
 - **YAGNI**: Start minimal, avoid premature abstraction
 - **Simplicity**: Default to <100 LOC, single-file implementations until proven insufficient
@@ -393,7 +393,7 @@ rustation/
 │   ├── md3-visual-regression.spec.ts
 │   └── electron.fixture.ts
 │
-├── kb/                             # Engineering Handbook (source of truth)
+├── dev-docs/                             # Engineering Handbook (source of truth)
 │   ├── README.md
 │   ├── architecture/
 │   │   ├── 00-overview.md          # Three pillars
@@ -431,9 +431,9 @@ rustation/
 When creating OpenSpec changes for this project:
 
 ### 1. Check KB First
-- Review relevant `kb/` docs before creating specs
+- Review relevant `dev-docs/` docs before creating specs
 - Understand existing architecture patterns
-- Check for conflicting or overlapping changes in `kb/`
+- Check for conflicting or overlapping changes in `dev-docs/`
 
 ### 2. Capability Naming
 - Use verb-noun pattern: `docker-management`, `worktree-creation`, `mcp-integration`
@@ -539,7 +539,7 @@ pnpm test:e2e             # E2E tests (from root)
 - `packages/core/src/actions.rs` - Action enum
 - `packages/core/src/reducer/mod.rs` - Reducer coordinator
 - `desktop/src/preload/index.ts` - IPC bridge
-- `kb/workflow/definition-of-done.md` - Feature checklist
+- `dev-docs/workflow/definition-of-done.md` - Feature checklist
 
 ### Documentation System
 
@@ -548,25 +548,25 @@ rustation uses three complementary documentation systems:
 | System | Purpose | Audience | Content Type |
 |--------|---------|----------|--------------|
 | **openspec/** | Feature specifications | AI, PM, QA, Developers | Requirements, Scenarios, Acceptance Criteria |
-| **kb/** | Engineering handbook | Contributors, Maintainers | Architecture decisions, Development guides |
+| **dev-docs/** | Engineering handbook | Contributors, Maintainers | Architecture decisions, Development guides |
 | **docs/** | User manual | End Users | Installation, Tutorials, How-to guides |
 
 **Relationship**:
 ```
 openspec/specs/          → What features do (Requirements)
     ↓
-kb/architecture/         → Why we built it this way (ADR)
+dev-docs/architecture/         → Why we built it this way (ADR)
     ↓
 docs/features/           → How users operate features (Tutorials)
 ```
 
 **When to Update**:
 - **Adding feature**: Create `openspec/specs/<capability>/spec.md` → Update `docs/features/<feature>.md`
-- **Changing architecture**: Update `kb/architecture/*.md` → Reference in `openspec/project.md`
+- **Changing architecture**: Update `dev-docs/architecture/*.md` → Reference in `openspec/project.md`
 - **User-facing change**: Update `docs/` regardless of spec/KB changes
 
 ### Documentation References
-- **Engineering**: `kb/README.md`
+- **Engineering**: `dev-docs/README.md`
 - **User Guide**: `docs/` (VitePress site)
 - **OpenSpec**: `openspec/AGENTS.md`
-- **Architecture**: `kb/architecture/00-overview.md`
+- **Architecture**: `dev-docs/architecture/00-overview.md`

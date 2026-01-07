@@ -1,7 +1,8 @@
 import * as React from 'react'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { Alert, Box, CircularProgress, Paper, Stack, Typography } from '@mui/material'
 import { Code, ErrorOutline } from '@mui/icons-material'
+import { useAppState } from '@/hooks/useAppState'
 
 interface SourceCodeViewerProps {
   /** Absolute or relative path to the file */
@@ -15,11 +16,6 @@ interface SourceCodeViewerProps {
   /** Optional: Callback when file cannot be read */
   onError?: (error: string) => void
 }
-
-type ViewerState =
-  | { status: 'loading' }
-  | { status: 'success'; content: string }
-  | { status: 'error'; message: string }
 
 /**
  * Parse error code from Rust error message format "CODE: message"
@@ -56,7 +52,7 @@ function getFriendlyErrorMessage(code: string, path: string): string {
 
 /**
  * Component for viewing source code files with basic styling.
- * Uses the secure file reader API (window.api.file.read).
+ * Uses global AppState.file_viewer.
  */
 export function SourceCodeViewer({
   path,
@@ -65,45 +61,23 @@ export function SourceCodeViewer({
   maxHeight = '400px',
   onError,
 }: SourceCodeViewerProps): React.ReactElement {
-  const [state, setState] = useState<ViewerState>({ status: 'loading' })
+  const { state: appState, dispatch } = useAppState()
+  const viewerState = appState?.file_viewer
 
   useEffect(() => {
-    let cancelled = false
+    dispatch({ type: 'ReadFile', payload: { path } })
+  }, [path, dispatch])
 
-    async function loadFile(): Promise<void> {
-      setState({ status: 'loading' })
-
-      try {
-        // Build absolute path if relative
-        const absPath = path.startsWith('/')
-          ? path
-          : `${projectRoot}/${path}`
-
-        const content = await window.api.file.read(absPath, projectRoot)
-
-        if (!cancelled) {
-          setState({ status: 'success', content })
-        }
-      } catch (error) {
-        if (!cancelled) {
-          const errorStr = error instanceof Error ? error.message : String(error)
-          const { code } = parseErrorMessage(errorStr)
-          const friendlyMessage = getFriendlyErrorMessage(code, path)
-
-          setState({ status: 'error', message: friendlyMessage })
-          onError?.(friendlyMessage)
-        }
-      }
+  // Handle errors when they occur in the global state
+  useEffect(() => {
+    if (viewerState?.error && viewerState.path === path) {
+      const { code } = parseErrorMessage(viewerState.error)
+      const friendlyMessage = getFriendlyErrorMessage(code, path)
+      onError?.(friendlyMessage)
     }
+  }, [viewerState?.error, viewerState?.path, path, onError])
 
-    loadFile()
-
-    return () => {
-      cancelled = true
-    }
-  }, [path, projectRoot, onError])
-
-  if (state.status === 'loading') {
+  if (!viewerState || (viewerState.is_loading && viewerState.path === path)) {
     return (
       <Stack direction="row" alignItems="center" justifyContent="center" spacing={1} sx={{ py: 4 }}>
         <CircularProgress size={20} />
@@ -114,15 +88,22 @@ export function SourceCodeViewer({
     )
   }
 
-  if (state.status === 'error') {
+  if (viewerState.error && viewerState.path === path) {
+    const { code } = parseErrorMessage(viewerState.error)
+    const friendlyMessage = getFriendlyErrorMessage(code, path)
     return (
       <Alert severity="error" icon={<ErrorOutline fontSize="small" />}>
-        <Typography variant="body2">{state.message}</Typography>
+        <Typography variant="body2">{friendlyMessage}</Typography>
       </Alert>
     )
   }
 
-  const lines = state.content.split('\n')
+  const content = viewerState.path === path ? viewerState.content : ''
+  if (!content && !viewerState.is_loading) {
+    return null
+  }
+
+  const lines = (content || '').split('\n')
 
   return (
     <Paper variant="outlined" sx={{ bgcolor: 'action.hover' }}>

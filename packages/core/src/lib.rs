@@ -34,7 +34,7 @@ use actions::Action;
 use app_state::AppState;
 use docker::DockerManager;
 use mcp_server::McpServerManager;
-use napi::threadsafe_function::{ThreadSafeCallContext, ThreadsafeFunction, ThreadsafeFunctionCallMode};
+use napi::threadsafe_function::ThreadsafeFunction;
 use reducer::reduce;
 use state::DockerService;
 use std::sync::{Arc, OnceLock};
@@ -66,6 +66,7 @@ fn get_db_manager() -> Option<Arc<db::DbManager>> {
 
 /// Push state update to JavaScript listener
 async fn notify_state_update() {
+    #[cfg(not(test))]
     if let Some(listener) = STATE_LISTENER.get() {
         let state = get_app_state().read().await;
         if let Ok(json) = serde_json::to_string(&*state) {
@@ -510,7 +511,7 @@ pub fn context_build_system_prompt(
 /// This should be called once during app startup.
 #[napi]
 pub fn state_init(
-    #[napi(ts_arg_type = "(err: Error | null, state: string) => void")] callback: napi::JsFunction,
+    #[napi(ts_arg_type = "(err: Error | null, state: string) => void")] _callback: napi::JsFunction,
 ) -> napi::Result<()> {
     // Initialize the state with defaults
     let mut initial_state = AppState::default();
@@ -536,15 +537,18 @@ pub fn state_init(
 
     let _ = APP_STATE.set(Arc::new(RwLock::new(initial_state)));
 
-    // Create threadsafe function for callbacks
-    let tsfn: ThreadsafeFunction<String> = callback.create_threadsafe_function(
-        0,
-        |ctx: ThreadSafeCallContext<String>| {
-            ctx.env.create_string(&ctx.value).map(|v| vec![v])
-        },
-    )?;
+    #[cfg(not(test))]
+    {
+        // Create threadsafe function for callbacks
+        let tsfn: ThreadsafeFunction<String> = callback.create_threadsafe_function(
+            0,
+            |ctx: ThreadSafeCallContext<String>| {
+                ctx.env.create_string(&ctx.value).map(|v| vec![v])
+            },
+        )?;
 
-    let _ = STATE_LISTENER.set(tsfn);
+        let _ = STATE_LISTENER.set(tsfn);
+    }
 
     Ok(())
 }
@@ -623,6 +627,44 @@ async fn refresh_docker_services_internal() {
                 context: Some("RefreshDockerServices".to_string()),
             });
             reduce(&mut state, Action::SetDockerLoading { is_loading: false });
+        }
+    }
+}
+
+/// Refresh justfile commands for the active worktree
+async fn refresh_justfile_commands() {
+    let worktree_path = {
+        let state = get_app_state().read().await;
+        state
+            .active_project()
+            .and_then(|p| p.active_worktree())
+            .map(|w| w.path.clone())
+    };
+
+    if let Some(path) = worktree_path {
+        let justfile_path = std::path::Path::new(&path).join("justfile");
+        if justfile_path.exists() {
+            match justfile::parse_justfile(&justfile_path.to_string_lossy()) {
+                Ok(commands) => {
+                    let command_data: Vec<actions::JustCommandData> = commands
+                        .into_iter()
+                        .map(|c| actions::JustCommandData {
+                            name: c.name,
+                            description: c.description,
+                            recipe: c.recipe,
+                        })
+                        .collect();
+                    let mut state = get_app_state().write().await;
+                    reduce(&mut state, Action::SetJustfileCommands { commands: command_data });
+                }
+                Err(e) => {
+                    let mut state = get_app_state().write().await;
+                    reduce(&mut state, Action::SetTasksError { error: Some(e) });
+                }
+            }
+        } else {
+            let mut state = get_app_state().write().await;
+            reduce(&mut state, Action::SetJustfileCommands { commands: Vec::new() });
         }
     }
 }
@@ -761,8 +803,11 @@ async fn handle_async_action(action: Action) -> napi::Result<()> {
 
         Action::CreateDatabase { ref service_id, ref db_name } => {
             match docker_create_database(service_id.clone(), db_name.clone()).await {
-                Ok(_connection_string) => {
-                    // Database created successfully
+                Ok(connection_string) => {
+                    let mut state = get_app_state().write().await;
+                    reduce(&mut state, Action::SetDockerConnectionString { 
+                        connection_string: Some(connection_string) 
+                    });
                 }
                 Err(e) => {
                     let mut state = get_app_state().write().await;
@@ -777,8 +822,11 @@ async fn handle_async_action(action: Action) -> napi::Result<()> {
 
         Action::CreateVhost { ref service_id, ref vhost_name } => {
             match docker_create_vhost(service_id.clone(), vhost_name.clone()).await {
-                Ok(_connection_string) => {
-                    // Vhost created successfully
+                Ok(connection_string) => {
+                    let mut state = get_app_state().write().await;
+                    reduce(&mut state, Action::SetDockerConnectionString { 
+                        connection_string: Some(connection_string) 
+                    });
                 }
                 Err(e) => {
                     let mut state = get_app_state().write().await;
@@ -911,25 +959,8 @@ async fn handle_async_action(action: Action) -> napi::Result<()> {
             }
         }
 
-        Action::LoadJustfileCommands { ref path } => {
-            match justfile::parse_justfile(path) {
-                Ok(commands) => {
-                    let command_data: Vec<actions::JustCommandData> = commands
-                        .into_iter()
-                        .map(|c| actions::JustCommandData {
-                            name: c.name,
-                            description: c.description,
-                            recipe: c.recipe,
-                        })
-                        .collect();
-                    let mut state = get_app_state().write().await;
-                    reduce(&mut state, Action::SetJustfileCommands { commands: command_data });
-                }
-                Err(e) => {
-                    let mut state = get_app_state().write().await;
-                    reduce(&mut state, Action::SetTasksError { error: Some(e) });
-                }
-            }
+        Action::LoadJustfileCommands | Action::RefreshJustfile => {
+            refresh_justfile_commands().await;
         }
 
         Action::RunJustCommand { ref name, ref cwd } => {
@@ -981,6 +1012,10 @@ async fn handle_async_action(action: Action) -> napi::Result<()> {
                     let mut state = get_app_state().write().await;
                     reduce(&mut state, Action::SetConstitutionExists { exists });
                 }
+                
+                // Load justfile commands for the active worktree
+                refresh_justfile_commands().await;
+                
                 notify_state_update().await;
             }
         }
@@ -993,6 +1028,41 @@ async fn handle_async_action(action: Action) -> napi::Result<()> {
             };
             if let Some(path) = project_path {
                 refresh_worktrees_for_path(&path).await;
+                refresh_justfile_commands().await;
+            }
+        }
+
+        Action::FetchBranches => {
+            // Get the active project path
+            let project_path = {
+                let state = get_app_state().read().await;
+                state.active_project().map(|p| p.path.clone())
+            };
+
+            if let Some(path) = project_path {
+                match worktree::list_branches(&path) {
+                    Ok(branches) => {
+                        let branch_data: Vec<actions::BranchData> = branches
+                            .into_iter()
+                            .map(|b| actions::BranchData {
+                                name: b.name,
+                                has_worktree: b.has_worktree,
+                                is_current: b.is_current,
+                            })
+                            .collect();
+                        let mut state = get_app_state().write().await;
+                        reduce(&mut state, Action::SetBranches { branches: branch_data });
+                    }
+                    Err(e) => {
+                        let mut state = get_app_state().write().await;
+                        reduce(&mut state, Action::SetError {
+                            code: "BRANCH_LIST_ERROR".to_string(),
+                            message: e,
+                            context: Some(format!("FetchBranches: {}", path)),
+                        });
+                        reduce(&mut state, Action::SetBranchesLoading { is_loading: false });
+                    }
+                }
             }
         }
 
@@ -1271,6 +1341,12 @@ async fn handle_async_action(action: Action) -> napi::Result<()> {
         | Action::SetDockerLogsLoading { .. }
         | Action::SetPortConflict { .. }
         | Action::ClearPortConflict
+        | Action::SetDockerConnectionString { .. }
+        | Action::SetBranches { .. }
+        | Action::SetBranchesLoading { .. }
+        | Action::SetFileContent { .. }
+        | Action::SetFileLoading { .. }
+        | Action::SetA2UIPayload { .. }
         | Action::SetJustfileCommands { .. }
         | Action::SetTaskStatus { .. }
         | Action::SetActiveCommand { .. }
@@ -1309,10 +1385,53 @@ async fn handle_async_action(action: Action) -> napi::Result<()> {
         | Action::SetTerminalSize { .. }
         // View actions (sync)
         | Action::SetActiveView { .. }
+        | Action::SetExplorerEntries { .. }
+        | Action::SetFileComments { .. }
+        | Action::NavigateBack
+        | Action::NavigateForward
+        | Action::NavigateUp
+        | Action::SetExplorerSort { .. }
+        | Action::SetExplorerFilter { .. }
         // Dev log actions (sync)
-        | Action::AddDevLog { .. }
-        | Action::ClearDevLogs => {
+        | Action::AddDevLog { .. } => {
             // Already handled synchronously
+        }
+        Action::ClearDevLogs => {
+            // Already handled synchronously
+        }
+
+        Action::ReadFile { ref path } => {
+            let project_root = {
+                let state = get_app_state().read().await;
+                state.active_project().map(|p| p.path.clone())
+            };
+
+            if let Some(root) = project_root {
+                let abs_path = if std::path::Path::new(path).is_absolute() {
+                    path.clone()
+                } else {
+                    std::path::Path::new(&root).join(path).to_string_lossy().to_string()
+                };
+
+                match file_reader::read_file(&abs_path, &root) {
+                    Ok(content) => {
+                        let mut state = get_app_state().write().await;
+                        reduce(&mut state, Action::SetFileContent { 
+                            path: path.clone(), 
+                            content: Some(content), 
+                            error: None 
+                        });
+                    }
+                    Err(e) => {
+                        let mut state = get_app_state().write().await;
+                        reduce(&mut state, Action::SetFileContent { 
+                            path: path.clone(), 
+                            content: None, 
+                            error: Some(e.to_string()) 
+                        });
+                    }
+                }
+            }
         }
 
         // Claude Code CLI chat (async - spawns external process)
@@ -2092,17 +2211,84 @@ Be specific, actionable, and authoritative. Use "MUST", "MUST NOT" language."#,
             // Sync action - handled in reducer
         }
 
-        Action::SubmitReviewFeedback { session_id: _ } => {
-            // TODO (Phase B3): Async action - collect feedback and send to Claude
-            // For now, just mark as handled in reducer
+        Action::SubmitReviewFeedback { ref session_id } => {
+            // Get session info
+            let (content, comments, _workflow_node_id) = {
+                let state = get_app_state().read().await;
+                let active_project = state.active_project();
+                let worktree = active_project.and_then(|p| p.active_worktree());
+                let session = worktree.and_then(|w| w.tasks.review_gate.sessions.get(session_id));
+                
+                match session {
+                    Some(s) => (
+                        s.content.clone(),
+                        s.comments.iter()
+                            .filter(|c| !c.resolved)
+                            .map(|c| format!("- {}: {}", 
+                                match &c.target {
+                                    app_state::CommentTarget::Document => "Overall".to_string(),
+                                    app_state::CommentTarget::Section { id } => format!("Section {}", id),
+                                    app_state::CommentTarget::File { path } => format!("File {}", path),
+                                },
+                                c.content
+                            ))
+                            .collect::<Vec<_>>()
+                            .join("\n"),
+                        s.workflow_node_id.clone()
+                    ),
+                    None => {
+                        return Ok(());
+                    }
+                }
+            };
+
+            if comments.is_empty() {
+                // Nothing to iterate on, just mark as reviewing again
+                let mut state = get_app_state().write().await;
+                reduce(&mut state, Action::SetReviewStatus { 
+                    session_id: session_id.clone(), 
+                    status: actions::ReviewStatusData::Reviewing 
+                });
+                return Ok(());
+            }
+
+            // TODO: In a real implementation, we would call Claude here with the feedback
+            // For now, we simulate a successful iteration after a short delay
+            let session_id_clone = session_id.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                
+                let mut state = get_app_state().write().await;
+                // Update content with a "mock" change
+                let mut new_content = content.content;
+                new_content.push_str("\n\n---\n*Note: Iterated based on feedback.*\n");
+                
+                reduce(&mut state, Action::UpdateReviewContent {
+                    session_id: session_id_clone.clone(),
+                    content: actions::ReviewContentData {
+                        content_type: match content.content_type {
+                            app_state::ReviewContentType::Plan => actions::ReviewContentTypeData::Plan,
+                            app_state::ReviewContentType::Proposal => actions::ReviewContentTypeData::Proposal,
+                            app_state::ReviewContentType::Code => actions::ReviewContentTypeData::Code,
+                            app_state::ReviewContentType::Artifact => actions::ReviewContentTypeData::Artifact,
+                        },
+                        content: new_content,
+                        file_changes: Vec::new(), // Mock
+                    }
+                });
+                
+                // Set status back to Reviewing
+                reduce(&mut state, Action::SetReviewStatus { 
+                    session_id: session_id_clone, 
+                    status: actions::ReviewStatusData::Reviewing 
+                });
+                
+                notify_state_update().await;
+            });
         }
 
-        Action::ApproveReview { .. } => {
-            // Sync action - handled in reducer
-        }
-
-        Action::RejectReview { .. } => {
-            // Sync action - handled in reducer
+        Action::ApproveReview { .. } | Action::RejectReview { .. } => {
+            // No async work needed
         }
 
         Action::UpdateReviewContent { .. } => {
@@ -3569,20 +3755,6 @@ Execute the plan now. Start implementing."#,
                     }
                 }
             }
-        }
-
-        Action::DeleteFileComment { .. } => {
-            // TODO: Implement delete
-        }
-
-        Action::SetExplorerEntries { .. }
-        | Action::SetFileComments { .. }
-        | Action::NavigateBack
-        | Action::NavigateForward
-        | Action::NavigateUp
-        | Action::SetExplorerSort { .. }
-        | Action::SetExplorerFilter { .. } => {
-            // Handled by reducer (sync state updates)
         }
 
         Action::CreateFile { .. }

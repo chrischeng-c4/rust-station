@@ -9,15 +9,15 @@
 **Goal:** Eliminate "transitional" gaps where the frontend still uses legacy patterns or handles logic that belongs in the backend.
 
 ### Phase A1: Eliminate Legacy API Usage (Renderer)
-- [ ] Refactor `DockersPage.tsx` to use `dispatch({ type: 'CreateDatabase' })` instead of `window.api.docker.createDatabase`.
-- [ ] Refactor `DockersPage.tsx` to use `dispatch({ type: 'CreateVhost' })` instead of `window.api.docker.createVhost`.
-- [ ] Refactor `AddWorktreeDialog.tsx` to use `dispatch({ type: 'FetchBranches' })` instead of `window.api.worktree.listBranches`.
-- [ ] Refactor `ContextFilesInput.tsx` and `SourceCodeViewer.tsx` to use `dispatch({ type: 'ReadFile' })` instead of `window.api.file.read`.
-- [ ] Remove `window.api` exposure from `preload/index.ts` once all legacy calls are migrated.
+- [x] Refactor `DockersPage.tsx` to use `dispatch({ type: 'CreateDatabase' })` instead of `window.api.docker.createDatabase`.
+- [x] Refactor `DockersPage.tsx` to use `dispatch({ type: 'CreateVhost' })` instead of `window.api.docker.createVhost`.
+- [x] Refactor `AddWorktreeDialog.tsx` to use `dispatch({ type: 'FetchBranches' })` instead of `window.api.worktree.listBranches`.
+- [x] Refactor `ContextFilesInput.tsx` and `SourceCodeViewer.tsx` to use `dispatch({ type: 'ReadFile' })` instead of `window.api.file.read`.
+- [x] Remove `window.api` exposure from `preload/index.ts` once all legacy calls are migrated.
 
 ### Phase A2: Centralize Logic in Backend
-- [ ] Move `justfilePath` construction logic from `TasksPage.tsx` to Rust backend (Backend should return available tasks).
-- [ ] Verify no other path concatenation logic exists in the frontend.
+- [x] Move `justfilePath` construction logic from `TasksPage.tsx` to Rust backend (Backend should return available tasks).
+- [x] Verify no other path concatenation logic exists in the frontend.
 
 ---
 
@@ -26,20 +26,20 @@
 **Goal:** Implement a robust, local-first file management system with structured data persistence.
 
 ### Phase B1: SQLite Infrastructure
-- [ ] Add `rusqlite` dependency to `packages/core`.
-- [ ] Implement `db.rs` for connection management and migrations.
-- [ ] Implement activity log sink to SQLite.
+- [x] Add `rusqlite` dependency to `packages/core`.
+- [x] Implement `db.rs` for connection management and migrations.
+- [x] Implement activity log sink to SQLite.
 
 ### Phase B2: File Explorer Backend
-- [ ] Define `FileExplorerState` in `app_state.rs`.
-- [ ] Implement directory reading logic with `.gitignore` support.
-- [ ] Implement sort/filter logic in Rust.
-- [ ] Implement metadata and preview fetcher.
+- [x] Define `FileExplorerState` in `app_state.rs`.
+- [x] Implement directory reading logic with `.gitignore` support.
+- [x] Implement sort/filter logic in Rust.
+- [x] Implement metadata and preview fetcher.
 
 ### Phase B3: File Explorer UI
-- [ ] Create `ExplorerPage.tsx` container with resizable panels.
-- [ ] Implement virtualized `FileList` component.
-- [ ] Implement `DetailPanel` with Metadata, Preview, and Comments tabs.
+- [x] Create `ExplorerPage.tsx` container with resizable panels.
+- [x] Implement virtualized `FileList` component.
+- [x] Implement `DetailPanel` with Metadata, Preview, and Comments tabs.
 
 ---
 
@@ -48,27 +48,27 @@
 **Goal:** Ensure comprehensive coverage for both state transitions and end-to-end user flows, including offline/mocked scenarios.
 
 ### Phase C1: Backend State Tests (Rust)
-- [ ] Add reducer tests for MCP actions (start/stop/status/port/error/log/tools).
-- [ ] Add reducer tests for Notifications actions (add/dismiss/mark read/clear).
-- [ ] Add reducer tests for Terminal actions (spawn/resize/set session/kill).
-- [ ] Add reducer tests for Context actions (load/set/init/generate/sync/complete/fail).
-- [ ] Add reducer tests for Change edge transitions (cancel/fail/archive).
-- [ ] Add serialization round-trip tests for `ContextState`, `McpState`, `Notification`, and `TerminalState`.
+- [x] Add reducer tests for MCP actions (start/stop/status/port/error/log/tools).
+- [x] Add reducer tests for Notifications actions (add/dismiss/mark read/clear).
+- [x] Add reducer tests for Terminal actions (spawn/resize/set session/kill).
+- [x] Add reducer tests for Context actions (load/set/init/generate/sync/complete/fail).
+- [x] Add reducer tests for Change edge transitions (cancel/fail/archive).
+- [x] Add serialization round-trip tests for `ContextState`, `McpState`, `Notification`, and `TerminalState`.
 
 ### Phase C2: E2E Test Coverage
-- [ ] Create "Mocked Backend" E2E tests for Docker flow.
-- [ ] Implement full-flow E2E for Change Management.
-- [ ] Implement full-flow E2E for ReviewGate.
+- [x] Create "Mocked Backend" E2E tests for Docker flow.
+- [x] Implement full-flow E2E for Change Management.
+- [x] Implement full-flow E2E for ReviewGate.
 
 ---
 
 ## 🚀 Track D: Feature Completion (In Progress)
 
 ### ReviewGate (Phase B3 - Async Pipeline)
-- [ ] Implement `SubmitReviewFeedback` async handler in `packages/core/src/lib.rs`.
+- [x] Implement `SubmitReviewFeedback` async handler in `packages/core/src/lib.rs`.
 
 ### Experimental: A2UI
-- [ ] Implement MCP tool + backend bridge to accept A2UI JSON and push to renderer.
+- [x] Implement MCP tool + backend bridge to accept A2UI JSON and push to renderer.
 
 ---
 
@@ -82,3 +82,9 @@
 - [x] Context state and file management
 - [x] AI-powered context generation
 - [x] Enhanced context synchronization
+
+### UI Architecture
+- [x] Migrate to Material Design 3 (MUI v5/v7)
+- [x] Remove legacy CSS frameworks (Tailwind/Shadcn)
+- [x] Update `ProjectTabs` to MD3
+- [x] Stabilize UI tests (`md3-visual-regression.spec.ts`)

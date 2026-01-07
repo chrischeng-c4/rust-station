@@ -1,6 +1,17 @@
 import React, { createElement } from 'react'
+import { styled } from '@mui/material/styles'
 import { A2UI_REGISTRY } from '../registry'
 import type { A2UINode, A2UIAction } from '../types'
+
+// Styled component for unknown nodes
+const ErrorNode = styled('div')(({ theme }) => ({
+  color: theme.palette.error.main,
+  fontSize: '0.75rem',
+  border: `1px solid ${theme.palette.error.main}`,
+  padding: theme.spacing(0.5),
+  borderRadius: theme.shape.borderRadius / 4,
+  fontFamily: 'monospace',
+}))
 
 interface A2UIRendererProps {
   node: A2UINode
@@ -28,7 +39,11 @@ export function A2UIRenderer({ node, onAction, depth = 0 }: A2UIRendererProps): 
 
   if (!Component) {
     console.warn(`A2UI: Unknown component type "${node.type}"`)
-    return <div className="text-destructive text-xs border border-destructive p-1">Unknown: {node.type}</div>
+    return (
+      <ErrorNode>
+        Unknown: {node.type}
+      </ErrorNode>
+    )
   }
 
   // 3. Prepare Props

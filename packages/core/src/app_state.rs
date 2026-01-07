@@ -41,6 +41,12 @@ pub struct AppState {
     /// UI layout state (panel states, icon bar)
     #[serde(default)]
     pub ui_layout: UiLayoutState,
+    /// Shared file viewer state
+    #[serde(default)]
+    pub file_viewer: FileViewerState,
+    /// A2UI experimental state
+    #[serde(default)]
+    pub a2ui: A2UIState,
 }
 
 impl Default for AppState {
@@ -57,6 +63,8 @@ impl Default for AppState {
             active_view: ActiveView::default(),
             dev_logs: Vec::new(),
             ui_layout: UiLayoutState::default(),
+            file_viewer: FileViewerState::default(),
+            a2ui: A2UIState::default(),
         }
     }
 }
@@ -222,6 +230,12 @@ pub struct ProjectState {
     /// Agent rules configuration (project-level)
     #[serde(default)]
     pub agent_rules_config: AgentRulesConfig,
+    /// Available branches for worktree creation
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub available_branches: Vec<BranchInfo>,
+    /// Loading state for branches
+    #[serde(default)]
+    pub is_loading_branches: bool,
 }
 
 impl ProjectState {
@@ -244,6 +258,8 @@ impl ProjectState {
             active_worktree_index: 0,
             env_config: EnvConfig::with_source(path),
             agent_rules_config: AgentRulesConfig::default(),
+            available_branches: Vec::new(),
+            is_loading_branches: false,
         }
     }
 
@@ -256,6 +272,13 @@ impl ProjectState {
     pub fn active_worktree_mut(&mut self) -> Option<&mut WorktreeState> {
         self.worktrees.get_mut(self.active_worktree_index)
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BranchInfo {
+    pub name: String,
+    pub has_worktree: bool,
+    pub is_current: bool,
 }
 
 // ============================================================================
@@ -1141,6 +1164,9 @@ pub struct DockersState {
     /// Custom port overrides for services (service_id -> port)
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub port_overrides: HashMap<String, u16>,
+    /// Result of the last CreateDatabase or CreateVhost operation
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_connection_string: Option<String>,
 }
 
 /// Pending port conflict that requires user resolution
@@ -1711,6 +1737,19 @@ pub struct ReviewGateState {
     /// Error message (if any)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct FileViewerState {
+    pub path: Option<String>,
+    pub content: Option<String>,
+    pub is_loading: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct A2UIState {
+    pub payload: Option<serde_json::Value>,
 }
 
 // ============================================================================

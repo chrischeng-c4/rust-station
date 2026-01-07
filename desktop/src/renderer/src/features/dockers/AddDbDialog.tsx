@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Storage as DatabaseIcon,
   ContentCopy as CopyIcon,
@@ -18,6 +18,7 @@ import {
   Stack,
   InputAdornment
 } from '@mui/material'
+import { useDockersState } from '@/hooks/useAppState'
 
 interface AddDbDialogProps {
   serviceId: string
@@ -32,12 +33,21 @@ export function AddDbDialog({
   disabled,
   onCreateDb,
 }: AddDbDialogProps) {
+  const { dockers, dispatch } = useDockersState()
   const [open, setOpen] = useState(false)
   const [dbName, setDbName] = useState('')
   const [isCreating, setIsCreating] = useState(false)
   const [connectionString, setConnectionString] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+
+  // Watch for connection string in global state
+  useEffect(() => {
+    if (open && isCreating && dockers?.last_connection_string) {
+      setConnectionString(dockers.last_connection_string)
+      setIsCreating(false)
+    }
+  }, [dockers?.last_connection_string, open, isCreating])
 
   const handleCreate = async () => {
     if (!dbName.trim()) {
@@ -55,8 +65,8 @@ export function AddDbDialog({
 
     try {
       if (onCreateDb) {
-        const connStr = await onCreateDb(serviceId, dbName)
-        setConnectionString(connStr)
+        // This will now trigger a dispatch which updates global state
+        await onCreateDb(serviceId, dbName)
       } else {
         const mockConnStr = serviceId.includes('postgres')
           ? `postgresql://postgres:postgres@localhost:5432/${dbName}`
@@ -64,10 +74,10 @@ export function AddDbDialog({
           ? `mysql://root:mysql@localhost:3306/${dbName}`
           : `mongodb://localhost:27017/${dbName}`
         setConnectionString(mockConnStr)
+        setIsCreating(false)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create database')
-    } finally {
       setIsCreating(false)
     }
   }
@@ -87,6 +97,9 @@ export function AddDbDialog({
       setConnectionString(null)
       setError(null)
       setCopied(false)
+      setIsCreating(false)
+      // Clear global connection string result when dialog closes
+      dispatch({ type: 'SetDockerConnectionString', payload: { connection_string: null } })
     }
   }
 

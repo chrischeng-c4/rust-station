@@ -125,6 +125,54 @@ impl DbManager {
         let count: usize = stmt.query_row(params![file_path], |row| row.get(0))?;
         Ok(count)
     }
+
+    // ========================================================================
+    // Activity Logs
+    // ========================================================================
+
+    pub fn add_log(
+        &self,
+        category: &str,
+        level: &str,
+        summary: &str,
+        detail_json: Option<&str>,
+    ) -> Result<i64> {
+        let now = chrono::Utc::now().to_rfc3339();
+        let conn = self.conn.lock().unwrap();
+
+        conn.execute(
+            "INSERT INTO activity_logs (category, level, summary, detail_json, timestamp)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![category, level, summary, detail_json, now],
+        )?;
+
+        Ok(conn.last_insert_rowid())
+    }
+
+    pub fn get_logs(&self, limit: usize) -> Result<Vec<LogRow>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, category, level, summary, detail_json, timestamp 
+             FROM activity_logs ORDER BY timestamp DESC LIMIT ?1",
+        )?;
+
+        let rows = stmt.query_map(params![limit], |row| {
+            Ok(LogRow {
+                id: row.get(0)?,
+                category: row.get(1)?,
+                level: row.get(2)?,
+                summary: row.get(3)?,
+                detail_json: row.get(4)?,
+                timestamp: row.get(5)?,
+            })
+        })?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -133,6 +181,16 @@ pub struct CommentRow {
     pub content: String,
     pub author: String,
     pub created_at: String,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct LogRow {
+    pub id: i64,
+    pub category: String,
+    pub level: String,
+    pub summary: String,
+    pub detail_json: Option<String>,
+    pub timestamp: String,
 }
 
 // Activity Log integration will be added in Phase B1.3

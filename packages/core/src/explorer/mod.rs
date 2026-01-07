@@ -4,12 +4,14 @@
 
 use crate::app_state::{FileEntry, FileKind, GitFileStatus};
 use crate::db::DbManager;
+use ignore::WalkBuilder;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-/// Read a directory and return a list of file entries with Git status
+/// Read a directory and return a list of file entries with Git status.
+/// Respects .gitignore rules.
 pub fn read_directory(
     path: &Path, 
     project_root: &Path, 
@@ -20,16 +22,35 @@ pub fn read_directory(
     // 1. Get Git status for the project to overlay on files
     let git_status_map = get_git_status(project_root).unwrap_or_default();
 
-    // 2. Read directory entries
-    for entry in fs::read_dir(path)? {
-        let entry = entry?;
-        let metadata = entry.metadata()?;
+    // 2. Read directory entries using 'ignore' crate
+    // We only want immediate children, so we set max_depth to 1.
+    let walker = WalkBuilder::new(path)
+        .standard_filters(true) // respects .gitignore, etc.
+        .max_depth(Some(1))
+        .build();
+
+    for result in walker {
+        let entry = match result {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        // Skip the directory itself
+        if entry.path() == path {
+            continue;
+        }
+
+        let metadata = match entry.metadata() {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        
         let file_path = entry.path();
         
         // Get relative path for Git matching and UI
         let rel_path = file_path
             .strip_prefix(project_root)
-            .unwrap_or(&file_path)
+            .unwrap_or(file_path)
             .to_string_lossy()
             .to_string();
 

@@ -12,7 +12,6 @@ import {
   Tab, 
   Typography, 
   Divider, 
-  IconButton, 
   TextField, 
   Button,
   Paper,
@@ -20,13 +19,15 @@ import {
   Stack
 } from '@mui/material'
 import { useActiveWorktree } from '@/hooks/useAppState'
-import ReactMarkdown from 'react-markdown'
+import { Markdown } from '@/components/shared/MarkdownDisplay'
+import { SourceCodeViewer } from '@/components/shared/SourceCodeViewer'
 
 interface TabPanelProps {
   children?: React.ReactNode
   index: number
   value: number
 }
+
 
 function CustomTabPanel(props: TabPanelProps) {
   const { children, value, index, ...other } = props
@@ -51,7 +52,7 @@ export function DetailPanel() {
   const selectedEntry = explorer?.entries.find((e) => e.path === selectedPath)
   const comments = explorer?.selected_comments ?? []
   
-  const [tabValue, setTabValue] = useState(2) // Default to Comments
+  const [tabValue, setTabValue] = useState(0) // Default to Info
   const [newComment, setNewComment] = useState('')
 
   const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
@@ -88,18 +89,17 @@ export function DetailPanel() {
   }
 
   return (
-    <Box sx={{ display: 'flex', height: '100%', flexDirection: 'column', overflow: 'hidden', borderLeft: 1, borderColor: 'divider' }}>
-      <Box sx={{ borderBottom: 1, borderColor: 'divider', bgcolor: 'background.paper', opacity: 0.5 }}>
+    <Box sx={{ display: 'flex', height: '100%', flexDirection: 'column', overflow: 'hidden' }}>
+      <Box sx={{ borderBottom: 1, borderColor: 'divider', bgcolor: 'background.paper' }}>
         <Tabs 
           value={tabValue} 
           onChange={handleTabChange} 
-          variant="fullWidth" 
-          size="small"
-          sx={{ minHeight: 40 }}
+          variant="fullWidth"
+          sx={{ minHeight: 48 }}
         >
-          <Tab icon={<InfoIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="Info" sx={{ minHeight: 40, fontSize: '0.7rem' }} />
-          <Tab icon={<FileCode sx={{ fontSize: 18 }} />} iconPosition="start" label="Preview" sx={{ minHeight: 40, fontSize: '0.7rem' }} />
-          <Tab icon={<MessageSquare sx={{ fontSize: 18 }} />} iconPosition="start" label="Comments" sx={{ minHeight: 40, fontSize: '0.7rem' }} />
+          <Tab icon={<InfoIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="Info" sx={{ fontSize: '0.7rem' }} />
+          <Tab icon={<FileCode sx={{ fontSize: 18 }} />} iconPosition="start" label="Preview" sx={{ fontSize: '0.7rem' }} />
+          <Tab icon={<MessageSquare sx={{ fontSize: 18 }} />} iconPosition="start" label="Comments" sx={{ fontSize: '0.7rem' }} />
         </Tabs>
       </Box>
 
@@ -149,21 +149,18 @@ export function DetailPanel() {
 
       {/* Preview Tab */}
       <CustomTabPanel value={tabValue} index={1}>
-        <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 2 }}>
-          <Paper variant="outlined" sx={{ 
-            width: '100%', 
-            height: '100%', 
-            display: 'flex', 
-            alignItems: 'center', 
-            justifyContent: 'center',
-            bgcolor: 'transparent',
-            borderStyle: 'dashed'
-          }}>
-            <Box sx={{ textAlign: 'center', color: 'text.secondary', opacity: 0.5 }}>
-              <FileCode sx={{ fontSize: 40, mb: 1 }} />
-              <Typography variant="caption" display="block">Preview will use SourceCodeViewer</Typography>
+        <Box sx={{ flex: 1, minHeight: 0, p: 1 }}>
+          {selectedEntry.kind === 'file' ? (
+            <SourceCodeViewer 
+              path={selectedEntry.path} 
+              projectRoot={worktree?.path ?? ''} 
+              maxHeight="100%"
+            />
+          ) : (
+            <Box sx={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: 'text.secondary' }}>
+              <Typography variant="body2">Preview only available for files</Typography>
             </Box>
-          </Paper>
+          )}
         </Box>
       </CustomTabPanel>
 
@@ -183,11 +180,7 @@ export function DetailPanel() {
                       {new Date(comment.created_at).toLocaleTimeString()}
                     </Typography>
                   </Box>
-                  <Box className="prose prose-sm dark:prose-invert" sx={{ 
-                    '& p': { m: 0, fontSize: '0.8rem', lineHeight: 1.5, color: 'text.primary' } 
-                  }}>
-                    <ReactMarkdown>{comment.content}</ReactMarkdown>
-                  </Box>
+                  <Markdown>{comment.content}</Markdown>
                 </Box>
               </Box>
             ))}

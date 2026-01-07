@@ -172,5 +172,5 @@ Install from: https://docs.claude.com/claude-code
 
 ## Related
 
-- [CESDD Architecture](../../kb/architecture/08-workflow-cesdd.md) - Full CESDD system design
-- [State-First Principle](../../kb/architecture/02-state-first-principle.md) - Why state serialization matters
+- [CESDD Architecture](../../dev-docs/architecture/08-workflow-cesdd.md) - Full CESDD system design
+- [State-First Principle](../../dev-docs/architecture/02-state-first-principle.md) - Why state serialization matters

@@ -135,14 +135,14 @@ export function useActiveProject(): UseActiveProjectResult {
   const { state, dispatch, isLoading } = useAppState()
 
   const project = useMemo(() => {
-    if (!state || state.projects.length === 0) return null
+    if (!state || !state.projects || state.projects.length === 0) return null
     return state.projects[state.active_project_index] ?? null
   }, [state])
 
   return {
     project,
     activeIndex: state?.active_project_index ?? 0,
-    projects: state?.projects ?? [],
+    projects: state?.projects || [],
     dispatch,
     isLoading,
   }
@@ -190,7 +190,7 @@ export function useActiveWorktree(): UseActiveWorktreeResult {
   const { project, dispatch, isLoading } = useActiveProject()
 
   const worktree = useMemo(() => {
-    if (!project || project.worktrees.length === 0) return null
+    if (!project || !project.worktrees || project.worktrees.length === 0) return null
     return project.worktrees[project.active_worktree_index] ?? null
   }, [project])
 
@@ -198,7 +198,7 @@ export function useActiveWorktree(): UseActiveWorktreeResult {
     worktree,
     project,
     activeWorktreeIndex: project?.active_worktree_index ?? 0,
-    worktrees: project?.worktrees ?? [],
+    worktrees: project?.worktrees || [],
     dispatch,
     isLoading,
   }

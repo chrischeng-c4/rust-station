@@ -1,42 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import * as core from '@rstn/core'
-
-// Build the API object with all napi-rs functions
-// NOTE: This is the legacy API (React-first). Use stateApi for new code.
-const api = {
-  docker: {
-    isAvailable: () => core.dockerIsAvailable(),
-    listServices: () => core.dockerListServices(),
-    startService: (id: string) => core.dockerStartService(id),
-    stopService: (id: string) => core.dockerStopService(id),
-    restartService: (id: string) => core.dockerRestartService(id),
-    getLogs: (id: string, tail?: number) => core.dockerGetLogs(id, tail),
-    removeService: (id: string) => core.dockerRemoveService(id),
-    createDatabase: (id: string, dbName: string) => core.dockerCreateDatabase(id, dbName),
-    createVhost: (id: string, vhostName: string) => core.dockerCreateVhost(id, vhostName),
-  },
-  justfile: {
-    parse: (path: string) => core.justfileParse(path),
-    run: (command: string, cwd: string) => core.justfileRun(command, cwd),
-  },
-  worktree: {
-    listBranches: (repoPath: string) => core.worktreeListBranches(repoPath),
-  },
-  mcp: {
-    fetchTools: () => core.fetchMcpTools(),
-  },
-  file: {
-    /**
-     * Read a file from allowed scopes (project root or ~/.rstn/).
-     * @param path - Absolute path to the file
-     * @param projectRoot - Project root directory (security scope)
-     * @returns File contents as UTF-8 string
-     * @throws Error with code: FILE_NOT_FOUND, PERMISSION_DENIED, SECURITY_VIOLATION, FILE_TOO_LARGE, NOT_UTF8
-     */
-    read: (path: string, projectRoot: string) => core.fileRead(path, projectRoot),
-  },
-}
 
 // Dialog API for native dialogs
 const dialogApi = {
@@ -99,7 +62,6 @@ const stateApi = {
 if (process.contextIsolated) {
   try {
     contextBridge.exposeInMainWorld('electron', electronAPI)
-    contextBridge.exposeInMainWorld('api', api)
     contextBridge.exposeInMainWorld('stateApi', stateApi)
     contextBridge.exposeInMainWorld('dialogApi', dialogApi)
     contextBridge.exposeInMainWorld('screenshotApi', screenshotApi)
@@ -109,8 +71,6 @@ if (process.contextIsolated) {
 } else {
   // @ts-ignore (define in dts)
   window.electron = electronAPI
-  // @ts-ignore (define in dts)
-  window.api = api
   // @ts-ignore (define in dts)
   window.stateApi = stateApi
   // @ts-ignore (define in dts)

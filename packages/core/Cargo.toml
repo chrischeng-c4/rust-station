@@ -10,7 +10,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 # napi-rs
-napi = { version = "2.16", features = ["async", "serde-json"] }
+napi = { version = "2.16", features = ["async", "serde-json", "napi4"] }
 napi-derive = "2.16"
 
 # Async runtime
@@ -51,6 +51,7 @@ dirs = "5.0"
 sha2 = "0.10"
 hex = "0.4"
 walkdir = "2.5"
+ignore = "0.4"
 
 # PTY for terminal emulation
 portable-pty = "0.8"

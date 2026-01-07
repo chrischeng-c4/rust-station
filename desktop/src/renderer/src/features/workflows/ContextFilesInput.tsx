@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import {
   Add as PlusIcon,
   Close as XIcon,
@@ -19,7 +19,8 @@ import {
   Alert,
   Paper,
   Divider,
-  CircularProgress
+  CircularProgress,
+  Tooltip
 } from '@mui/material'
 import { SourceCodeViewer } from '@/components/shared/SourceCodeViewer'
 import { useAppState } from '@/hooks/useAppState'
@@ -38,11 +39,46 @@ export function ContextFilesInput({
   files,
   projectRoot,
 }: ContextFilesInputProps): React.ReactElement {
-  const { dispatch } = useAppState()
+  const { state: appState, dispatch } = useAppState()
   const [inputValue, setInputValue] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [isValidating, setIsValidating] = useState(false)
+  const [pendingPath, setPendingPath] = useState<string | null>(null)
   const [previewPath, setPreviewPath] = useState<string | null>(null)
+
+  const viewerState = appState?.file_viewer
+
+  // Watch for validation result in global state
+  useEffect(() => {
+    if (isValidating && pendingPath && viewerState?.path === pendingPath && !viewerState.is_loading) {
+      if (viewerState.error) {
+        const errorStr = viewerState.error
+        const colonIndex = errorStr.indexOf(':')
+        const code = colonIndex > 0 ? errorStr.substring(0, colonIndex).trim() : 'UNKNOWN'
+
+        switch (code) {
+          case 'FILE_NOT_FOUND': setError(`File not found: ${pendingPath}`); break
+          case 'SECURITY_VIOLATION': setError('File is outside project scope'); break
+          case 'FILE_TOO_LARGE': setError('File too large (max 10MB)'); break
+          case 'NOT_UTF8': setError('File is not text (binary files not supported)'); break
+          default: setError(`Cannot read file: ${pendingPath}`)
+        }
+        setIsValidating(false)
+        setPendingPath(null)
+      } else if (viewerState.content !== null) {
+        // Success
+        dispatch({
+          type: 'AddContextFile',
+          change_id: changeId,
+          path: pendingPath,
+        })
+        setInputValue('')
+        setError(null)
+        setIsValidating(false)
+        setPendingPath(null)
+      }
+    }
+  }, [viewerState, isValidating, pendingPath, changeId, dispatch])
 
   const handleAddFile = useCallback(async () => {
     const path = inputValue.trim()
@@ -55,35 +91,13 @@ export function ContextFilesInput({
 
     setError(null)
     setIsValidating(true)
+    setPendingPath(path)
 
-    try {
-      const absPath = path.startsWith('/') ? path : `${projectRoot}/${path}`
-      await window.api.file.read(absPath, projectRoot)
-
-      await dispatch({
-        type: 'AddContextFile',
-        change_id: changeId,
-        path: path,
-      })
-
-      setInputValue('')
-      setError(null)
-    } catch (err) {
-      const errorStr = err instanceof Error ? err.message : String(err)
-      const colonIndex = errorStr.indexOf(':')
-      const code = colonIndex > 0 ? errorStr.substring(0, colonIndex).trim() : 'UNKNOWN'
-
-      switch (code) {
-        case 'FILE_NOT_FOUND': setError(`File not found: ${path}`); break
-        case 'SECURITY_VIOLATION': setError('File is outside project scope'); break
-        case 'FILE_TOO_LARGE': setError('File too large (max 10MB)'); break
-        case 'NOT_UTF8': setError('File is not text (binary files not supported)'); break
-        default: setError(`Cannot read file: ${path}`)
-      }
-    } finally {
-      setIsValidating(false)
-    }
-  }, [inputValue, files, projectRoot, changeId, dispatch])
+    await dispatch({
+      type: 'ReadFile',
+      payload: { path }
+    })
+  }, [inputValue, files, dispatch])
 
   const handleRemoveFile = useCallback(async (path: string) => {
     await dispatch({

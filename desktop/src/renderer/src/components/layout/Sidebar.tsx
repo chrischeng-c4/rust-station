@@ -113,6 +113,7 @@ export function Sidebar() {
   return (
     <Box
       component="nav"
+      data-testid="app-sidebar"
       sx={{
         width: 80, // M3 Navigation Rail width
         flexShrink: 0,

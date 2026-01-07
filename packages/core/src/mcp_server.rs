@@ -206,6 +206,20 @@ fn get_available_tools() -> Vec<ToolInfo> {
                 "required": ["session_id", "content"]
             }),
         },
+        ToolInfo {
+            name: "render_ui".to_string(),
+            description: "Render a custom user interface using A2UI JSON protocol. The UI will be displayed in the A2UI tab.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "payload": {
+                        "type": "object",
+                        "description": "The A2UI JSON payload defining the interface"
+                    }
+                },
+                "required": ["payload"]
+            }),
+        },
     ]
 }
 
@@ -658,6 +672,33 @@ impl McpServerContext {
                 }))
             }
 
+            "render_ui" => {
+                let payload = params
+                    .get("payload")
+                    .cloned()
+                    .ok_or("Missing 'payload' parameter")?;
+
+                // Dispatch SetA2UIPayload action
+                let action = crate::actions::Action::SetA2UIPayload {
+                    payload: Some(payload),
+                };
+
+                {
+                    let mut state = crate::get_app_state().write().await;
+                    crate::reducer::reduce(&mut state, action);
+                }
+
+                // Notify state update
+                crate::notify_state_update().await;
+
+                Ok(serde_json::json!({
+                    "content": [{
+                        "type": "text",
+                        "text": "UI payload received and rendering in the A2UI tab."
+                    }]
+                }))
+            }
+
             _ => Err(format!("Unknown tool: {}", tool_name)),
         }
     }
@@ -944,7 +985,7 @@ mod tests {
     #[test]
     fn test_available_tools() {
         let tools = get_available_tools();
-        assert_eq!(tools.len(), 7); // 4 base tools + 3 ReviewGate tools
+        assert_eq!(tools.len(), 8); // 4 base tools + 3 ReviewGate tools + 1 A2UI tool
 
         let tool_names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
         // Base tools
@@ -956,6 +997,8 @@ mod tests {
         assert!(tool_names.contains(&"submit_for_review"));
         assert!(tool_names.contains(&"get_review_feedback"));
         assert!(tool_names.contains(&"update_review_content"));
+        // A2UI tool
+        assert!(tool_names.contains(&"render_ui"));
     }
 
     #[tokio::test]

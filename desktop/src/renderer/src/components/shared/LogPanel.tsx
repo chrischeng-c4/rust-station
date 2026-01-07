@@ -13,7 +13,7 @@ interface LogPanelProps {
 
 export function LogPanel({
   title = 'Output',
-  logs,
+  logs = [],
   onRefresh,
   isRefreshing = false,
   showCopy = true,

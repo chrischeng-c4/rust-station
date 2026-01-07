@@ -36,5 +36,5 @@ This is an Electron + Rust (napi-rs) project:
 - `packages/core/src/` - Rust backend (napi-rs bindings)
 - `apps/desktop/src/renderer/` - React frontend
 - `apps/desktop/src/preload/` - Electron preload bridge
-- `kb/` - Engineering knowledge base
+- `dev-docs/` - Engineering knowledge base
 - `docs/` - User documentation

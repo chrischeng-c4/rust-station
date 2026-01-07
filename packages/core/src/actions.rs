@@ -49,6 +49,15 @@ pub enum Action {
     /// Remove a worktree (cannot remove main worktree)
     RemoveWorktree { worktree_path: String },
 
+    /// Fetch all branches for the active project
+    FetchBranches,
+
+    /// Set branches (internal, after list_branches completes)
+    SetBranches { branches: Vec<BranchData> },
+
+    /// Set branches loading state
+    SetBranchesLoading { is_loading: bool },
+
     // ========================================================================
     // MCP Actions
     // ========================================================================
@@ -412,6 +421,9 @@ pub enum Action {
     /// Create a vhost in RabbitMQ
     CreateVhost { service_id: String, vhost_name: String },
 
+    /// Set the connection string result (internal, after CreateDatabase/CreateVhost)
+    SetDockerConnectionString { connection_string: Option<String> },
+
     /// Set a port conflict that requires user resolution
     SetPortConflict {
         service_id: String,
@@ -439,8 +451,11 @@ pub enum Action {
     // ========================================================================
     // Tasks Actions
     // ========================================================================
-    /// Load justfile commands from a path
-    LoadJustfileCommands { path: String },
+    /// Load justfile commands for the active worktree
+    LoadJustfileCommands,
+
+    /// Refresh justfile commands
+    RefreshJustfile,
 
     /// Set commands (internal, after load completes)
     SetJustfileCommands { commands: Vec<JustCommandData> },
@@ -676,6 +691,28 @@ pub enum Action {
         path: String,
         comment_id: String,
     },
+
+    // ========================================================================
+    // File Viewer Actions
+    // ========================================================================
+    /// Read a file for viewing
+    ReadFile { path: String },
+
+    /// Set the content of the file viewer
+    SetFileContent {
+        path: String,
+        content: Option<String>,
+        error: Option<String>,
+    },
+
+    /// Set file viewer loading state
+    SetFileLoading { is_loading: bool },
+
+    // ========================================================================
+    // A2UI Actions (Experimental)
+    // ========================================================================
+    /// Set the A2UI payload for dynamic rendering
+    SetA2UIPayload { payload: Option<serde_json::Value> },
 }
 
 /// File kind for actions

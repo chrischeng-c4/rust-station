@@ -24,14 +24,7 @@ import {
   CircularProgress,
   Divider
 } from '@mui/material'
-
-interface BranchInfo {
-  name: string
-  hasWorktree: boolean
-  isCurrent: boolean
-}
-
-type DialogMode = 'select' | 'new'
+import { useActiveProject } from '@/hooks/useAppState'
 
 interface AddWorktreeDialogProps {
   open: boolean
@@ -48,33 +41,22 @@ export function AddWorktreeDialog({
   onAddFromBranch,
   onAddNewBranch,
 }: AddWorktreeDialogProps) {
-  const [mode, setMode] = useState<DialogMode>('select')
-  const [branches, setBranches] = useState<BranchInfo[]>([])
-  const [isLoadingBranches, setIsLoadingBranches] = useState(false)
+  const { project, dispatch } = useActiveProject()
+  const [mode, setMode] = useState<'select' | 'new'>('select')
   const [selectedBranch, setSelectedBranch] = useState<string | null>(null)
   const [newBranchName, setNewBranchName] = useState('')
   const [isCreating, setIsCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const branches = project?.available_branches ?? []
+  const isLoadingBranches = project?.is_loading_branches ?? false
+
   // Load branches when dialog opens
   useEffect(() => {
     if (open && repoPath) {
-      loadBranches()
+      dispatch({ type: 'FetchBranches' })
     }
-  }, [open, repoPath])
-
-  const loadBranches = async () => {
-    setIsLoadingBranches(true)
-    setError(null)
-    try {
-      const branchList = await window.api.worktree.listBranches(repoPath)
-      setBranches(branchList)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load branches')
-    } finally {
-      setIsLoadingBranches(false)
-    }
-  }
+  }, [open, repoPath, dispatch])
 
   const handleAddFromBranch = async () => {
     if (!selectedBranch) return
@@ -121,7 +103,6 @@ export function AddWorktreeDialog({
       setSelectedBranch(null)
       setNewBranchName('')
       setError(null)
-      setBranches([])
     }, 200)
   }
 

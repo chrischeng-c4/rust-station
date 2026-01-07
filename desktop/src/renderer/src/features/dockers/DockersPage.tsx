@@ -94,6 +94,8 @@ export function DockersPage() {
   useEffect(() => {
     dispatch({ type: 'CheckDockerAvailability' })
     dispatch({ type: 'RefreshDockerServices' })
+    // Clear any stale connection string from previous operations
+    dispatch({ type: 'SetDockerConnectionString', payload: { connection_string: null } })
   }, [dispatch])
 
   const handleToggle = useCallback(async (id: string) => {
@@ -130,16 +132,15 @@ export function DockersPage() {
     await dispatch({ type: 'RefreshDockerServices' })
   }, [dispatch])
 
-  // CreateDb and CreateVhost still use legacy API for now (they return connection strings)
   const handleCreateDb = useCallback(async (serviceId: string, dbName: string): Promise<string> => {
-    const connectionString = await window.api.docker.createDatabase(serviceId, dbName)
-    return connectionString
-  }, [])
+    await dispatch({ type: 'CreateDatabase', payload: { service_id: serviceId, db_name: dbName } })
+    return "" // Result will be in state.docker.last_connection_string
+  }, [dispatch])
 
   const handleCreateVhost = useCallback(async (serviceId: string, vhostName: string): Promise<string> => {
-    const connectionString = await window.api.docker.createVhost(serviceId, vhostName)
-    return connectionString
-  }, [])
+    await dispatch({ type: 'CreateVhost', payload: { service_id: serviceId, vhost_name: vhostName } })
+    return "" // Result will be in state.docker.last_connection_string
+  }, [dispatch])
 
   // Port conflict resolution handlers
   const handleResolveWithPort = useCallback(async (serviceId: string, port: number) => {

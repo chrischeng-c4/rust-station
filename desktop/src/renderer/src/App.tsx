@@ -1,8 +1,10 @@
-import { SyntheticEvent, useEffect, useState } from 'react'
+import { SyntheticEvent, useCallback, useEffect, useState } from 'react'
 import { Box, Button, CircularProgress, Stack, Typography } from '@mui/material'
 import {
   FolderOpen,
 } from '@mui/icons-material'
+import { useAppState, useActiveWorktree } from '@/hooks/useAppState'
+import type { ActiveView } from '@/types/state'
 import { DockersPage } from '@/features/dockers/DockersPage'
 import { TasksPage } from '@/features/tasks/TasksPage'
 import { EnvPage } from '@/features/env'
@@ -18,6 +20,8 @@ import { CommandPalette } from '@/features/command-palette'
 import { DevLogPanel } from '@/components/shared/DevLogPanel'
 import { RightIconBar } from '@/components/layout/RightIconBar'
 import { Sidebar } from '@/components/layout/Sidebar'
+import { ProjectTabs } from '@/features/projects/ProjectTabs'
+import { LogPanel } from '@/components/shared/LogPanel'
 
 // Dev mode check - only show DevLogPanel in development
 const IS_DEV = import.meta.env.DEV

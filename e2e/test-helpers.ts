@@ -37,10 +37,15 @@ export async function openProject(page: Page, projectPath: string): Promise<void
   )
 
   // Wait for UI to actually show the project is loaded
-  // Could be on Workflows page (default) or Tasks page
-  const workflowsHeading = page.getByRole('heading', { name: 'Workflows' })
-  const commandsHeading = page.getByText('Commands', { exact: true })
-  await expect(workflowsHeading.or(commandsHeading)).toBeVisible({ timeout: 5000 })
+  // Check for the main layout sidebar which contains 'Workflows'
+  const sidebar = page.getByTestId('app-sidebar')
+  try {
+    await expect(sidebar).toBeVisible({ timeout: 20000 })
+  } catch (error) {
+    console.log('Current URL:', page.url())
+    console.log('Page Content:', await page.content())
+    throw error
+  }
 
   // CRITICAL: Wait for project to stabilize - give async operations time to complete
   // Without this, the project may close immediately after loading

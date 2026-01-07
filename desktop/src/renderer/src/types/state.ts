@@ -66,6 +66,7 @@ export interface DockersState {
   is_loading_logs: boolean
   pending_conflict: PendingConflict | null
   port_overrides: Record<string, number>
+  last_connection_string: string | null
 }
 
 // ============================================================================
@@ -334,6 +335,12 @@ export interface AgentRulesConfig {
   temp_file_path?: string
 }
 
+export interface BranchInfo {
+  name: string
+  hasWorktree: boolean
+  isCurrent: boolean
+}
+
 // ============================================================================
 // Notifications
 // ============================================================================
@@ -442,6 +449,8 @@ export interface ProjectState {
   active_worktree_index: number
   env_config: EnvConfig
   agent_rules_config: AgentRulesConfig
+  available_branches: BranchInfo[]
+  is_loading_branches: boolean
 }
 
 // ============================================================================
@@ -488,6 +497,17 @@ export interface DevLog {
   data: unknown
 }
 
+export interface FileViewerState {
+  path: string | null
+  content: string | null
+  is_loading: boolean
+  error: string | null
+}
+
+export interface A2UIState {
+  payload: any | null
+}
+
 // ============================================================================
 // Main AppState
 // ============================================================================
@@ -505,6 +525,8 @@ export interface AppState {
   active_view: ActiveView
   // Dev logs (development mode only)
   dev_logs?: DevLog[]
+  file_viewer: FileViewerState
+  a2ui: A2UIState
 }
 
 // ============================================================================
@@ -560,6 +582,20 @@ export interface AddWorktreeNewBranchAction {
 export interface RemoveWorktreeAction {
   type: 'RemoveWorktree'
   payload: { worktree_path: string }
+}
+
+export interface FetchBranchesAction {
+  type: 'FetchBranches'
+}
+
+export interface SetBranchesAction {
+  type: 'SetBranches'
+  payload: { branches: BranchData[] }
+}
+
+export interface SetBranchesLoadingAction {
+  type: 'SetBranchesLoading'
+  payload: { is_loading: boolean }
 }
 
 // MCP Actions
@@ -1101,6 +1137,11 @@ export interface CreateVhostAction {
   payload: { service_id: string; vhost_name: string }
 }
 
+export interface SetDockerConnectionStringAction {
+  type: 'SetDockerConnectionString'
+  payload: { connection_string: string | null }
+}
+
 export interface SetDockerLoadingAction {
   type: 'SetDockerLoading'
   payload: { is_loading: boolean }
@@ -1133,7 +1174,10 @@ export interface ResolveConflictByStoppingContainerAction {
 // Tasks Actions
 export interface LoadJustfileCommandsAction {
   type: 'LoadJustfileCommands'
-  payload: { path: string }
+}
+
+export interface RefreshJustfileAction {
+  type: 'RefreshJustfile'
 }
 
 export interface SetJustfileCommandsAction {
@@ -1362,6 +1406,12 @@ export interface WorktreeData {
   is_main: boolean
 }
 
+export interface BranchData {
+  name: string
+  has_worktree: boolean
+  is_current: boolean
+}
+
 export type McpStatusData = 'stopped' | 'starting' | 'running' | 'error'
 
 export type McpLogDirectionData = 'in' | 'out'
@@ -1455,6 +1505,30 @@ export interface ClearDevLogsAction {
   type: 'ClearDevLogs'
 }
 
+export interface ReadFileAction {
+  type: 'ReadFile'
+  payload: { path: string }
+}
+
+export interface SetFileContentAction {
+  type: 'SetFileContent'
+  payload: {
+    path: string
+    content: string | null
+    error: string | null
+  }
+}
+
+export interface SetFileLoadingAction {
+  type: 'SetFileLoading'
+  payload: { is_loading: boolean }
+}
+
+export interface SetA2UIPayloadAction {
+  type: 'SetA2UIPayload'
+  payload: { payload: any | null }
+}
+
 // Union type of all actions
 export type Action =
   | OpenProjectAction
@@ -1467,6 +1541,9 @@ export type Action =
   | AddWorktreeAction
   | AddWorktreeNewBranchAction
   | RemoveWorktreeAction
+  | FetchBranchesAction
+  | SetBranchesAction
+  | SetBranchesLoadingAction
   | StartMcpServerAction
   | StopMcpServerAction
   | SetMcpStatusAction
@@ -1569,6 +1646,7 @@ export type Action =
   | SetDockerLogsAction
   | CreateDatabaseAction
   | CreateVhostAction
+  | SetDockerConnectionStringAction
   | SetDockerLoadingAction
   | SetDockerLogsLoadingAction
   | SetPortConflictAction
@@ -1576,6 +1654,7 @@ export type Action =
   | StartDockerServiceWithPortAction
   | ResolveConflictByStoppingContainerAction
   | LoadJustfileCommandsAction
+  | RefreshJustfileAction
   | SetJustfileCommandsAction
   | RunJustCommandAction
   | SetTaskStatusAction
@@ -1614,6 +1693,10 @@ export type Action =
   | ClearErrorAction
   | AddDevLogAction
   | ClearDevLogsAction
+  | ReadFileAction
+  | SetFileContentAction
+  | SetFileLoadingAction
+  | SetA2UIPayloadAction
 
 // ============================================================================
 // UI Helpers

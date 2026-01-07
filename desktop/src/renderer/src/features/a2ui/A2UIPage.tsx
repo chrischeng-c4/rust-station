@@ -7,103 +7,14 @@ import {
   Typography,
   Paper,
   Stack,
-  Divider
+  Card
 } from '@mui/material'
 import { Code as CodeIcon, BugReport as DebugIcon } from '@mui/icons-material'
-
-// Example Payload simulating what an Agent via MCP might send
-const SAMPLE_PAYLOAD: A2UINode = {
-  type: 'div',
-  props: { className: 'space-y-4 max-w-2xl mx-auto' },
-  children: [
-    {
-      type: 'card',
-      children: [
-        {
-          type: 'card-header',
-          children: [
-            { type: 'card-title', children: ['Refactoring Plan: User Authentication'] },
-            { type: 'card-description', children: ['Proposed changes to auth module based on A2UI review.'] }
-          ]
-        },
-        {
-          type: 'card-content',
-          props: { className: 'space-y-4' },
-          children: [
-            {
-              type: 'alert',
-              props: { variant: 'default', className: 'bg-blue-50 border-blue-200' },
-              children: [
-                { type: 'icon-info', props: { className: 'h-4 w-4 text-blue-500' } },
-                { type: 'alert-title', children: ['Analysis Complete'] },
-                { type: 'alert-description', children: ['Found 3 potential security issues in login.rs'] }
-              ]
-            },
-            {
-              type: 'div',
-              props: { className: 'grid gap-2' },
-              children: [
-                { type: 'label', children: ['Confirm Branch Name'] },
-                { 
-                  type: 'input', 
-                  props: { defaultValue: 'feat/auth-hardening', placeholder: 'Enter branch name' } 
-                }
-              ]
-            },
-            {
-              type: 'div',
-              props: { className: 'space-y-2 mt-4' },
-              children: [
-                { type: 'label', props: { className: 'text-xs' }, children: ['Migration Progress'] },
-                { type: 'progress', props: { value: 65, className: 'h-2' } }
-              ]
-            },
-            {
-              type: 'accordion',
-              props: { type: 'single', collapsible: true, className: 'mt-4' },
-              children: [
-                {
-                  type: 'accordion-item',
-                  props: { value: 'item-1' },
-                  children: [
-                    { type: 'accordion-trigger', children: ['Affected Files'] },
-                    { 
-                      type: 'accordion-content', 
-                      children: [
-                        { type: 'p', props: { className: 'text-xs' }, children: ['- src/auth/login.rs'] },
-                        { type: 'p', props: { className: 'text-xs' }, children: ['- src/auth/token.rs'] }
-                      ] 
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        },
-        {
-          type: 'card-footer',
-          props: { className: 'flex justify-end gap-2' },
-          children: [
-            {
-              type: 'button',
-              props: { variant: 'outline' },
-              children: ['Reject'],
-              action: { type: 'mcp:reject_plan' }
-            },
-            {
-              type: 'button',
-              props: { variant: 'default' },
-              children: ['Approve & Execute'],
-              action: { type: 'mcp:execute_plan', planId: '123' }
-            }
-          ]
-        }
-      ]
-    }
-  ]
-}
+import { useAppState } from '@/hooks/useAppState'
 
 export function A2UIPage() {
+  const { state: appState } = useAppState()
+  const payload = appState?.a2ui?.payload as A2UINode | null
   const [lastAction, setLastAction] = useState<A2UIAction | null>(null)
 
   const handleAction = (action: A2UIAction) => {
@@ -115,7 +26,7 @@ export function A2UIPage() {
     <Box sx={{ display: 'flex', height: '100%', flexDirection: 'column', p: 3 }}>
       <PageHeader 
         title="A2UI Renderer" 
-        description="Dynamic UI generation from JSON (Simulated Agent Output)"
+        description="Dynamic UI generation from JSON (Agent-to-UI Protocol)"
         icon={<CodeIcon />}
       />
 
@@ -128,10 +39,22 @@ export function A2UIPage() {
             p: 4, 
             bgcolor: 'surfaceContainerLow.main', 
             borderRadius: 4,
-            overflow: 'auto' 
+            overflow: 'auto',
+            display: 'flex',
+            flexDirection: 'column'
           }}
         >
-          <A2UIRenderer node={SAMPLE_PAYLOAD} onAction={handleAction} />
+          {payload ? (
+            <A2UIRenderer node={payload} onAction={handleAction} />
+          ) : (
+            <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'text.secondary', opacity: 0.5 }}>
+              <Box sx={{ textAlign: 'center' }}>
+                <CodeIcon sx={{ fontSize: 64, mb: 2 }} />
+                <Typography variant="h6">No UI Payload</Typography>
+                <Typography variant="body2">Use the 'render_ui' MCP tool to push content here.</Typography>
+              </Box>
+            </Box>
+          )}
         </Paper>
 
         {/* Right: Debug Info */}
@@ -182,7 +105,7 @@ export function A2UIPage() {
                   borderColor: 'outlineVariant'
                 }}
               >
-                {JSON.stringify(SAMPLE_PAYLOAD, null, 2)}
+                {payload ? JSON.stringify(payload, null, 2) : '{}'}
               </Box>
             </Box>
           </Card>
