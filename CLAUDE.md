@@ -348,35 +348,45 @@ Write out these 5 steps when the change spans multiple files or introduces new b
 
 <decision-trees>
 
-NOTE: SDD (speckit + `specs/`) is optional in this repo. Prefer KB-first updates in `dev-docs/` unless the user explicitly requests speckit artifacts.
+NOTE: **OpenSpec is the specification-driven development workflow** for this project. Use OpenSpec for all non-trivial features.
 
-<tree name="Which SDD Workflow">
+<tree name="When to Use OpenSpec Workflow">
 START: New work?
 │
-├─► Estimated LOC > 500?
-│   └─ YES → Full SDD (spec + plan + tasks)
+├─► Is it a non-trivial feature?
+│   ├─ Estimated LOC > 500? → YES → Use OpenSpec
+│   ├─ Touches > 5 files? → YES → Use OpenSpec
+│   ├─ Architecture change? → YES → Use OpenSpec
+│   ├─ New capability/requirement? → YES → Use OpenSpec
+│   ├─ Complex algorithm? → YES → Use OpenSpec
+│   └─ Simple bug fix/tweak? → NO → Direct implementation
 │
-├─► Touches > 5 files?
-│   └─ YES → Full SDD
+├─► OpenSpec Workflow (3 stages):
+│   │
+│   ├─ 1. PROPOSAL STAGE
+│   │   └─► Use Skill: openspec:proposal
+│   │       - Creates proposal.md, tasks.md, design.md
+│   │       - Defines spec deltas (ADDED/MODIFIED/REMOVED)
+│   │       - Validates with `openspec validate --strict`
+│   │
+│   ├─ 2. APPLY STAGE (after user approval)
+│   │   └─► Use Skill: openspec:apply
+│   │       - Implements tasks sequentially
+│   │       - Updates task checklist as work progresses
+│   │       - Runs tests and validates changes
+│   │
+│   └─ 3. ARCHIVE STAGE (after deployment)
+│       └─► Use Skill: openspec:archive
+│           - Merges spec deltas into openspec/specs/
+│           - Moves change to openspec/changes/.archive/
+│           - Updates project.md if needed
 │
-├─► Architecture change?
-│   └─ YES → Full SDD
-│
-├─► rush feature (Phase 7-8)?
-│   └─ YES → Full SDD
-│
-├─► Complex algorithm or new domain concept?
-│   └─ YES → Full SDD
-│
-└─► Otherwise → Lightweight SDD (spec only)
-    │
-    ├─ Full SDD path:
-    │  /speckit.specify → /speckit.plan → /speckit.tasks → implement
-    │
-    └─ Lightweight SDD path:
-       /speckit-lite → implement directly (no plan/tasks)
+└─► Quick fixes (< 100 LOC, single file):
+    - Update dev-docs/ if architecture changes
+    - Implement directly without OpenSpec
+    - Still follow State-First and DoD principles
 
-See: dev-docs/workflow/sdd-workflow.md for detailed guide
+See: openspec/AGENTS.md for detailed OpenSpec workflow
 </tree>
 
 <tree name="When to use Design-First Planning">
