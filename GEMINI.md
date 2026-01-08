@@ -91,82 +91,121 @@ The application has been fully migrated to use Material UI (MUI) with a custom M
 - No implementation of features
 - No actual code changes
 
-### Output Format
+### File Creation Workflow
 
-You MUST use FILE markers to structure your output:
+You MUST create files directly using the WriteFile tool:
 
+**Step 1: Create directory structure** (use Shell tool):
+```bash
+mkdir -p openspec/changes/<change-id>/specs/<capability-name>
 ```
-=== FILE: proposal.md ===
-# Change: [Brief description]
 
-## Why
-[1-2 sentences]
+**Step 2: Create files in order** (use WriteFile tool for each):
 
-## What Changes
-- [Bullet points]
-- [Mark **BREAKING** if applicable]
+1. **proposal.md** - `openspec/changes/<change-id>/proposal.md`
+   ```markdown
+   # Change: [Brief description]
 
-## Impact
-- Affected specs: [capabilities]
-- Affected code: [files/systems]
-=== END FILE ===
+   ## Why
+   [1-2 sentences]
 
-=== FILE: tasks.md ===
-## 1. Implementation
-- [ ] 1.1 [Task for implementer to code]
-- [ ] 1.2 [Task for implementer to code]
+   ## What Changes
+   - [Bullet points]
+   - [Mark **BREAKING** if applicable]
 
-## 2. Testing
-- [ ] 2.1 [Test to write]
+   ## Impact
+   - Affected specs: [capabilities]
+   - Affected code: [files/systems]
+   ```
 
-## 3. Documentation
-- [ ] 3.1 [Doc to update]
-=== END FILE ===
+2. **tasks.md** - `openspec/changes/<change-id>/tasks.md`
+   ```markdown
+   ## 1. Implementation
+   - [ ] 1.1 [Task for implementer to code]
+   - [ ] 1.2 [Task for implementer to code]
 
-=== FILE: design.md ===
-[Only include this file if architectural complexity requires it]
+   ## 2. Testing
+   - [ ] 2.1 [Test to write]
 
-## Context
-[Background, constraints]
+   ## 3. Documentation
+   - [ ] 3.1 [Doc to update]
+   ```
 
-## Goals / Non-Goals
-- Goals: [...]
-- Non-Goals: [...]
+3. **design.md** - `openspec/changes/<change-id>/design.md`
+   *Only include this file if architectural complexity requires it*
+   ```markdown
+   ## Context
+   [Background, constraints]
 
-## Decisions
-- Decision: [What and why]
-- Alternatives considered: [...]
+   ## Goals / Non-Goals
+   - Goals: [...]
+   - Non-Goals: [...]
 
-## Risks / Trade-offs
-- [Risk] → Mitigation
-=== END FILE ===
+   ## Decisions
+   - Decision: [What and why]
+   - Alternatives considered: [...]
 
-=== FILE: specs/<capability-name>/spec.md ===
-## ADDED Requirements
-### Requirement: [Name]
-The system SHALL [requirement description].
+   ## Risks / Trade-offs
+   - [Risk] → Mitigation
+   ```
 
-#### Scenario: Success case
-- **WHEN** [trigger condition]
-- **THEN** [expected behavior]
+4. **spec.md** - `openspec/changes/<change-id>/specs/<capability-name>/spec.md`
+   ```markdown
+   ## ADDED Requirements
+   ### Requirement: [Name]
+   The system SHALL [requirement description].
 
-#### Scenario: Error case
-- **WHEN** [error condition]
-- **THEN** [error handling]
+   #### Scenario: Success case
+   - **WHEN** [trigger condition]
+   - **THEN** [expected behavior]
 
-## MODIFIED Requirements
-### Requirement: [Existing Name]
-[FULL updated requirement text - include ALL previous content plus changes]
+   #### Scenario: Error case
+   - **WHEN** [error condition]
+   - **THEN** [error handling]
 
-#### Scenario: [At least one scenario]
-- **WHEN** ...
-- **THEN** ...
+   ## MODIFIED Requirements
+   ### Requirement: [Existing Name]
+   [FULL updated requirement text - include ALL previous content plus changes]
 
-## REMOVED Requirements
-### Requirement: [Old Feature Name]
-**Reason**: [Why removing]
-**Migration**: [How to handle existing usage]
-=== END FILE ===
+   #### Scenario: [At least one scenario]
+   - **WHEN** ...
+   - **THEN** ...
+
+   ## REMOVED Requirements
+   ### Requirement: [Old Feature Name]
+   **Reason**: [Why removing]
+   **Migration**: [How to handle existing usage]
+   ```
+
+**Step 3: Run validation** (use Shell tool):
+```bash
+openspec validate <change-id> --strict
+```
+
+**Step 4: Output structured summary** (MANDATORY format):
+```markdown
+## Proposal Generated: <change-id>
+
+### Files Created
+- ✅ proposal.md (120 lines)
+- ✅ tasks.md (8 tasks)
+- ✅ design.md (4 architecture decisions) [if created]
+- ✅ specs/docker-compose/spec.md (3 requirements, 7 scenarios)
+
+### Summary
+- Requirements: 3 ADDED, 0 MODIFIED, 0 REMOVED
+- Implementation tasks: 8
+- Affected capabilities: docker-compose
+- Affected code: packages/core/src/docker.rs, desktop/src/features/dockers/
+
+### Validation
+[Paste openspec validate output here]
+✅ All validations passed
+
+### Next Steps
+1. Review files: ls openspec/changes/<change-id>
+2. Inspect details: openspec show <change-id> --json --deltas-only
+3. Approve proposal before implementation
 ```
 
 ### Critical Format Rules
@@ -181,15 +220,11 @@ The system SHALL [requirement description].
    - Make your changes
    - Include ALL scenarios (old + new)
 
-3. **File Markers**: Use exact format
-   - Start: `=== FILE: path/to/file.md ===`
-   - End: `=== END FILE ===`
-
-4. **Capability Naming**: Use verb-noun pattern
+3. **Capability Naming**: Use verb-noun pattern
    - ✅ `docker-management`, `user-authentication`
    - ❌ `docker`, `auth`, `management`
 
-5. **Change ID**: Verb-led kebab-case
+4. **Change ID**: Verb-led kebab-case
    - ✅ `add-email-validation`, `refactor-mcp-tools`
    - ❌ `email-validation`, `mcp_tools`, `addEmail`
 
@@ -223,14 +258,17 @@ The system SHALL [requirement description].
 
 ### Validation Checklist
 
-Before finishing your output, ensure:
-- [ ] All FILE markers present with correct paths
+Before finishing, ensure:
+- [ ] All files created using WriteFile tool
+- [ ] Directory structure created with Shell tool
 - [ ] All scenarios use `#### Scenario:` format
 - [ ] Every requirement has ≥1 scenario
 - [ ] MODIFIED requirements include FULL text
 - [ ] State changes are JSON-serializable
 - [ ] Testing requirements specified (unit, integration, E2E)
 - [ ] All 5 layers addressed (Backend → Binding → Bridge → Frontend → E2E)
+- [ ] Validation run: `openspec validate <change-id> --strict`
+- [ ] Structured summary output provided
 - [ ] No actual code implementation included
 - [ ] Only spec and doc files generated
 

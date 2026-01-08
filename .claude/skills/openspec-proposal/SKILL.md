@@ -1,6 +1,6 @@
 ---
 name: openspec-proposal
-description: Generate OpenSpec proposals using Gemini CLI for cost-efficient exploration. Gemini reads all context, explores codebase, and generates complete proposal files. 40x cheaper than Claude with 1M token context.
+description: Generate OpenSpec proposals using Gemini CLI. Gemini explores codebase and creates files directly via WriteFile tool. Cost-efficient with 1M token context.
 ---
 
 # OpenSpec Proposal Skill (Gemini-Powered)
@@ -35,53 +35,79 @@ Automatically use when the user:
 ### Steps
 
 1. **Preparation**
-   - Ask user for `change-id` if not provided (must be verb-led kebab-case: `add-*`, `update-*`, etc.)
-   - Clarify the user's request - ensure you understand what they want
-   - Create change directory:
-     ```bash
-     mkdir -p "openspec/changes/<change-id>/specs"
-     ```
+   - Ask user for `change-id` if not provided (must be verb-led kebab-case: `add-*`, `update-*`, `refactor-*`)
+   - Clarify the user's request - ensure you understand requirements
+   - The helper script will validate that the change-id doesn't already exist
 
-2. **Call Gemini via command**
-   Use Gemini's OpenSpec command (defined in `.gemini/commands/openspec/proposal.toml`):
+2. **Call Gemini via helper script**
+   Use the helper script to generate the proposal:
 
    ```bash
-   # Call Gemini command and save output
-   gemini /openspec:proposal "<user-request>" -o text > /tmp/gemini-proposal-output.txt
+   .claude/skills/openspec-proposal/scripts/generate-proposal.sh "<change-id>" "<user-request>"
    ```
 
-   This will:
-   - Automatically read `GEMINI.md` for system prompt (OpenSpec Instructions section)
-   - Execute the proposal command logic
-   - Return output with FILE markers
+   The script will:
+   - Validate arguments and check for existing change-id
+   - Call Gemini CLI: `gemini /openspec:proposal "<user-request>" -y`
+   - Read `GEMINI.md` for system prompt (OpenSpec Instructions section)
+   - Explore codebase with context aggregation
+   - Create all proposal files directly in `openspec/changes/<change-id>/` using WriteFile tool
+   - Run `openspec validate <change-id> --strict`
+   - Output structured summary
+   - Provide clear error messages if any step fails
 
-3. **Parse Gemini output and create files**
-   Use the parser script:
+3. **Verify and present results**
+   Gemini's summary includes all key information. You should:
+
+   a. **Show Gemini's summary** (already formatted)
+
+   b. **Verify files exist**:
    ```bash
-   cat /tmp/gemini-proposal-output.txt | \
-     .claude/skills/openspec-proposal/scripts/parse-and-create-files.sh "<change-id>"
+   ls -la "openspec/changes/<change-id>/"
    ```
 
-   This extracts FILE markers and creates files in `openspec/changes/<change-id>/`
+   c. **If validation passed**: Proceed to step 5
 
-4. **Validate with OpenSpec**
-   ```bash
-   openspec validate <change-id> --strict
+   d. **If validation failed**:
+      - Show validation errors to user
+      - Debug with: `openspec show <change-id> --json --deltas-only`
+      - Common issues:
+        - Scenario format: Must be `#### Scenario:` (4 hashtags)
+        - MODIFIED requirements: Must include full text
+        - Missing scenarios: Every requirement needs ≥1 scenario
+      - Offer to manually edit files OR re-run Gemini with clarifications
+
+4. **Manual fixes (if needed)**
+   If validation fails, you can:
+   - Read the problematic file
+   - Identify the issue
+   - Ask user: "Should I fix this manually or regenerate with Gemini?"
+   - If fixing manually: Update the specific file using Edit tool
+   - Re-run validation: `openspec validate <change-id> --strict`
+
+5. **Present final summary to user**
+   Format:
    ```
+   ✅ Proposal Created: <change-id>
 
-   If validation fails:
-   - Show errors to user
-   - Debug with: `openspec show <change-id> --json --deltas-only`
-   - Offer to fix common issues (scenario format, MODIFIED requirements, etc.)
-   - Can manually edit files or re-run Gemini with clarifications
+   📄 Files:
+   - proposal.md (why, what, impact)
+   - tasks.md (X implementation tasks)
+   - design.md (architecture decisions) [if applicable]
+   - specs/<capability>/spec.md (Y requirements, Z scenarios)
 
-5. **Present results to user**
-   Show:
-   - ✅ Generated files list
-   - ✅ Validation status (pass/fail with details)
-   - 📄 Summary of proposal.md (read and summarize key points)
-   - 📋 Task count (count from tasks.md)
-   - ⏭️ Next steps: "Review → Approve → Use `openspec-apply` to implement"
+   ✅ Validation: PASSED
+
+   📊 Summary:
+   - Requirements: A ADDED, B MODIFIED, C REMOVED
+   - Affected capabilities: <list>
+   - Affected code: <file list>
+
+   ⏭️ Next Steps:
+   1. Review the proposal: cat openspec/changes/<change-id>/proposal.md
+   2. Inspect details: openspec show <change-id> --json --deltas-only
+   3. When approved, say "implement it" to trigger openspec-apply skill
+   ```
 
 ---
 
