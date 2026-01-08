@@ -554,6 +554,10 @@ pub enum ActiveView {
     Terminal,
     /// File explorer page (worktree scope)
     Explorer,
+    /// Claude Code integration page (worktree scope)
+    ClaudeCode,
+    /// A2UI dynamic UI page (worktree scope)
+    A2UI,
 }
 
 // ============================================================================
@@ -974,6 +978,8 @@ impl From<crate::actions::ActiveViewData> for ActiveView {
             crate::actions::ActiveViewData::Chat => ActiveView::Chat,
             crate::actions::ActiveViewData::Terminal => ActiveView::Terminal,
             crate::actions::ActiveViewData::Explorer => ActiveView::Explorer,
+            crate::actions::ActiveViewData::ClaudeCode => ActiveView::ClaudeCode,
+            crate::actions::ActiveViewData::A2UI => ActiveView::A2UI,
         }
     }
 }

@@ -34,7 +34,7 @@ use actions::Action;
 use app_state::AppState;
 use docker::DockerManager;
 use mcp_server::McpServerManager;
-use napi::threadsafe_function::ThreadsafeFunction;
+use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode, ThreadSafeCallContext};
 use reducer::reduce;
 use state::DockerService;
 use std::sync::{Arc, OnceLock};
@@ -511,7 +511,7 @@ pub fn context_build_system_prompt(
 /// This should be called once during app startup.
 #[napi]
 pub fn state_init(
-    #[napi(ts_arg_type = "(err: Error | null, state: string) => void")] _callback: napi::JsFunction,
+    #[napi(ts_arg_type = "(err: Error | null, state: string) => void")] callback: napi::JsFunction,
 ) -> napi::Result<()> {
     // Initialize the state with defaults
     let mut initial_state = AppState::default();

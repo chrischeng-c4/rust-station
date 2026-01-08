@@ -5,7 +5,8 @@
  * a dispatch function for triggering state changes.
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useContext, useMemo } from 'react'
+import { AppStateContext } from '../components/AppStateProvider'
 import type {
   AppState,
   Action,
@@ -38,7 +39,8 @@ interface UseAppStateResult {
 /**
  * Main hook for accessing application state.
  *
- * Subscribes to state updates from Rust and provides a dispatch function.
+ * Consumes the AppStateContext provided by AppStateProvider.
+ * Must be used within an AppStateProvider component.
  *
  * @example
  * ```tsx
@@ -59,40 +61,13 @@ interface UseAppStateResult {
  * ```
  */
 export function useAppState(): UseAppStateResult {
-  const [state, setState] = useState<AppState | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  const context = useContext(AppStateContext)
 
-  useEffect(() => {
-    // Subscribe to state updates
-    const unsubscribe = window.stateApi.onStateUpdate((stateJson: string) => {
-      try {
-        const parsed = JSON.parse(stateJson) as AppState
-        setState(parsed)
-        setIsLoading(false)
-      } catch (error) {
-        console.error('Failed to parse state:', error)
-      }
-    })
+  if (!context) {
+    throw new Error('useAppState must be used within an AppStateProvider')
+  }
 
-    // Get initial state
-    window.stateApi.getState().then((stateJson) => {
-      try {
-        const parsed = JSON.parse(stateJson) as AppState
-        setState(parsed)
-        setIsLoading(false)
-      } catch (error) {
-        console.error('Failed to parse initial state:', error)
-      }
-    })
-
-    return unsubscribe
-  }, [])
-
-  const dispatch = useCallback(async (action: Action): Promise<void> => {
-    await window.stateApi.dispatch(action)
-  }, [])
-
-  return { state, dispatch, isLoading }
+  return context
 }
 
 // ============================================================================

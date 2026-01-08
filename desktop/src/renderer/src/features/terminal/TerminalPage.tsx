@@ -68,7 +68,7 @@ export function TerminalPage() {
   if (!terminal) {
     return (
       <EmptyState
-        icon={Terminal}
+        icon={<Terminal fontSize="large" />}
         title="No Project Open"
         description="Open a project to access the integrated terminal."
       />
@@ -143,13 +143,13 @@ export function TerminalPage() {
           </Paper>
         ) : (
           <EmptyState
-            icon={Terminal}
+            icon={<Terminal fontSize="large" />}
             title="No Active Session"
             description={`Click "Spawn Shell" to start a new terminal session in ${worktreePath}.`}
             action={{
               label: "Spawn Shell",
               onClick: handleSpawn,
-              icon: Terminal
+              icon: <Terminal />
             }}
           />
         )}

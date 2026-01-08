@@ -931,6 +931,8 @@ pub enum ActiveViewData {
     Chat,
     Terminal,
     Explorer,
+    ClaudeCode,
+    A2UI,
 }
 
 /// Constitution mode for actions (Rules = modular, Presets = full prompt)
