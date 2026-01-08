@@ -22,6 +22,7 @@ import { DevLogPanel } from '@/components/shared/DevLogPanel'
 import { RightIconBar } from '@/components/layout/RightIconBar'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { ProjectTabs } from '@/features/projects/ProjectTabs'
+import { WorktreeTabs } from '@/features/worktrees'
 import { LogPanel } from '@/components/shared/LogPanel'
 
 // Dev mode check - only show DevLogPanel in development
@@ -144,8 +145,11 @@ function App() {
       {/* Toast Notifications (fixed overlay) */}
       <Toaster />
 
-      {/* Project Tabs (Top) */}
+      {/* Level 1: Project Tabs (includes GlobalIconBar) */}
       <ProjectTabs />
+
+      {/* Level 2: Worktree Tabs (only shown when project is active) */}
+      <WorktreeTabs />
 
       {/* Main Content */}
       <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>

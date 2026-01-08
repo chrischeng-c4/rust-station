@@ -7,7 +7,8 @@ Instructions for AI coding assistants using OpenSpec for spec-driven development
 - Search existing work: `openspec spec list --long`, `openspec list` (use `rg` only for full-text search)
 - Decide scope: new capability vs modify existing capability
 - Pick a unique `change-id`: kebab-case, verb-led (`add-`, `update-`, `remove-`, `refactor-`)
-- Scaffold: `proposal.md`, `tasks.md`, `design.md` (only if needed), and delta specs per affected capability
+- Scaffold: `proposal.md`, `tasks.md`, `diagrams.md` (MANDATORY), `design.md` (only if needed), and delta specs per affected capability
+- Create diagrams: `diagrams.md` MUST include 4 Mermaid diagrams (State, Flow, Sequence, UI Layout)
 - Write deltas: use `## ADDED|MODIFIED|REMOVED|RENAMED Requirements`; include at least one `#### Scenario:` per requirement
 - Validate: `openspec validate [change-id] --strict` and fix issues
 - Request approval: Do not start implementation until proposal is approved
@@ -42,9 +43,14 @@ Skip proposal for:
 
 **Workflow**
 1. Review `openspec/project.md`, `openspec list`, and `openspec list --specs` to understand current context.
-2. Choose a unique verb-led `change-id` and scaffold `proposal.md`, `tasks.md`, optional `design.md`, and spec deltas under `openspec/changes/<id>/`.
-3. Draft spec deltas using `## ADDED|MODIFIED|REMOVED Requirements` with at least one `#### Scenario:` per requirement.
-4. Run `openspec validate <id> --strict` and resolve any issues before sharing the proposal.
+2. Choose a unique verb-led `change-id` and scaffold `proposal.md`, `tasks.md`, `diagrams.md` (MANDATORY), optional `design.md`, and spec deltas under `openspec/changes/<id>/`.
+3. Create `diagrams.md` with 4 Mermaid diagrams:
+   - **State Diagram**: Show state transitions, lifecycle, navigation flow
+   - **Flow Chart**: Show decision logic, processing steps, conditional branches
+   - **Sequence Diagram**: Show component interactions, data flow, API calls
+   - **UI Layout Diagram**: Show component hierarchy, tab structure, panel layout
+4. Draft spec deltas using `## ADDED|MODIFIED|REMOVED Requirements` with at least one `#### Scenario:` per requirement.
+5. Run `openspec validate <id> --strict` and resolve any issues before sharing the proposal.
 
 ### Stage 2: Implementing Changes
 Track these steps as TODOs and complete them one by one.

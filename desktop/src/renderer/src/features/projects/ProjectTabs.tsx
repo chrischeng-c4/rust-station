@@ -3,6 +3,7 @@ import { Box, Tabs, Tab, IconButton, Stack, styled } from '@mui/material'
 import { Add as AddIcon, Close as CloseIcon, Folder as ProjectIcon } from '@mui/icons-material'
 
 import { useActiveProject, useAppState } from '@/hooks/useAppState'
+import { GlobalIconBar } from '@/components/layout/GlobalIconBar'
 
 // Custom Styled Tab for M3 "Chrome-like" or "Folder-like" appearance if desired
 // For now, adhering to standard M3 Tabs spec
@@ -58,6 +59,7 @@ export function ProjectTabs() {
   return (
     <Box sx={{ width: '100%' }}>
       <Stack direction="row" alignItems="center">
+        {/* Left: Project Tabs */}
         <Box sx={{ flex: 1, overflow: 'hidden' }}>
           <StyledTabs
             value={activeIndex}
@@ -77,11 +79,11 @@ export function ProjectTabs() {
                       size="small"
                       component="span"
                       onClick={(e) => handleClose(e, index)}
-                      sx={{ 
-                        ml: 0.5, 
+                      sx={{
+                        ml: 0.5,
                         p: 0.25,
                         opacity: 0.6,
-                        '&:hover': { opacity: 1, bgcolor: 'action.selected' } 
+                        '&:hover': { opacity: 1, bgcolor: 'action.selected' }
                       }}
                     >
                       <CloseIcon fontSize="inherit" sx={{ fontSize: 14 }} />
@@ -92,13 +94,16 @@ export function ProjectTabs() {
             ))}
           </StyledTabs>
         </Box>
-        
-        {/* Add Project Button */}
-        <Box sx={{ borderBottom: 1, borderColor: 'outlineVariant', minHeight: 48, display: 'flex', alignItems: 'center', px: 1 }}>
+
+        {/* Center: Add Project Button */}
+        <Box sx={{ borderBottom: 1, borderColor: 'outlineVariant.main', minHeight: 48, display: 'flex', alignItems: 'center', px: 0.5 }}>
           <IconButton size="small" onClick={handleAdd} aria-label="open new project">
             <AddIcon />
           </IconButton>
         </Box>
+
+        {/* Right: Global Icon Bar */}
+        <GlobalIconBar />
       </Stack>
     </Box>
   )

@@ -149,7 +149,36 @@ mkdir -p openspec/changes/<change-id>/specs/<capability-name>
    - [Risk] → Mitigation
    ```
 
-4. **spec.md** - `openspec/changes/<change-id>/specs/<capability-name>/spec.md`
+4. **diagrams.md** - `openspec/changes/<change-id>/diagrams.md` (**MANDATORY for ALL proposals**)
+   ```markdown
+   # Architecture Diagrams
+
+   ## 1. State Diagram
+   [Mermaid stateDiagram-v2 showing state transitions]
+
+   ## 2. Flow Chart
+   [Mermaid flowchart showing decision logic and processing flow]
+
+   ## 3. Sequence Diagram
+   [Mermaid sequenceDiagram showing component interactions]
+
+   ## 4. UI Layout Diagram
+   [ASCII art showing UI structure with spatial layout]
+   ```
+
+   **Rules**:
+   - ALL proposals MUST include diagrams.md (no exceptions)
+   - Use Mermaid syntax for flow diagrams, ASCII art for UI layouts
+   - **State Diagram** (stateDiagram-v2): Show state transitions, lifecycle, navigation flow
+   - **Flow Chart** (flowchart): Show decision branches, processing steps, conditional logic
+   - **Sequence Diagram** (sequenceDiagram): Show component interactions, data flow, API calls
+   - **UI Layout** (ASCII art): Show component hierarchy, spatial layout, tab structure
+     - Use box-drawing characters (┌─┐│└┘├┤┬┴┼) for clean borders
+     - Show sidebar, navigation bars, content areas with proper spacing
+     - Use emojis and labels to indicate scope (🟠 Global / 🔵 Project / 🟢 Worktree)
+     - Include legend explaining the visual hierarchy
+
+5. **spec.md** - `openspec/changes/<change-id>/specs/<capability-name>/spec.md`
    ```markdown
    ## ADDED Requirements
    ### Requirement: [Name]
@@ -190,6 +219,7 @@ openspec validate <change-id> --strict
 - ✅ proposal.md (120 lines)
 - ✅ tasks.md (8 tasks)
 - ✅ design.md (4 architecture decisions) [if created]
+- ✅ diagrams.md (4 diagrams: state, flow, sequence, UI layout)
 - ✅ specs/docker-compose/spec.md (3 requirements, 7 scenarios)
 
 ### Summary
@@ -264,6 +294,8 @@ Before finishing, ensure:
 - [ ] All scenarios use `#### Scenario:` format
 - [ ] Every requirement has ≥1 scenario
 - [ ] MODIFIED requirements include FULL text
+- [ ] **diagrams.md created with ALL 4 diagrams** (State, Flow, Sequence, UI Layout)
+- [ ] All diagrams use valid Mermaid syntax
 - [ ] State changes are JSON-serializable
 - [ ] Testing requirements specified (unit, integration, E2E)
 - [ ] All 5 layers addressed (Backend → Binding → Bridge → Frontend → E2E)

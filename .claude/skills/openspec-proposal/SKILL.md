@@ -54,7 +54,12 @@ Automatically use when the user:
    - Call Gemini CLI: `gemini /openspec:proposal "<user-request>" -y`
    - Read `GEMINI.md` for system prompt (OpenSpec Instructions section)
    - Explore codebase with context aggregation
-   - Create all proposal files directly in `openspec/changes/<change-id>/` using WriteFile tool
+   - Create all proposal files directly in `openspec/changes/<change-id>/` using WriteFile tool:
+     - proposal.md (why, what, impact)
+     - tasks.md (implementation checklist)
+     - diagrams.md (MANDATORY: 4 Mermaid diagrams)
+     - design.md (architecture decisions, if needed)
+     - specs/<capability>/spec.md (spec deltas)
    - Run `openspec validate <change-id> --strict`
    - Output structured summary
    - Provide clear error messages if any step fails
@@ -96,6 +101,7 @@ Automatically use when the user:
    📄 Files:
    - proposal.md (why, what, impact)
    - tasks.md (X implementation tasks)
+   - diagrams.md (4 diagrams: state, flow, sequence, UI layout)
    - design.md (architecture decisions) [if applicable]
    - specs/<capability>/spec.md (Y requirements, Z scenarios)
 
@@ -134,6 +140,7 @@ User: "I want to add Docker Compose support to the project management feature"
 openspec/changes/add-docker-compose/
 ├── proposal.md          # Why, what, scope
 ├── tasks.md             # [ ] Task checklist
+├── diagrams.md          # MANDATORY: 4 Mermaid diagrams
 ├── design.md            # Architecture decisions (if needed)
 └── specs/
     └── docker-compose/
