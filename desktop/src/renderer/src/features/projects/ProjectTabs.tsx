@@ -59,8 +59,8 @@ export function ProjectTabs() {
   return (
     <Box sx={{ width: '100%' }}>
       <Stack direction="row" alignItems="center">
-        {/* Left: Project Tabs */}
-        <Box sx={{ flex: 1, overflow: 'hidden' }}>
+        {/* Left: Project Tabs + Add Button */}
+        <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', alignItems: 'center', borderBottom: 1, borderColor: 'outlineVariant.main' }}>
           <StyledTabs
             value={activeIndex}
             onChange={handleChange}
@@ -93,11 +93,7 @@ export function ProjectTabs() {
               />
             ))}
           </StyledTabs>
-        </Box>
-
-        {/* Center: Add Project Button */}
-        <Box sx={{ borderBottom: 1, borderColor: 'outlineVariant.main', minHeight: 48, display: 'flex', alignItems: 'center', px: 0.5 }}>
-          <IconButton size="small" onClick={handleAdd} aria-label="open new project">
+          <IconButton size="small" onClick={handleAdd} aria-label="open new project" sx={{ mx: 0.5 }}>
             <AddIcon />
           </IconButton>
         </Box>

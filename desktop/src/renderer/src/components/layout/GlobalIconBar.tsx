@@ -1,3 +1,4 @@
+import { useCallback } from 'react'
 import { IconButton, Stack, Tooltip } from '@mui/material'
 import {
   Assignment as TasksIcon,
@@ -14,9 +15,22 @@ import {
  * Positioned on the right side of the ProjectTabs.
  */
 export function GlobalIconBar() {
+  const handleSnapshot = useCallback(async () => {
+    try {
+      const result = await window.screenshotApi.capture()
+      if (result.success) {
+        console.log('Screenshot saved to:', result.filePath)
+      } else {
+        console.error('Screenshot failed:', result.error)
+      }
+    } catch (error) {
+      console.error('Screenshot error:', error)
+    }
+  }, [])
+
   const icons = [
     { icon: <TasksIcon />, label: 'Tasks', onClick: () => console.log('Tasks clicked') },
-    { icon: <SnapshotIcon />, label: 'Snapshot', onClick: () => console.log('Snapshot clicked') },
+    { icon: <SnapshotIcon />, label: 'Snapshot', onClick: handleSnapshot },
     { icon: <ImportIcon />, label: 'Import', onClick: () => console.log('Import clicked') },
     { icon: <NotificationsIcon />, label: 'Notifications', onClick: () => console.log('Notifications clicked') },
     { icon: <MetricsIcon />, label: 'Metrics', onClick: () => console.log('Metrics clicked') },

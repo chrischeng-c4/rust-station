@@ -61,8 +61,8 @@ export function WorktreeTabs() {
   return (
     <Box sx={{ width: '100%' }}>
       <Stack direction="row" alignItems="center">
-        {/* Worktree Tabs (Left) */}
-        <Box sx={{ flex: 1, overflow: 'hidden' }}>
+        {/* Left: Worktree Tabs + Add Button */}
+        <Box sx={{ flex: 1, overflow: 'hidden', display: 'flex', alignItems: 'center', borderBottom: 1, borderColor: 'outlineVariant.main' }}>
           <StyledTabs
             value={activeWorktreeIndex}
             onChange={handleChange}
@@ -94,9 +94,12 @@ export function WorktreeTabs() {
               />
             ))}
           </StyledTabs>
+          <IconButton size="small" onClick={handleAddWorktree} aria-label="add worktree" sx={{ mx: 0.5 }}>
+            <AddIcon fontSize="small" />
+          </IconButton>
         </Box>
 
-        {/* Environment Tab (Right) */}
+        {/* Right: Environment Tab */}
         <Box
           sx={{
             borderBottom: 1,
@@ -107,16 +110,11 @@ export function WorktreeTabs() {
             px: 1,
           }}
         >
-          <Stack direction="row" spacing={0.5} alignItems="center">
-            <StyledTab
-              label="Env"
-              onClick={() => appDispatch({ type: 'SetActiveView', payload: { view: 'env' } })}
-              sx={{ minWidth: 60 }}
-            />
-            <IconButton size="small" onClick={handleAddWorktree} aria-label="add worktree">
-              <AddIcon fontSize="small" />
-            </IconButton>
-          </Stack>
+          <StyledTab
+            label="Env"
+            onClick={() => appDispatch({ type: 'SetActiveView', payload: { view: 'env' } })}
+            sx={{ minWidth: 60 }}
+          />
         </Box>
       </Stack>
     </Box>
