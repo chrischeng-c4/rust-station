@@ -1,5 +1,6 @@
 import { createTheme, alpha } from '@mui/material/styles'
 
+// Extend MUI palette with M3 Surface Container roles
 declare module '@mui/material/styles' {
   interface Palette {
     surfaceContainerLowest: Palette['primary']
@@ -29,12 +30,12 @@ declare module '@mui/material/styles' {
   }
 }
 
-// Material Design 3 inspired theme
+// Compact theme with M3 palette + defaultProps only (no styleOverrides)
 export const theme = createTheme({
   palette: {
-    mode: 'dark', // Default to dark for developers
+    mode: 'dark',
     primary: {
-      main: '#D0BCFF', // M3 Dark Primary
+      main: '#D0BCFF',
       light: '#E8DEF8',
       dark: '#381E72',
       contrastText: '#381E72',
@@ -46,10 +47,10 @@ export const theme = createTheme({
       contrastText: '#332D41',
     },
     background: {
-      default: '#1C1B1F', // M3 Dark Surface
-      paper: '#2B2930',   // M3 Dark Surface Container
+      default: '#1C1B1F',
+      paper: '#2B2930',
     },
-    // Custom M3 Surface Container Roles
+    // M3 Surface Container Roles
     surfaceContainerLowest: { main: '#0F0D13' },
     surfaceContainerLow: { main: '#1D1B20' },
     surfaceContainer: { main: '#211F26' },
@@ -61,69 +62,41 @@ export const theme = createTheme({
     outlineVariant: { main: '#49454F' },
     secondaryContainer: { main: '#4A4458' },
     onSecondaryContainer: { main: '#E8DEF8' },
-    error: {
-      main: '#F2B8B5',
-    },
+    error: { main: '#F2B8B5' },
     text: {
       primary: '#E6E1E5',
       secondary: '#CAC4D0',
     },
     divider: alpha('#CAC4D0', 0.12),
   },
-  shape: {
-    borderRadius: 16, // M3 Medium Rounding
-  },
-  typography: {
-    fontFamily: [
-      'Inter',
-      'ui-sans-serif',
-      'system-ui',
-      '-apple-system',
-      'BlinkMacSystemFont',
-      '"Segoe UI"',
-      'Roboto',
-      '"Helvetica Neue"',
-      'Arial',
-      'sans-serif',
-    ].join(','),
-    h1: { fontSize: '2.5rem', fontWeight: 600 },
-    h2: { fontSize: '2rem', fontWeight: 600 },
-    h3: { fontSize: '1.5rem', fontWeight: 600 },
-    body1: { fontSize: '0.875rem', lineHeight: 1.5 },
-    body2: { fontSize: '0.75rem', lineHeight: 1.43 },
-    button: { textTransform: 'none', fontWeight: 500 },
-  },
   components: {
+    // Compact sizing via defaultProps only
     MuiButton: {
-      styleOverrides: {
-        root: {
-          borderRadius: 20, // M3 Fully rounded buttons
-          padding: '8px 24px',
-        },
-        containedPrimary: {
-          backgroundColor: '#D0BCFF',
-          color: '#381E72',
-          '&:hover': {
-            backgroundColor: '#E8DEF8',
-          },
-        },
-      },
+      defaultProps: { size: 'small' },
     },
-    MuiCard: {
-      styleOverrides: {
-        root: {
-          backgroundImage: 'none',
-          backgroundColor: '#2B2930', // Surface Container
-          borderRadius: 12,
-        },
-      },
+    MuiIconButton: {
+      defaultProps: { size: 'small' },
     },
-    MuiPaper: {
-      styleOverrides: {
-        root: {
-          backgroundImage: 'none',
-        },
-      },
+    MuiTextField: {
+      defaultProps: { size: 'small' },
+    },
+    MuiSelect: {
+      defaultProps: { size: 'small' },
+    },
+    MuiChip: {
+      defaultProps: { size: 'small' },
+    },
+    MuiTable: {
+      defaultProps: { size: 'small' },
+    },
+    MuiToolbar: {
+      defaultProps: { variant: 'dense' },
+    },
+    MuiList: {
+      defaultProps: { dense: true },
+    },
+    MuiMenuItem: {
+      defaultProps: { dense: true },
     },
   },
 })
