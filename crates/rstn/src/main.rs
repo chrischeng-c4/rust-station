@@ -5,10 +5,12 @@
 use gpui::*;
 use rstn_ui::{MaterialTheme, NavItem, PageHeader, ShellLayout, Sidebar};
 use anyhow::Result;
+use rstn_core::{justfile, docker::BUILTIN_SERVICES, state::{DockerService, ServiceStatus}};
 use rstn_views::{
     ChatView, DockersView, ExplorerView, McpView,
     SettingsView, TasksView, TerminalView, WorkflowsView,
 };
+use std::env;
 
 /// Main application view
 struct AppView {
@@ -55,13 +57,41 @@ impl AppView {
     fn render_content(&self, theme: &MaterialTheme, window: &mut Window, cx: &mut App) -> Div {
         match self.active_tab {
             "tasks" => {
-                // TODO: Load actual commands from rstn-core::justfile
-                let commands = vec![];
+                // Load commands from justfile in current directory
+                let justfile_path = env::current_dir()
+                    .ok()
+                    .and_then(|path| {
+                        let jf = path.join("justfile");
+                        if jf.exists() {
+                            Some(jf.to_string_lossy().to_string())
+                        } else {
+                            None
+                        }
+                    });
+
+                let commands = justfile_path
+                    .and_then(|path| justfile::parse_justfile(&path).ok())
+                    .unwrap_or_default();
+
                 TasksView::new(commands, theme.clone()).render(window, cx)
             }
             "dockers" => {
-                // TODO: Load actual services from rstn-core::docker
-                let services = vec![];
+                // Load built-in Docker services
+                // TODO: In Phase 6, implement async Docker service polling
+                let services: Vec<DockerService> = BUILTIN_SERVICES
+                    .iter()
+                    .map(|config| DockerService {
+                        id: config.id.to_string(),
+                        name: config.name.to_string(),
+                        image: config.image.to_string(),
+                        status: ServiceStatus::Stopped, // Default to stopped, will be updated by async polling
+                        port: Some(config.port as u32),
+                        service_type: config.service_type.clone(),
+                        project_group: Some("rstn".to_string()),
+                        is_rstn_managed: true,
+                    })
+                    .collect();
+
                 DockersView::new(services, theme.clone()).render(window, cx)
             }
             "explorer" => {
