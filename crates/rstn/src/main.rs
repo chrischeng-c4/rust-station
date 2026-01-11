@@ -5,8 +5,10 @@
 use gpui::*;
 use rstn_ui::{MaterialTheme, NavItem, PageHeader, ShellLayout, Sidebar};
 use anyhow::Result;
-// Note: Uncomment when Metal Toolchain is fixed
-// use rstn_views::{TasksView, DockersView};
+use rstn_views::{
+    ChatView, DockersView, ExplorerView, McpView,
+    SettingsView, TasksView, TerminalView, WorkflowsView,
+};
 
 /// Main application view
 struct AppView {
@@ -42,7 +44,7 @@ impl Render for AppView {
         let shell = ShellLayout::new("rstn - Developer Workbench", sidebar, theme.clone());
 
         // Render content based on active tab
-        let content = self.render_content(&theme);
+        let content = self.render_content(&theme, _window, _cx);
 
         shell.render(content, _window, _cx)
     }
@@ -50,17 +52,57 @@ impl Render for AppView {
 
 impl AppView {
     /// Render content area based on active tab
-    fn render_content(&self, theme: &MaterialTheme) -> Div {
+    fn render_content(&self, theme: &MaterialTheme, window: &mut Window, cx: &mut App) -> Div {
         match self.active_tab {
-            // TODO: Uncomment when Metal Toolchain is fixed
-            // "tasks" => {
-            //     let commands = vec![]; // Load from rstn-core::justfile
-            //     TasksView::new(commands, theme.clone()).render(window, cx)
-            // }
-            // "dockers" => {
-            //     let services = vec![]; // Load from rstn-core::docker
-            //     DockersView::new(services, theme.clone()).render(window, cx)
-            // }
+            "tasks" => {
+                // TODO: Load actual commands from rstn-core::justfile
+                let commands = vec![];
+                TasksView::new(commands, theme.clone()).render(window, cx)
+            }
+            "dockers" => {
+                // TODO: Load actual services from rstn-core::docker
+                let services = vec![];
+                DockersView::new(services, theme.clone()).render(window, cx)
+            }
+            "explorer" => {
+                // TODO: Load actual file tree from rstn-core::worktree
+                use rstn_views::explorer::{TreeNode, FileEntry, GitStatus};
+                let current_path = "/".to_string();
+                let root_node = TreeNode {
+                    name: "root".to_string(),
+                    path: "/".to_string(),
+                    is_dir: true,
+                    is_expanded: true,
+                    children: vec![],
+                    git_status: GitStatus::Unmodified,
+                };
+                let file_entries = vec![];
+                ExplorerView::new(current_path, root_node, file_entries, theme.clone()).render(window, cx)
+            }
+            "terminal" => {
+                // TODO: Load actual sessions from rstn-core::terminal
+                let sessions = vec![];
+                let active_session_index = 0;
+                TerminalView::new(sessions, active_session_index, theme.clone()).render(window, cx)
+            }
+            "chat" => {
+                // TODO: Load actual messages from chat history
+                let messages = vec![];
+                ChatView::new(messages, theme.clone()).render(window, cx)
+            }
+            "workflows" => {
+                WorkflowsView::new(theme.clone()).render(window, cx)
+            }
+            "mcp" => {
+                // TODO: Load actual MCP server status and tools
+                use rstn_views::mcp::ServerStatus;
+                let status = ServerStatus::Stopped;
+                let tools = vec![];
+                McpView::new(status, tools, "http://localhost:5000", theme.clone()).render(window, cx)
+            }
+            "settings" => {
+                SettingsView::new(theme.clone()).render(window, cx)
+            }
             _ => {
                 // Fallback: Welcome screen
                 let page_header = PageHeader::new(
