@@ -6,9 +6,12 @@
 - [ ] 1.5 **BLOCKED**: GPUI build requires Metal Toolchain (Xcode 26 beta issue)
 
 ## 2. Shell & Layout
-- [ ] 2.1 Implement Window/Shell layout (Sidebar, Main Content, Status Bar)
-- [ ] 2.2 Implement `Sidebar` view with feature navigation
-- [ ] 2.3 Implement `Theme` system using GPUI styling
+- [x] 2.1 Implement Window/Shell layout (Sidebar, Main Content, Status Bar)
+- [x] 2.2 Implement `Sidebar` view with feature navigation
+- [x] 2.3 Implement `Theme` system using GPUI styling
+- [x] 2.4 Create `crates/rstn-ui/` component library
+- [x] 2.5 Implement PageHeader, EmptyState components
+- [ ] 2.6 Verify UI renders correctly (BLOCKED by Metal Toolchain)
 
 ## 3. Core Features Migration
 - [ ] 3.1 Port `Tasks` view (List, details, running output)
