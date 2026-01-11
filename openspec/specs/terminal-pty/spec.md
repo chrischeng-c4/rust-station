@@ -24,15 +24,15 @@ The system SHALL create terminal sessions using PTY (pseudo-terminal).
 - **THEN** inherit parent process environment and set `TERM=xterm-256color`
 
 ### Requirement: Terminal Display
-The system SHALL render terminal using xterm.js in frontend.
+The system SHALL render terminal using a native GPUI renderer with GPU acceleration.
 
 #### Scenario: Display terminal output
 - **WHEN** shell produces output
-- **THEN** stream output to xterm.js for rendering with ANSI color support
+- **THEN** stream output to the terminal view for rendering with ANSI color support
 
 #### Scenario: Handle control sequences
 - **WHEN** shell sends ANSI escape sequences (colors, cursor movement)
-- **THEN** xterm.js interprets and renders correctly
+- **THEN** interpret and render correctly using terminal emulation logic
 
 ### Requirement: User Input
 The system SHALL send user keyboard input to PTY.

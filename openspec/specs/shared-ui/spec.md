@@ -41,19 +41,19 @@ The system SHALL support navigation between active views within the main content
 - **THEN** the active view selection SHALL be persisted in the application state.
 
 ### Requirement: Global Theme Density
-The system SHALL use a compact Material Design 3 theme configuration to maximize information density via MUI's `defaultProps` pattern.
+The system SHALL use a compact Material Design 3 theme configuration to maximize information density via GPUI styling.
 
 #### Scenario: Component Default Size
 - **WHEN** UI components are rendered
-- **THEN** they SHALL use `size: 'small'` as default for: Button, IconButton, TextField, Select, Chip, Table
+- **THEN** they SHALL use compact sizing (equivalent to 'small') for: Button, IconButton, Input, Select, Chip, Table
 
 #### Scenario: Dense Lists and Menus
 - **WHEN** lists or menus are rendered
-- **THEN** they SHALL use `dense: true` as default for: List, MenuItem
+- **THEN** they SHALL use dense vertical padding
 
 #### Scenario: Compact Toolbar
 - **WHEN** toolbars are rendered
-- **THEN** they SHALL use `variant: 'dense'` as default
+- **THEN** they SHALL use dense height variant
 
 ### Requirement: Source Code Viewer
 The system SHALL provide a reusable component for viewing source code with syntax highlighting and interaction capabilities.
