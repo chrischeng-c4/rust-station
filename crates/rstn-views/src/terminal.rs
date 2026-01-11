@@ -152,7 +152,7 @@ impl TerminalOutput {
     pub fn render(&self) -> Div {
         div()
             .flex_1()
-            .overflow_y_scroll()
+            .overflow_hidden()
             .p(self.theme.spacing(2.0))
             .bg(rgb(0x000000)) // Pure black background for terminal
             .font_family("monospace")
@@ -211,7 +211,7 @@ impl TerminalInput {
                     .flex_1()
                     .text_color(rgb(0x666666))
                     .font_family("monospace")
-                    .child(&self.placeholder),
+                    .child(self.placeholder.clone()),
             )
     }
 }
@@ -244,7 +244,7 @@ impl TerminalView {
         self.sessions.get(self.active_session_index)
     }
 
-    pub fn render(&self, cx: &WindowContext) -> Div {
+    pub fn render(&self, window: &mut Window, cx: &mut App) -> Div {
         let page_header = PageHeader::new(
             "Terminal",
             Some("Integrated shell sessions"),

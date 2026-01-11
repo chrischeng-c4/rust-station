@@ -49,7 +49,7 @@ impl Sidebar {
     }
 
     /// Render a single navigation item
-    fn render_nav_item(&self, item: &NavItem, _cx: &WindowContext) -> Div {
+    fn render_nav_item(&self, item: &NavItem, _window: &mut Window, _cx: &mut App) -> Div {
         let is_active = item.id == self.active_item;
 
         div()
@@ -74,7 +74,7 @@ impl Sidebar {
             )
     }
 
-    pub fn render(&self, cx: &WindowContext) -> Div {
+    pub fn render(&self, window: &mut Window, cx: &mut App) -> Div {
         div()
             .flex()
             .flex_col()
@@ -87,7 +87,7 @@ impl Sidebar {
             .children(
                 self.items
                     .iter()
-                    .map(|item| self.render_nav_item(item, cx)),
+                    .map(|item| self.render_nav_item(item, window, cx)),
             )
     }
 }
@@ -145,7 +145,7 @@ impl ShellLayout {
             .child("Ready")
     }
 
-    pub fn render(&self, content: impl IntoElement, cx: &WindowContext) -> Div {
+    pub fn render(&self, content: impl IntoElement, window: &mut Window, cx: &mut App) -> Div {
         div()
             .flex()
             .flex_col()
@@ -157,7 +157,7 @@ impl ShellLayout {
                 div()
                     .flex()
                     .flex_1()
-                    .child(self.sidebar.render(cx))
+                    .child(self.sidebar.render(window, cx))
                     .child(
                         div()
                             .flex()

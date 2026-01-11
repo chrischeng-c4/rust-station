@@ -28,7 +28,7 @@ impl ServiceCard {
     }
 
     /// Get status text
-    fn status_text(&self) -> &str {
+    fn status_text(&self) -> &'static str {
         match self.service.status {
             ServiceStatus::Running => "Running",
             ServiceStatus::Stopped => "Stopped",
@@ -38,7 +38,7 @@ impl ServiceCard {
     }
 
     /// Get service type icon
-    fn service_icon(&self) -> &str {
+    fn service_icon(&self) -> &'static str {
         match self.service.service_type {
             ServiceType::Database => "🗄️",
             ServiceType::MessageBroker => "📨",
@@ -72,7 +72,7 @@ impl ServiceCard {
                                 div()
                                     .text_lg()
                                     .font_weight(FontWeight::SEMIBOLD)
-                                    .child(&self.service.name),
+                                    .child(self.service.name.clone()),
                             ),
                     )
                     .child(
@@ -100,21 +100,21 @@ impl ServiceCard {
                             .text_color(self.theme.text.secondary)
                             .child(format!("Image: {}", self.service.image)),
                     )
-                    .child(
+                    .children(
                         self.service.port.map(|port| {
                             div()
                                 .text_sm()
                                 .text_color(self.theme.text.secondary)
                                 .child(format!("Port: {}", port))
-                        }),
+                        })
                     )
-                    .child(
+                    .children(
                         self.service.project_group.as_ref().map(|group| {
                             div()
                                 .text_sm()
                                 .text_color(self.theme.text.secondary)
                                 .child(format!("Group: {}", group))
-                        }),
+                        })
                     ),
             )
             .child(
@@ -162,7 +162,7 @@ impl ServiceGroup {
         }
     }
 
-    pub fn render(&self, cx: &WindowContext) -> Div {
+    pub fn render(&self, window: &mut Window, cx: &mut App) -> Div {
         div()
             .flex()
             .flex_col()
@@ -173,7 +173,7 @@ impl ServiceGroup {
                     .text_lg()
                     .font_weight(FontWeight::BOLD)
                     .mb(self.theme.spacing(1.5))
-                    .child(&self.title),
+                    .child(self.title.clone()),
             )
             .children(
                 self.services
@@ -220,7 +220,7 @@ impl DockersView {
         result
     }
 
-    pub fn render(&self, cx: &WindowContext) -> Div {
+    pub fn render(&self, window: &mut Window, cx: &mut App) -> Div {
         let page_header = PageHeader::new(
             "Docker Services",
             Some("Manage containerized services"),
@@ -251,7 +251,7 @@ impl DockersView {
             .child(
                 div()
                     .flex_1()
-                    .overflow_y_scroll()
+                    .overflow_hidden()
                     .p(self.theme.spacing(2.0))
                     .children(if self.services.is_empty() {
                         vec![EmptyState::new(
@@ -268,7 +268,7 @@ impl DockersView {
                     } else {
                         self.group_services()
                             .into_iter()
-                            .map(|group| group.render(cx))
+                            .map(|group| group.render(window, cx))
                             .collect()
                     }),
             )

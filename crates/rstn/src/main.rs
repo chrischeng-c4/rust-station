@@ -4,16 +4,17 @@
 
 use gpui::*;
 use rstn_ui::{MaterialTheme, NavItem, PageHeader, ShellLayout, Sidebar};
+use anyhow::Result;
 // Note: Uncomment when Metal Toolchain is fixed
 // use rstn_views::{TasksView, DockersView};
 
-/// Application state wrapper for GPUI
-struct RstnApp {
+/// Main application view
+struct AppView {
     /// Current active tab
     active_tab: &'static str,
 }
 
-impl RstnApp {
+impl AppView {
     fn new() -> Self {
         Self {
             active_tab: "tasks",
@@ -21,21 +22,8 @@ impl RstnApp {
     }
 }
 
-/// Main application view
-struct AppView {
-    app: Model<RstnApp>,
-}
-
-impl AppView {
-    fn new(cx: &mut WindowContext) -> Self {
-        let app = cx.new_model(|_| RstnApp::new());
-        Self { app }
-    }
-}
-
 impl Render for AppView {
-    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
-        let app = self.app.read(cx);
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<'_, Self>) -> impl IntoElement {
         let theme = MaterialTheme::dark();
 
         // Create navigation items based on OLD_UI_ANALYSIS.md sidebar structure
@@ -50,28 +38,28 @@ impl Render for AppView {
             NavItem::new("terminal", "Term", "⌨️"),
         ];
 
-        let sidebar = Sidebar::new(nav_items, app.active_tab.to_string(), theme.clone());
+        let sidebar = Sidebar::new(nav_items, self.active_tab.to_string(), theme.clone());
         let shell = ShellLayout::new("rstn - Developer Workbench", sidebar, theme.clone());
 
         // Render content based on active tab
-        let content = self.render_content(app.active_tab, &theme, cx);
+        let content = self.render_content(&theme);
 
-        shell.render(content, cx)
+        shell.render(content, _window, _cx)
     }
 }
 
 impl AppView {
     /// Render content area based on active tab
-    fn render_content(&self, active_tab: &str, theme: &MaterialTheme, cx: &WindowContext) -> Div {
-        match active_tab {
+    fn render_content(&self, theme: &MaterialTheme) -> Div {
+        match self.active_tab {
             // TODO: Uncomment when Metal Toolchain is fixed
             // "tasks" => {
             //     let commands = vec![]; // Load from rstn-core::justfile
-            //     TasksView::new(commands, theme.clone()).render(cx)
+            //     TasksView::new(commands, theme.clone()).render(window, cx)
             // }
             // "dockers" => {
             //     let services = vec![]; // Load from rstn-core::docker
-            //     DockersView::new(services, theme.clone()).render(cx)
+            //     DockersView::new(services, theme.clone()).render(window, cx)
             // }
             _ => {
                 // Fallback: Welcome screen
@@ -91,7 +79,7 @@ impl AppView {
                             .p(theme.spacing(1.5))
                             .bg(theme.background.paper)
                             .rounded(theme.shape.border_radius_sm)
-                            .child(format!("Active tab: {}", active_tab)),
+                            .child(format!("Active tab: {}", self.active_tab)),
                     )
             }
         }
@@ -108,25 +96,38 @@ fn main() {
     tracing::info!("Starting rstn...");
 
     // Initialize GPUI application
-    App::new().run(|cx: &mut AppContext| {
-        // Create window options
-        let options = WindowOptions {
-            window_bounds: Some(WindowBounds::Windowed(Bounds {
-                origin: point(px(100.0), px(100.0)),
-                size: size(px(1200.0), px(800.0)),
-            })),
-            titlebar: Some(TitlebarOptions {
-                title: Some("rstn".into()),
-                appears_transparent: false,
+    Application::new()
+        .with_assets(Assets)
+        .run(|cx: &mut gpui::App| {
+            // Create window options
+            let bounds = Bounds::centered(None, size(px(1200.0), px(800.0)), cx);
+            let options = WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                titlebar: Some(TitlebarOptions {
+                    title: Some("rstn".into()),
+                    appears_transparent: false,
+                    ..Default::default()
+                }),
                 ..Default::default()
-            }),
-            ..Default::default()
-        };
+            };
 
-        // Open main window
-        cx.open_window(options, |cx| {
-            cx.new_view(|cx| AppView::new(cx))
-        })
-        .expect("Failed to open window");
-    });
+            // Open main window
+            cx.open_window(options, |window, cx| {
+                cx.new(|_cx| AppView::new())
+            })
+            .expect("Failed to open window");
+        });
+}
+
+// Empty assets for now
+struct Assets;
+
+impl AssetSource for Assets {
+    fn load(&self, _path: &str) -> Result<Option<std::borrow::Cow<'static, [u8]>>> {
+        Ok(None)
+    }
+
+    fn list(&self, _path: &str) -> Result<Vec<gpui::SharedString>> {
+        Ok(Vec::new())
+    }
 }

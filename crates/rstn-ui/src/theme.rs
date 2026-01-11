@@ -157,7 +157,7 @@ impl MaterialTheme {
 
     /// Get spacing value by multiplier (e.g., spacing(2) = 16px)
     pub fn spacing(&self, multiplier: f32) -> Pixels {
-        px(self.spacing.base.0 * multiplier)
+        self.spacing.base * multiplier
     }
 }
 

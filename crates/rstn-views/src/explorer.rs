@@ -18,7 +18,7 @@ pub enum GitStatus {
 
 impl GitStatus {
     /// Get status indicator text
-    pub fn indicator(&self) -> &str {
+    pub fn indicator(&self) -> &'static str {
         match self {
             GitStatus::Untracked => "??",
             GitStatus::Modified => "M",
@@ -93,9 +93,9 @@ impl FileEntry {
                 div()
                     .flex_1()
                     .text_sm()
-                    .child(&self.name),
+                    .child(self.name.clone()),
             )
-            .child(
+            .children(
                 // File size
                 self.size.map(|size| {
                     div()
@@ -103,17 +103,17 @@ impl FileEntry {
                         .text_xs()
                         .text_color(theme.text.secondary)
                         .child(format_size(size))
-                }),
+                })
             )
-            .child(
+            .children(
                 // Modified time
                 self.modified.as_ref().map(|time| {
                     div()
-                        .w(px(150.0))
+                        .w(px(100.0))
                         .text_xs()
                         .text_color(theme.text.secondary)
                         .child(time.clone())
-                }),
+                })
             )
     }
 }
@@ -201,7 +201,7 @@ impl TreeNode {
                 div()
                     .flex_1()
                     .text_sm()
-                    .child(&self.name),
+                    .child(self.name.clone()),
             )
     }
 }
@@ -239,7 +239,7 @@ impl FileTreeView {
             .flex()
             .flex_col()
             .h_full()
-            .overflow_y_scroll()
+            .overflow_hidden()
             .bg(self.theme.background.paper)
             .border_r_1()
             .border_color(self.theme.border.divider)
@@ -268,7 +268,7 @@ impl FileTableView {
             .flex()
             .flex_col()
             .h_full()
-            .overflow_y_scroll()
+            .overflow_hidden()
             .bg(self.theme.background.default)
             .child(
                 // Table header
@@ -368,19 +368,19 @@ impl DetailPanel {
                                 .text_lg()
                                 .font_weight(FontWeight::BOLD)
                                 .mb(self.theme.spacing(1.0))
-                                .child(&file.name),
+                                .child(file.name.clone()),
                         )
                         .child(
                             div()
                                 .text_xs()
                                 .text_color(self.theme.text.secondary)
-                                .child(&file.path),
+                                .child(file.path.clone()),
                         ),
                     // Content preview
                     div()
                         .flex_1()
                         .p(self.theme.spacing(2.0))
-                        .overflow_y_scroll()
+                        .overflow_hidden()
                         .font_family("monospace")
                         .text_xs()
                         .children(if let Some(content) = &self.content_preview {
@@ -442,7 +442,7 @@ impl ExplorerView {
         }
     }
 
-    pub fn render(&self, cx: &WindowContext) -> Div {
+    pub fn render(&self, window: &mut Window, cx: &mut App) -> Div {
         let page_header = PageHeader::new(
             "Explorer",
             Some("Browse files with Git status"),
@@ -485,7 +485,7 @@ impl ExplorerView {
                     .border_color(self.theme.border.divider)
                     .text_sm()
                     .text_color(self.theme.text.secondary)
-                    .child(&self.current_path),
+                    .child(self.current_path.clone()),
             )
             .child(
                 // Main content: Tree + Table + Detail

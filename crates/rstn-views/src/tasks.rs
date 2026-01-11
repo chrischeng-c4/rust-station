@@ -33,7 +33,7 @@ impl TaskCard {
     }
 
     /// Render a single task card
-    pub fn render(&self, theme: &MaterialTheme, _cx: &WindowContext) -> Div {
+    pub fn render(&self, theme: &MaterialTheme, _window: &mut Window, cx: &mut App) -> Div {
         let state_color = match self.state {
             TaskState::Idle => theme.text.secondary,
             TaskState::Running => theme.primary.main,
@@ -55,7 +55,7 @@ impl TaskCard {
                         div()
                             .text_lg()
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child(&self.command.name),
+                            .child(self.command.name.clone()),
                     )
                     .child(
                         // State indicator
@@ -73,15 +73,15 @@ impl TaskCard {
                             }),
                     ),
             )
-            .child(
+            .children(
                 // Description
                 self.command.description.as_ref().map(|desc| {
                     div()
                         .text_sm()
                         .text_color(theme.text.secondary)
                         .mb(theme.spacing(1.0))
-                        .child(desc.as_str())
-                }),
+                        .child(desc.clone())
+                })
             )
             .child(
                 // Recipe preview (first line)
@@ -95,7 +95,8 @@ impl TaskCard {
                             .lines()
                             .next()
                             .unwrap_or("")
-                            .trim(),
+                            .trim()
+                            .to_string(),
                     ),
             )
     }
@@ -148,7 +149,7 @@ impl LogPanel {
                 div()
                     .flex_1()
                     .p(self.theme.spacing(2.0))
-                    .overflow_y_scroll()
+                    .overflow_hidden()
                     .font_family("monospace")
                     .text_xs()
                     .children(
@@ -201,7 +202,7 @@ impl TasksView {
         }
     }
 
-    pub fn render(&self, cx: &WindowContext) -> Div {
+    pub fn render(&self, window: &mut Window, cx: &mut App) -> Div {
         let page_header = PageHeader::new(
             "Tasks",
             Some("Run justfile commands"),
@@ -239,7 +240,7 @@ impl TasksView {
                             .flex()
                             .flex_col()
                             .flex_1()
-                            .overflow_y_scroll()
+                            .overflow_hidden()
                             .children(if self.tasks.is_empty() {
                                 vec![EmptyState::new(
                                     "📋",
@@ -255,7 +256,7 @@ impl TasksView {
                             } else {
                                 self.tasks
                                     .iter()
-                                    .map(|task| task.render(&self.theme, cx))
+                                    .map(|task| task.render(&self.theme, window, cx))
                                     .collect()
                             }),
                     )
