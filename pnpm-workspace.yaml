@@ -1,6 +1,0 @@
-packages:
-  - desktop
-  - packages/*
-  - e2e
-
-onlyBuiltDependencies: electron esbuild
