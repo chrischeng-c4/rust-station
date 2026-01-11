@@ -111,6 +111,26 @@ Migration of rustation from Electron+React to GPUI (Zed's GPU-accelerated UI fra
   - Tests for service grouping logic
   - Matches old DockersPage structure
 
+- ✅ **ExplorerView** ([crates/rstn-views/src/explorer.rs](crates/rstn-views/src/explorer.rs)):
+  - `FileTreeView`: Hierarchical folder structure with expand/collapse
+  - `FileTableView`: Sortable file list with Git status column
+  - `DetailPanel`: File preview and metadata display
+  - Git status indicators: M (Amber), A (Green), D (Red), ?? (Grey)
+  - 25/50/25 split layout (Tree/Table/Detail)
+  - File size formatting (B/KB/MB/GB)
+  - Breadcrumb navigation
+  - Tests for Git status and size formatting
+
+- ✅ **TerminalView** ([crates/rstn-views/src/terminal.rs](crates/rstn-views/src/terminal.rs)):
+  - `TerminalTab`: Session tabs with status dots
+  - `TerminalOutput`: Scrollable output with ANSI colors
+  - `TerminalInput`: Command input with $ prompt
+  - Session state machine: Idle → Spawning → Active → Terminated
+  - Multiple sessions per worktree
+  - Info bar: working dir, terminal size (80x24), session status
+  - Pure black background (#000000), green text (#00FF00)
+  - Tests for session state transitions
+
 - ✅ Updated [crates/rstn/src/main.rs](crates/rstn/src/main.rs):
   - Added `render_content()` method for tab routing
   - Match statement: `active_tab` → feature view
@@ -120,9 +140,11 @@ Migration of rustation from Electron+React to GPUI (Zed's GPU-accelerated UI fra
 - [crates/rstn-views/Cargo.toml](crates/rstn-views/Cargo.toml) - Feature views crate
 - [crates/rstn-views/src/tasks.rs](crates/rstn-views/src/tasks.rs) - Tasks view
 - [crates/rstn-views/src/dockers.rs](crates/rstn-views/src/dockers.rs) - Dockers view
+- [crates/rstn-views/src/explorer.rs](crates/rstn-views/src/explorer.rs) - Explorer view
+- [crates/rstn-views/src/terminal.rs](crates/rstn-views/src/terminal.rs) - Terminal view
 - [crates/rstn-views/src/lib.rs](crates/rstn-views/src/lib.rs) - Public exports
 
-**Status**: TasksView and DockersView complete (2/8 views). Cannot compile due to Metal Toolchain blocker.
+**Status**: 4 core views complete (Tasks, Dockers, Explorer, Terminal). 4 remaining views. Cannot compile due to Metal Toolchain blocker.
 
 ---
 
@@ -359,6 +381,10 @@ All components in `rstn-ui` are designed to be:
 ## Git History
 
 ```
+cb68dc6 feat(rstn-views): Add Terminal view with PTY support
+3824120 feat(rstn-views): Add Explorer view with Git status
+c989e7c chore(openspec): Update migration tasks with Phase 4 progress
+f599d6b docs(gpui): Update progress - Phase 4 started (2/8 views)
 081bda3 feat(rstn-views): Add Tasks and Dockers feature views
 98eeedb docs(gpui): Add migration progress documentation
 be0a3d5 feat(rstn-ui): Add UI component library with MD3 theme
@@ -375,17 +401,17 @@ f43d09c docs(openspec): Apply GPUI migration spec deltas
 | Phase 1: Foundation | ✅ Complete | 100% |
 | Phase 2: Specs | ✅ Complete | 100% |
 | Phase 3: UI Foundation | ✅ Complete | 100% |
-| Phase 4: Core Features | 🚧 In Progress | 25% (2/8 views) |
+| Phase 4: Core Features | 🚧 In Progress | 50% (4/8 views) |
 | Phase 5: Advanced Features | ⏸️ Pending | 0% |
 | Phase 6: Polish | ⏸️ Pending | 0% |
 
-**Overall Progress**: 3.25/6 phases (54%)
+**Overall Progress**: 3.5/6 phases (58%)
 
 **Feature Views Status**:
-- ✅ TasksView (Justfile runner)
-- ✅ DockersView (Container management)
-- ⏸️ ExplorerView (File browser)
-- ⏸️ TerminalView (PTY terminal)
+- ✅ TasksView (Justfile runner with command cards, log panel)
+- ✅ DockersView (Container management with service grouping)
+- ✅ ExplorerView (File browser with Git status, 3-column layout)
+- ✅ TerminalView (PTY terminal with session tabs, ANSI colors)
 - ⏸️ ChatView (AI conversation)
 - ⏸️ WorkflowsView (Constitution, Change Management)
 - ⏸️ McpView (MCP inspector)

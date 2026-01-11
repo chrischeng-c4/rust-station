@@ -17,12 +17,12 @@
 - [x] 3.0 Create `crates/rstn-views/` feature views library
 - [x] 3.1 Port `Tasks` view (TaskCard, LogPanel, 50/50 split layout)
 - [x] 3.2 Port `Dockers` view (ServiceCard, grouping, status badges)
-- [ ] 3.3 Port `Explorer` view (File tree, git status, preview)
-- [ ] 3.4 Port `Terminal` view (PTY integration + ANSI rendering)
+- [x] 3.3 Port `Explorer` view (FileTreeView, FileTableView, DetailPanel, Git status)
+- [x] 3.4 Port `Terminal` view (TerminalTab, ANSI rendering, session tabs)
 - [ ] 3.5 Port `Chat` view (Message rendering, input)
 - [ ] 3.6 Port `Workflows` view (Constitution, Change Management)
 - [ ] 3.7 Port `Settings` view (Configuration UI)
-- [ ] 3.8 Integrate views with main app tab routing
+- [ ] 3.8 Integrate views with main app tab routing (when Metal Toolchain fixed)
 
 ## 4. MCP & Advanced Features
 - [ ] 4.1 Port `MCP` inspector view
