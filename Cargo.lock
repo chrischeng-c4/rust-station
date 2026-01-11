@@ -4658,6 +4658,7 @@ dependencies = [
  "anyhow",
  "gpui",
  "rstn-core",
+ "rstn-ui",
  "serde",
  "serde_json",
  "tokio",
@@ -4693,6 +4694,15 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "walkdir",
+]
+
+[[package]]
+name = "rstn-ui"
+version = "0.1.0"
+dependencies = [
+ "gpui",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

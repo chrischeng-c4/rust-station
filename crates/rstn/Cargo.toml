@@ -15,6 +15,7 @@ gpui = { git = "https://github.com/zed-industries/zed", package = "gpui" }
 
 # Core library
 rstn-core = { path = "../rstn-core" }
+rstn-ui = { path = "../rstn-ui" }
 
 # Async runtime
 tokio = { version = "1.35", features = ["full"] }

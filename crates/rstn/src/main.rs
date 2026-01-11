@@ -3,6 +3,7 @@
 //! This is the main entry point for the rustation desktop application.
 
 use gpui::*;
+use rstn_ui::{MaterialTheme, NavItem, PageHeader, ShellLayout, Sidebar};
 
 /// Application state wrapper for GPUI
 struct RstnApp {
@@ -33,105 +34,47 @@ impl AppView {
 impl Render for AppView {
     fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
         let app = self.app.read(cx);
+        let theme = MaterialTheme::dark();
 
-        div()
+        // Create navigation items based on OLD_UI_ANALYSIS.md sidebar structure
+        let nav_items = vec![
+            NavItem::new("explorer", "Explorer", "📁"),
+            NavItem::new("workflows", "Flows", "⚡"),
+            NavItem::new("claude-code", "Claude", "🤖"),
+            NavItem::new("tasks", "Tasks", "📋"),
+            NavItem::new("mcp", "rstn", "🔌"),
+            NavItem::new("chat", "Chat", "💬"),
+            NavItem::new("a2ui", "A2UI", "🎨"),
+            NavItem::new("terminal", "Term", "⌨️"),
+        ];
+
+        let sidebar = Sidebar::new(nav_items, app.active_tab.to_string(), theme.clone());
+        let shell = ShellLayout::new("rstn - Developer Workbench", sidebar, theme.clone());
+
+        // Content area with page header
+        let page_header = PageHeader::new(
+            "Welcome to rstn",
+            Some("GPUI-powered developer workbench"),
+            theme.clone(),
+        );
+
+        let content = div()
             .flex()
             .flex_col()
-            .size_full()
-            .bg(rgb(0x1e1e1e))
-            .text_color(rgb(0xffffff))
+            .child(page_header.render(None::<Div>))
             .child(
-                // Header
                 div()
-                    .flex()
-                    .items_center()
-                    .h(px(48.0))
-                    .px(px(16.0))
-                    .bg(rgb(0x2d2d2d))
-                    .border_b_1()
-                    .border_color(rgb(0x3d3d3d))
-                    .child("rstn - Developer Workbench")
-            )
-            .child(
-                // Main content area
-                div()
-                    .flex()
-                    .flex_1()
-                    .child(
-                        // Sidebar
-                        div()
-                            .flex()
-                            .flex_col()
-                            .w(px(200.0))
-                            .bg(rgb(0x252525))
-                            .border_r_1()
-                            .border_color(rgb(0x3d3d3d))
-                            .p(px(8.0))
-                            .gap(px(4.0))
-                            .child(self.nav_item("Tasks", "tasks", app.active_tab == "tasks"))
-                            .child(self.nav_item("Dockers", "dockers", app.active_tab == "dockers"))
-                            .child(self.nav_item("Explorer", "explorer", app.active_tab == "explorer"))
-                            .child(self.nav_item("Terminal", "terminal", app.active_tab == "terminal"))
-                            .child(self.nav_item("Chat", "chat", app.active_tab == "chat"))
-                            .child(self.nav_item("Settings", "settings", app.active_tab == "settings"))
-                    )
-                    .child(
-                        // Content area
-                        div()
-                            .flex()
-                            .flex_1()
-                            .flex_col()
-                            .p(px(16.0))
-                            .child(
-                                div()
-                                    .text_xl()
-                                    .font_weight(FontWeight::BOLD)
-                                    .child(format!("Welcome to rstn"))
-                            )
-                            .child(
-                                div()
-                                    .mt(px(8.0))
-                                    .text_color(rgb(0xaaaaaa))
-                                    .child("GPUI-powered developer workbench")
-                            )
-                            .child(
-                                div()
-                                    .mt(px(16.0))
-                                    .p(px(12.0))
-                                    .bg(rgb(0x2d2d2d))
-                                    .rounded(px(8.0))
-                                    .child(format!("Active tab: {}", app.active_tab))
-                            )
-                    )
-            )
-            .child(
-                // Status bar
-                div()
-                    .flex()
-                    .items_center()
-                    .h(px(24.0))
-                    .px(px(16.0))
-                    .bg(rgb(0x007acc))
-                    .text_sm()
-                    .child("Ready")
-            )
+                    .mt(theme.spacing(2.0))
+                    .p(theme.spacing(1.5))
+                    .bg(theme.background.paper)
+                    .rounded(theme.shape.border_radius_sm)
+                    .child(format!("Active tab: {}", app.active_tab)),
+            );
+
+        shell.render(content, cx)
     }
 }
 
-impl AppView {
-    fn nav_item(&self, label: &str, _id: &str, active: bool) -> Div {
-        let bg = if active { rgb(0x3d3d3d) } else { rgb(0x252525) };
-
-        div()
-            .px(px(12.0))
-            .py(px(8.0))
-            .rounded(px(4.0))
-            .bg(bg)
-            .hover(|s| s.bg(rgb(0x3d3d3d)))
-            .cursor_pointer()
-            .child(label)
-    }
-}
 
 fn main() {
     // Initialize logging
