@@ -5,7 +5,7 @@
 Migration of rustation from Electron+React to GPUI (Zed's GPU-accelerated UI framework) for native Rust UI.
 
 **Start Date**: 2026-01-11
-**Current Phase**: Phase 3 Complete (UI Foundation)
+**Current Phase**: Phase 4 In Progress (Core Feature Views)
 **Status**: ⚠️ BLOCKED on Metal Toolchain (Xcode 26 beta issue)
 
 ---
@@ -88,6 +88,44 @@ Migration of rustation from Electron+React to GPUI (Zed's GPU-accelerated UI fra
 
 ---
 
+### ✅ Phase 4: Core Feature Views (Commit: 081bda3) - IN PROGRESS
+
+**Objective**: Port individual feature pages from Electron UI.
+
+**Changes**:
+- ✅ Created `crates/rstn-views/` feature views library
+- ✅ **TasksView** ([crates/rstn-views/src/tasks.rs](crates/rstn-views/src/tasks.rs)):
+  - `TaskCard` component with state indicators (Idle/Running/Success/Failed)
+  - `LogPanel` for command output (monospace, scrollable)
+  - 50/50 split layout: command list + output panel
+  - `EmptyState` when no justfile found
+  - Tests for task state management
+  - Matches [OLD_UI_ANALYSIS.md](OLD_UI_ANALYSIS.md:108-143) TasksPage structure
+
+- ✅ **DockersView** ([crates/rstn-views/src/dockers.rs](crates/rstn-views/src/dockers.rs)):
+  - `ServiceCard` with status badges (Green/Grey/Amber/Red)
+  - Action buttons: Start/Stop, Logs, Remove
+  - Service grouping by `project_group`
+  - Service type icons: Database 🗄️, Cache ⚡, MessageBroker 📨, Other 📦
+  - `EmptyState` when no services found
+  - Tests for service grouping logic
+  - Matches old DockersPage structure
+
+- ✅ Updated [crates/rstn/src/main.rs](crates/rstn/src/main.rs):
+  - Added `render_content()` method for tab routing
+  - Match statement: `active_tab` → feature view
+  - Prepared infrastructure (commented out due to Metal blocker)
+
+**Key Files**:
+- [crates/rstn-views/Cargo.toml](crates/rstn-views/Cargo.toml) - Feature views crate
+- [crates/rstn-views/src/tasks.rs](crates/rstn-views/src/tasks.rs) - Tasks view
+- [crates/rstn-views/src/dockers.rs](crates/rstn-views/src/dockers.rs) - Dockers view
+- [crates/rstn-views/src/lib.rs](crates/rstn-views/src/lib.rs) - Public exports
+
+**Status**: TasksView and DockersView complete (2/8 views). Cannot compile due to Metal Toolchain blocker.
+
+---
+
 ## Current Blocker
 
 ### ⚠️ Metal Toolchain Issue
@@ -127,7 +165,7 @@ rustation/
 │   ├── rstn/              # Main GPUI application
 │   │   ├── Cargo.toml
 │   │   └── src/
-│   │       └── main.rs    # Entry point, AppView
+│   │       └── main.rs    # Entry point, AppView, tab routing
 │   ├── rstn-core/         # Pure Rust library (business logic)
 │   │   ├── Cargo.toml     # No napi dependencies
 │   │   └── src/
@@ -137,12 +175,18 @@ rustation/
 │   │       ├── docker.rs
 │   │       ├── justfile.rs
 │   │       └── ...
-│   └── rstn-ui/           # UI component library
+│   ├── rstn-ui/           # UI component library
+│   │   ├── Cargo.toml
+│   │   └── src/
+│   │       ├── lib.rs
+│   │       ├── theme.rs   # MD3 theme system
+│   │       └── components.rs  # Reusable components
+│   └── rstn-views/        # Feature views (NEW)
 │       ├── Cargo.toml
 │       └── src/
 │           ├── lib.rs
-│           ├── theme.rs   # MD3 theme system
-│           └── components.rs  # Reusable components
+│           ├── tasks.rs   # TasksView
+│           └── dockers.rs # DockersView
 └── Cargo.toml             # Workspace config
 ```
 
@@ -315,6 +359,8 @@ All components in `rstn-ui` are designed to be:
 ## Git History
 
 ```
+081bda3 feat(rstn-views): Add Tasks and Dockers feature views
+98eeedb docs(gpui): Add migration progress documentation
 be0a3d5 feat(rstn-ui): Add UI component library with MD3 theme
 f43d09c docs(openspec): Apply GPUI migration spec deltas
 69c5134 feat: Migrate to GPUI - Phase 1 Foundation
@@ -329,10 +375,20 @@ f43d09c docs(openspec): Apply GPUI migration spec deltas
 | Phase 1: Foundation | ✅ Complete | 100% |
 | Phase 2: Specs | ✅ Complete | 100% |
 | Phase 3: UI Foundation | ✅ Complete | 100% |
-| Phase 4: Core Features | ⏸️ Blocked | 0% |
+| Phase 4: Core Features | 🚧 In Progress | 25% (2/8 views) |
 | Phase 5: Advanced Features | ⏸️ Pending | 0% |
 | Phase 6: Polish | ⏸️ Pending | 0% |
 
-**Overall Progress**: 3/6 phases (50%)
+**Overall Progress**: 3.25/6 phases (54%)
+
+**Feature Views Status**:
+- ✅ TasksView (Justfile runner)
+- ✅ DockersView (Container management)
+- ⏸️ ExplorerView (File browser)
+- ⏸️ TerminalView (PTY terminal)
+- ⏸️ ChatView (AI conversation)
+- ⏸️ WorkflowsView (Constitution, Change Management)
+- ⏸️ McpView (MCP inspector)
+- ⏸️ SettingsView (Configuration)
 
 **Blocker**: Metal Toolchain required for GPUI build
