@@ -4659,6 +4659,7 @@ dependencies = [
  "gpui",
  "rstn-core",
  "rstn-ui",
+ "rstn-views",
  "serde",
  "serde_json",
  "tokio",
@@ -4703,6 +4704,19 @@ dependencies = [
  "gpui",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "rstn-views"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "gpui",
+ "rstn-core",
+ "rstn-ui",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

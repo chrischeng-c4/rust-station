@@ -4,6 +4,8 @@
 
 use gpui::*;
 use rstn_ui::{MaterialTheme, NavItem, PageHeader, ShellLayout, Sidebar};
+// Note: Uncomment when Metal Toolchain is fixed
+// use rstn_views::{TasksView, DockersView};
 
 /// Application state wrapper for GPUI
 struct RstnApp {
@@ -51,27 +53,48 @@ impl Render for AppView {
         let sidebar = Sidebar::new(nav_items, app.active_tab.to_string(), theme.clone());
         let shell = ShellLayout::new("rstn - Developer Workbench", sidebar, theme.clone());
 
-        // Content area with page header
-        let page_header = PageHeader::new(
-            "Welcome to rstn",
-            Some("GPUI-powered developer workbench"),
-            theme.clone(),
-        );
-
-        let content = div()
-            .flex()
-            .flex_col()
-            .child(page_header.render(None::<Div>))
-            .child(
-                div()
-                    .mt(theme.spacing(2.0))
-                    .p(theme.spacing(1.5))
-                    .bg(theme.background.paper)
-                    .rounded(theme.shape.border_radius_sm)
-                    .child(format!("Active tab: {}", app.active_tab)),
-            );
+        // Render content based on active tab
+        let content = self.render_content(app.active_tab, &theme, cx);
 
         shell.render(content, cx)
+    }
+}
+
+impl AppView {
+    /// Render content area based on active tab
+    fn render_content(&self, active_tab: &str, theme: &MaterialTheme, cx: &WindowContext) -> Div {
+        match active_tab {
+            // TODO: Uncomment when Metal Toolchain is fixed
+            // "tasks" => {
+            //     let commands = vec![]; // Load from rstn-core::justfile
+            //     TasksView::new(commands, theme.clone()).render(cx)
+            // }
+            // "dockers" => {
+            //     let services = vec![]; // Load from rstn-core::docker
+            //     DockersView::new(services, theme.clone()).render(cx)
+            // }
+            _ => {
+                // Fallback: Welcome screen
+                let page_header = PageHeader::new(
+                    "Welcome to rstn",
+                    Some("GPUI-powered developer workbench"),
+                    theme.clone(),
+                );
+
+                div()
+                    .flex()
+                    .flex_col()
+                    .child(page_header.render(None::<Div>))
+                    .child(
+                        div()
+                            .mt(theme.spacing(2.0))
+                            .p(theme.spacing(1.5))
+                            .bg(theme.background.paper)
+                            .rounded(theme.shape.border_radius_sm)
+                            .child(format!("Active tab: {}", active_tab)),
+                    )
+            }
+        }
     }
 }
 
