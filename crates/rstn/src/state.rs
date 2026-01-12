@@ -979,8 +979,8 @@ mod tests {
     fn test_get_theme_default() {
         let state = AppState::new();
         let theme = state.get_theme();
-        // Default theme is Dark
-        assert_eq!(theme, "Dark");
+        // Default theme is System
+        assert_eq!(theme, "System");
     }
 
     #[test]

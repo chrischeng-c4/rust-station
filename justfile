@@ -53,4 +53,46 @@ dev-build:
 
 # Watch for changes and rebuild (requires cargo-watch)
 watch:
-    cargo watch -x 'build -p rstn' -x 'run -p rstn'
+    cargo watch \
+        --delay 0.5 \
+        --ignore target \
+        --ignore .git \
+        --ignore "*.plist" \
+        -x 'build -p rstn' \
+        -x 'run -p rstn'
+
+# Watch with debug logging
+watch-debug:
+    RUST_LOG=debug RUST_BACKTRACE=1 \
+    cargo watch \
+        --delay 0.5 \
+        --ignore target \
+        -x 'build -p rstn' \
+        -x 'run -p rstn'
+
+# Watch and run tests on changes
+watch-test:
+    cargo watch -x 'test --package rstn-core --lib'
+
+# Run fast unit tests (rstn-core only, ~0.5s)
+test-fast:
+    cargo test --package rstn-core --lib
+
+# Run specific test by name
+test-name NAME:
+    cargo test --package rstn-core --lib {{NAME}} -- --nocapture
+
+# Run tests with verbose output
+test-verbose:
+    cargo test --package rstn-core --lib -- --nocapture --test-threads=1
+
+# Run all tests with timing info
+test-all:
+    #!/bin/bash
+    if xcrun --find metal &>/dev/null; then
+        echo "✅ Xcode available - running all tests including UI"
+        cargo test --workspace
+    else
+        echo "⚠️  Xcode not found - running unit tests only"
+        cargo test --package rstn-core --lib
+    fi

@@ -23,8 +23,10 @@ pub mod mcp_server;
 pub mod migration;
 pub mod persistence;
 pub mod reducer;
+pub mod snapshot;
 pub mod state;
 pub mod terminal;
+pub mod test_timeline;
 pub mod worktree;
 
 // Re-export key types for GPUI integration

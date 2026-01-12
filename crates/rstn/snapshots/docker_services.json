@@ -1,0 +1,32 @@
+[
+  {
+    "id": "postgres",
+    "name": "PostgreSQL",
+    "image": "postgres:16",
+    "status": "stopped",
+    "port": 5432,
+    "service_type": "Database",
+    "project_group": "rstn",
+    "is_rstn_managed": true
+  },
+  {
+    "id": "redis",
+    "name": "Redis",
+    "image": "redis:7",
+    "status": "stopped",
+    "port": 6379,
+    "service_type": "Cache",
+    "project_group": "rstn",
+    "is_rstn_managed": true
+  },
+  {
+    "id": "mongodb",
+    "name": "MongoDB",
+    "image": "mongo:7",
+    "status": "stopped",
+    "port": 27017,
+    "service_type": "Database",
+    "project_group": "rstn",
+    "is_rstn_managed": true
+  }
+]

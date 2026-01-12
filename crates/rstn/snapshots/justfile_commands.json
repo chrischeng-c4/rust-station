@@ -1,0 +1,17 @@
+[
+  {
+    "name": "build",
+    "description": "Build the project",
+    "recipe": "cargo build --workspace"
+  },
+  {
+    "name": "test",
+    "description": "Run tests",
+    "recipe": "cargo test --workspace"
+  },
+  {
+    "name": "dev",
+    "description": "Run development server",
+    "recipe": "cargo run -p rstn"
+  }
+]
