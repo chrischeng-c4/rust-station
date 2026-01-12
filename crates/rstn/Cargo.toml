@@ -5,6 +5,10 @@ edition = "2021"
 description = "rustation - A developer workbench powered by GPUI"
 license = "MIT"
 
+[lib]
+name = "rstn"
+path = "src/lib.rs"
+
 [[bin]]
 name = "rstn"
 path = "src/main.rs"
@@ -35,9 +39,15 @@ anyhow = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 
+# System directories
+dirs = "5.0"
+
 [dev-dependencies]
 # GPUI test support (requires Metal/Xcode)
 gpui = { git = "https://github.com/zed-industries/zed", package = "gpui", features = ["test-support"] }
+
+# Temporary directories for testing
+tempfile = "3.8"
 
 [features]
 # Enable GPUI test support for UI integration tests

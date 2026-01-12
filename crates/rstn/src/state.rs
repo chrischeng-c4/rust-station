@@ -9,15 +9,18 @@ use rstn_core::state::DockerService;
 use std::env;
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::fs;
 use tokio::process::Command;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use serde_json::Value;
+use serde::{Serialize, Deserialize};
+use anyhow::{Result, Context};
 
 /// GPUI Application State
 ///
 /// Wraps rstn-core::AppState and provides methods for loading data
 /// into the state from the filesystem and external sources.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AppState {
     /// Core application state (from rstn-core)
     pub core: CoreAppState,
@@ -48,6 +51,82 @@ impl AppState {
 
         // Load built-in Docker services
         self.load_docker_services();
+    }
+
+    /// Save state to a JSON file (dev mode only)
+    ///
+    /// This allows preserving UI state across restarts during development.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to save the state file
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use std::path::PathBuf;
+    /// use rstn::state::AppState;
+    ///
+    /// let mut state = AppState::new();
+    /// state.initialize();
+    ///
+    /// let config_dir = dirs::config_dir().unwrap_or_default();
+    /// let state_path = config_dir.join("rstn/dev-state.json");
+    /// state.save_to_file(&state_path).unwrap();
+    /// ```
+    pub fn save_to_file(&self, path: &PathBuf) -> Result<()> {
+        // Create parent directory if it doesn't exist
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .context("Failed to create config directory")?;
+        }
+
+        // Serialize state to pretty JSON
+        let json = serde_json::to_string_pretty(self)
+            .context("Failed to serialize state")?;
+
+        // Write to file
+        fs::write(path, json)
+            .context("Failed to write state file")?;
+
+        Ok(())
+    }
+
+    /// Load state from a JSON file (dev mode only)
+    ///
+    /// Attempts to restore state from a previous session. If the file
+    /// doesn't exist or is invalid, returns an error.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the state file
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use std::path::PathBuf;
+    /// use rstn::state::AppState;
+    ///
+    /// let config_dir = dirs::config_dir().unwrap_or_default();
+    /// let state_path = config_dir.join("rstn/dev-state.json");
+    ///
+    /// let state = AppState::load_from_file(&state_path)
+    ///     .unwrap_or_else(|_| {
+    ///         let mut s = AppState::new();
+    ///         s.initialize();
+    ///         s
+    ///     });
+    /// ```
+    pub fn load_from_file(path: &PathBuf) -> Result<Self> {
+        // Read file contents
+        let json = fs::read_to_string(path)
+            .context("Failed to read state file")?;
+
+        // Deserialize from JSON
+        let state: Self = serde_json::from_str(&json)
+            .context("Failed to deserialize state")?;
+
+        Ok(state)
     }
 
     /// Load justfile commands from the current directory

@@ -21,10 +21,56 @@ struct AppView {
 
 impl AppView {
     fn new(_cx: &mut Context<Self>) -> Self {
+        let state = Self::load_or_create_state();
+        Self { state }
+    }
+
+    /// Load state from file (dev mode) or create new state
+    fn load_or_create_state() -> AppState {
+        // Only use state persistence in debug builds
+        #[cfg(debug_assertions)]
+        {
+            if let Some(config_dir) = dirs::config_dir() {
+                let state_path = config_dir.join("rstn/dev-state.json");
+
+                if state_path.exists() {
+                    tracing::info!("Loading state from {:?}", state_path);
+
+                    match AppState::load_from_file(&state_path) {
+                        Ok(mut state) => {
+                            tracing::info!("✅ State loaded successfully");
+                            // Refresh dynamic data (justfile commands, docker services)
+                            state.initialize();
+                            return state;
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to load state: {}, creating new state", e);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fallback: create new state
+        tracing::info!("Creating new state");
         let mut state = AppState::new();
         state.initialize();
+        state
+    }
 
-        Self { state }
+    /// Save state to file (dev mode only)
+    fn save_state(&self) {
+        #[cfg(debug_assertions)]
+        {
+            if let Some(config_dir) = dirs::config_dir() {
+                let state_path = config_dir.join("rstn/dev-state.json");
+
+                match self.state.save_to_file(&state_path) {
+                    Ok(_) => tracing::debug!("State saved to {:?}", state_path),
+                    Err(e) => tracing::warn!("Failed to save state: {}", e),
+                }
+            }
+        }
     }
 }
 

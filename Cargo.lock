@@ -4694,6 +4694,7 @@ name = "rstn"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "dirs 5.0.1",
  "gpui",
  "reqwest",
  "rstn-core",
@@ -4701,6 +4702,7 @@ dependencies = [
  "rstn-views",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",

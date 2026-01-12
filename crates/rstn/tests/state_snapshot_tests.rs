@@ -5,22 +5,57 @@
 
 // Note: rstn is a binary crate, so we use rstn_core for state
 mod state {
+    use serde::{Serialize, Deserialize};
+    use std::path::PathBuf;
+    use std::fs;
+    use anyhow::{Result, Context};
     pub use rstn_core::app_state::AppState as CoreAppState;
 
     /// Wrapper around rstn_core's AppState for testing
+    /// This mirrors the structure in crates/rstn/src/state.rs
+    #[derive(Clone, Debug, Serialize, Deserialize)]
     pub struct AppState {
         pub core: CoreAppState,
+        pub active_tab: String,
     }
 
     impl AppState {
         pub fn new() -> Self {
             Self {
                 core: CoreAppState::default(),
+                active_tab: "tasks".to_string(),
             }
         }
 
         pub fn initialize(&mut self) {
             // Initialize with a default project if needed
+        }
+
+        /// Save state to a JSON file
+        pub fn save_to_file(&self, path: &PathBuf) -> Result<()> {
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent)
+                    .context("Failed to create config directory")?;
+            }
+
+            let json = serde_json::to_string_pretty(self)
+                .context("Failed to serialize state")?;
+
+            fs::write(path, json)
+                .context("Failed to write state file")?;
+
+            Ok(())
+        }
+
+        /// Load state from a JSON file
+        pub fn load_from_file(path: &PathBuf) -> Result<Self> {
+            let json = fs::read_to_string(path)
+                .context("Failed to read state file")?;
+
+            let state: Self = serde_json::from_str(&json)
+                .context("Failed to deserialize state")?;
+
+            Ok(state)
         }
 
         pub fn get_docker_services(&self) -> Vec<rstn_core::app_state::DockerServiceInfo> {
@@ -250,4 +285,134 @@ fn test_timeline_feature() {
     // Verify JSON export
     let json = timeline.to_json();
     assert!(json["events"].is_array());
+}
+
+#[test]
+fn test_state_persistence_roundtrip() {
+    use tempfile::tempdir;
+
+    let timeline = TestTimeline::new();
+
+    timeline.record("PHASE", "Starting state persistence test", None);
+
+    // 1. Create and initialize state
+    timeline.record("STATE", "Creating AppState", None);
+    let mut state = AppState::new();
+    state.initialize();
+
+    // Change active tab to verify it persists
+    state.active_tab = "terminal".to_string();
+
+    // 2. Save state to temp file
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let state_path = temp_dir.path().join("test-state.json");
+
+    timeline.record("SAVE", "Saving state to file", None);
+    state
+        .save_to_file(&state_path)
+        .expect("Failed to save state");
+
+    timeline.record(
+        "VERIFY",
+        "State file created",
+        Some(serde_json::json!({
+            "path": state_path.display().to_string(),
+            "exists": state_path.exists(),
+        })),
+    );
+
+    assert!(state_path.exists(), "State file should exist");
+
+    // 3. Load state from file
+    timeline.record("LOAD", "Loading state from file", None);
+    let loaded_state = AppState::load_from_file(&state_path)
+        .expect("Failed to load state");
+
+    // 4. Verify loaded state matches original
+    timeline.record("VERIFY", "Comparing loaded state", None);
+
+    assert_eq!(
+        loaded_state.active_tab, "terminal",
+        "Active tab should be preserved"
+    );
+
+    // Verify core state structure (check projects count, version, etc.)
+    assert_eq!(
+        loaded_state.core.version,
+        state.core.version,
+        "Version should match"
+    );
+
+    timeline.record(
+        "ASSERT",
+        "State round-trip successful",
+        Some(serde_json::json!({
+            "original_tab": state.active_tab,
+            "loaded_tab": loaded_state.active_tab,
+            "projects_count": loaded_state.core.projects.len(),
+        })),
+    );
+
+    timeline.record("PHASE", "Test completed successfully", None);
+
+    // Print results
+    timeline.print_timeline();
+    println!("\n{}", timeline.summary());
+}
+
+#[test]
+fn test_state_json_format() {
+    let timeline = TestTimeline::new();
+
+    timeline.record("PHASE", "Testing state JSON format", None);
+
+    // Create state
+    let mut state = AppState::new();
+    state.initialize();
+    state.active_tab = "chat".to_string();
+
+    // Serialize to JSON
+    timeline.record("SERIALIZE", "Converting state to JSON", None);
+    let json_str = serde_json::to_string_pretty(&state)
+        .expect("Failed to serialize state");
+
+    // Verify JSON is valid and contains expected fields
+    let json_value: serde_json::Value = serde_json::from_str(&json_str)
+        .expect("Failed to parse JSON");
+
+    timeline.record(
+        "VERIFY",
+        "Checking JSON structure",
+        Some(serde_json::json!({
+            "has_core": json_value.get("core").is_some(),
+            "has_active_tab": json_value.get("active_tab").is_some(),
+        })),
+    );
+
+    assert!(
+        json_value.get("core").is_some(),
+        "JSON should have 'core' field"
+    );
+    assert!(
+        json_value.get("active_tab").is_some(),
+        "JSON should have 'active_tab' field"
+    );
+    assert_eq!(
+        json_value["active_tab"], "chat",
+        "Active tab should be 'chat'"
+    );
+
+    // Verify core state has required fields
+    let core = &json_value["core"];
+    assert!(
+        core.get("version").is_some(),
+        "Core should have 'version' field"
+    );
+    assert!(
+        core.get("projects").is_some(),
+        "Core should have 'projects' field"
+    );
+
+    timeline.record("PHASE", "JSON format test completed", None);
+    timeline.print_timeline();
 }
